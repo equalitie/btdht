@@ -1,4 +1,3 @@
-use bip_util;
 use bip_util::convert;
 
 // Transaction IDs are going to be vital for both scalability and performance concerns.
@@ -256,14 +255,12 @@ impl ActionID {
 
 // ----------------------------------------------------------------------------//
 
-#[allow(unused)]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct MessageID {
     message_id: u64,
 }
 
 impl MessageID {
-    #[allow(unused)]
     fn from_transaction_id(trans_id: u64) -> MessageID {
         let clear_action_id = MAX_MESSAGE_ID - 1;
         // The ACTUAL message id

@@ -1,6 +1,3 @@
-// TODO: Still trying to decide how we want to use this module.
-#![allow(unused)]
-
 use std::borrow::Cow;
 
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};

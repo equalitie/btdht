@@ -30,7 +30,6 @@ mod error;
 pub mod message;
 mod router;
 mod routing;
-mod security;
 mod storage;
 mod token;
 mod transaction;

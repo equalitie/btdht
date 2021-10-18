@@ -1,6 +1,3 @@
-// TODO: Remove this when announces are implemented
-#![allow(unused)]
-
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 

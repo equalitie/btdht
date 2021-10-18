@@ -44,7 +44,7 @@ impl MainlineDht {
             warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
         }
 
-        Ok(MainlineDht { send: send })
+        Ok(MainlineDht { send })
     }
 
     /// Perform a search for the given InfoHash with an optional announce on the closest nodes.

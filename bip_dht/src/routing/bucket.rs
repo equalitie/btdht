@@ -1,6 +1,3 @@
-// TODO: Remove when the routing table uses the new bucket iterators.
-#![allow(unused)]
-
 use std::iter::Filter;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
@@ -40,6 +37,7 @@ impl Bucket {
     }
 
     /// Iterator over all good nodes in the bucket.
+    #[allow(unused)]
     pub fn good_nodes<'a>(&'a self) -> GoodNodes<'a> {
         GoodNodes::new(&self.nodes)
     }
@@ -57,6 +55,7 @@ impl Bucket {
     }
 
     /// Indicates if the bucket needs to be refreshed.
+    #[allow(unused)]
     pub fn needs_refresh(&self) -> bool {
         self.nodes
             .iter()
@@ -160,10 +159,9 @@ impl<'a> Iterator for PingableNodes<'a> {
 
 #[cfg(test)]
 mod tests {
-    use bip_util::sha::{self, ShaHash};
     use bip_util::test as bip_test;
 
-    use crate::routing::bucket::{self, Bucket};
+    use crate::routing::bucket::Bucket;
     use crate::routing::node::{Node, NodeStatus};
 
     #[test]

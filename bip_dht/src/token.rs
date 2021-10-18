@@ -1,7 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use chrono::{DateTime, Duration, UTC};
-use rand;
 
 use bip_util::convert;
 use bip_util::error::{LengthError, LengthErrorKind, LengthResult};

@@ -1,6 +1,3 @@
-// We don't really use PingRequests for our current algorithms, but that may change in the future!
-#![allow(unused)]
-
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::NodeId;
 

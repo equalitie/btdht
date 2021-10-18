@@ -1,6 +1,3 @@
-// TODO: Remove when the routing table updates node's state on request/responses.
-#![allow(unused)]
-
 use std::cell::Cell;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
@@ -98,6 +95,7 @@ impl Node {
     }
 
     /// Record that the node sent us a response.
+    #[allow(unused)] // TODO: find out why is this unused
     pub fn remote_response(&self) {
         self.last_response.set(Some(UTC::now()));
 
@@ -252,10 +250,8 @@ fn recently_requested(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-    use bip_util::bt::NodeId;
     use bip_util::test as bip_test;
     use chrono::Duration;
 

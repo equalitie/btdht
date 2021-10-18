@@ -1,6 +1,3 @@
-// TODO: Remove when we use find_node,
-#![allow(unused)]
-
 use std::iter::Filter;
 use std::slice::Iter;
 
@@ -188,6 +185,7 @@ pub enum BucketContents<'a> {
 }
 
 impl<'a> BucketContents<'a> {
+    #[allow(unused)]
     fn is_empty(&self) -> bool {
         match self {
             &BucketContents::Empty => true,
@@ -195,6 +193,7 @@ impl<'a> BucketContents<'a> {
         }
     }
 
+    #[allow(unused)]
     fn is_sorted(&self) -> bool {
         match self {
             &BucketContents::Sorted(_) => true,
@@ -202,6 +201,7 @@ impl<'a> BucketContents<'a> {
         }
     }
 
+    #[allow(unused)]
     fn is_assorted(&self) -> bool {
         match self {
             &BucketContents::Assorted(_) => true,
@@ -491,7 +491,7 @@ mod tests {
     #[test]
     fn positive_initial_empty_buckets() {
         let table_id = [1u8; bt::NODE_ID_LEN];
-        let mut table = RoutingTable::new(table_id.into());
+        let table = RoutingTable::new(table_id.into());
 
         // First buckets should be empty
         assert_eq!(
