@@ -207,8 +207,8 @@ mod tests {
     use bip_util::bt;
     use bip_util::test as bip_test;
 
+    use crate::storage::{self, AnnounceStorage};
     use chrono::Duration;
-    use storage::{self, AnnounceStorage};
 
     #[test]
     fn positive_add_and_retrieve_contact() {

@@ -5,7 +5,7 @@ extern crate log;
 
 use std::collections::HashSet;
 use std::io::{self, Read};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
 
 use bip_dht::{DhtBuilder, Router};

@@ -1,9 +1,9 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError};
 
-use error::{DhtError, DhtErrorKind, DhtResult};
-use message::error::ErrorMessage;
-use message::request::RequestType;
-use message::response::{ExpectedResponse, ResponseType};
+use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::message::error::ErrorMessage;
+use crate::message::request::RequestType;
+use crate::message::response::{ExpectedResponse, ResponseType};
 
 pub mod compact_info;
 

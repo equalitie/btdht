@@ -259,7 +259,7 @@ mod tests {
     use bip_util::test as bip_test;
     use chrono::Duration;
 
-    use routing::node::{Node, NodeStatus};
+    use crate::routing::node::{Node, NodeStatus};
 
     #[test]
     fn positive_encode_node() {

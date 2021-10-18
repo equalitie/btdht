@@ -8,14 +8,14 @@ use bip_util::net;
 use bip_util::sha::ShaHash;
 use mio::{EventLoop, Timeout};
 
-use message::announce_peer::{AnnouncePeerRequest, ConnectPort};
-use message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
-use routing::bucket;
-use routing::node::{Node, NodeStatus};
-use routing::table::RoutingTable;
-use transaction::{MIDGenerator, TransactionID};
-use worker::handler::DhtHandler;
-use worker::ScheduledTask;
+use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
+use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
+use crate::routing::bucket;
+use crate::routing::node::{Node, NodeStatus};
+use crate::routing::table::RoutingTable;
+use crate::transaction::{MIDGenerator, TransactionID};
+use crate::worker::handler::DhtHandler;
+use crate::worker::ScheduledTask;
 
 const LOOKUP_TIMEOUT_MS: u64 = 1500;
 const ENDGAME_TIMEOUT_MS: u64 = 1500;

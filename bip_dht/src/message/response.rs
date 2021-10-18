@@ -1,12 +1,12 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 use bip_util::bt::NodeId;
 
-use error::{DhtError, DhtErrorKind, DhtResult};
-use message::announce_peer::AnnouncePeerResponse;
-use message::compact_info::{CompactNodeInfo, CompactValueInfo};
-use message::find_node::FindNodeResponse;
-use message::get_peers::GetPeersResponse;
-use message::ping::PingResponse;
+use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::message::announce_peer::AnnouncePeerResponse;
+use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
+use crate::message::find_node::FindNodeResponse;
+use crate::message::get_peers::GetPeersResponse;
+use crate::message::ping::PingResponse;
 
 pub const RESPONSE_ARGS_KEY: &'static str = "r";
 
@@ -108,7 +108,7 @@ pub enum ResponseType<'a> {
 
 impl<'a> ResponseType<'a> {
     pub fn from_parts(
-        root: &'a Dictionary<'a, Bencode<'a>>,
+        root: &'a dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
         rsp_type: ExpectedResponse,
     ) -> DhtResult<ResponseType<'a>> {

@@ -179,7 +179,7 @@ mod tests {
     use bip_util::bt::NodeId;
     use bip_util::sha::ShaHash;
 
-    use message::compact_info::{CompactNodeInfo, CompactValueInfo};
+    use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 
     #[test]
     fn positive_compact_nodes_empty() {

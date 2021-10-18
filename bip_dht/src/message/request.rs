@@ -1,13 +1,13 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 
-use error::{DhtError, DhtErrorKind, DhtResult};
-use message;
-use message::announce_peer::AnnouncePeerRequest;
-use message::error::{ErrorCode, ErrorMessage};
-use message::find_node::FindNodeRequest;
-use message::get_peers::GetPeersRequest;
-use message::ping::PingRequest;
+use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::message;
+use crate::message::announce_peer::AnnouncePeerRequest;
+use crate::message::error::{ErrorCode, ErrorMessage};
+use crate::message::find_node::FindNodeRequest;
+use crate::message::get_peers::GetPeersRequest;
+use crate::message::ping::PingRequest;
 
 pub const REQUEST_ARGS_KEY: &'static str = "a";
 
@@ -76,7 +76,7 @@ pub enum RequestType<'a> {
 
 impl<'a> RequestType<'a> {
     pub fn from_parts(
-        root: &Dictionary<'a, Bencode<'a>>,
+        root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
         rqst_type: &str,
     ) -> DhtResult<RequestType<'a>> {
@@ -134,7 +134,7 @@ impl<'a> RequestType<'a> {
 ///
 /// Treat unsupported messages with either a target id key or info hash key as find node messages.
 fn forward_compatible_find_node<'a>(
-    rqst_root: &Dictionary<'a, Bencode<'a>>,
+    rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
 ) -> Option<&'static str> {
     match (
         rqst_root.lookup(message::TARGET_ID_KEY.as_bytes()),

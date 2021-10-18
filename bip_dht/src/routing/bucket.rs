@@ -7,7 +7,7 @@ use std::slice::Iter;
 
 use bip_util::bt::{self, NodeId};
 
-use routing::node::{Node, NodeStatus};
+use crate::routing::node::{Node, NodeStatus};
 
 /// Maximum number of nodes that should reside in any bucket.
 pub const MAX_BUCKET_SIZE: usize = 8;
@@ -163,8 +163,8 @@ mod tests {
     use bip_util::sha::{self, ShaHash};
     use bip_util::test as bip_test;
 
-    use routing::bucket::{self, Bucket};
-    use routing::node::{Node, NodeStatus};
+    use crate::routing::bucket::{self, Bucket};
+    use crate::routing::node::{Node, NodeStatus};
 
     #[test]
     fn positive_initial_no_nodes() {

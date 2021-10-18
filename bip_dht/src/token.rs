@@ -205,7 +205,7 @@ mod tests {
     use bip_util::test as bip_test;
     use chrono::Duration;
 
-    use token::TokenStore;
+    use crate::token::TokenStore;
 
     #[test]
     fn positive_accept_valid_v4_token() {

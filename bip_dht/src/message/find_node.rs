@@ -1,11 +1,11 @@
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::NodeId;
 
-use error::DhtResult;
-use message;
-use message::compact_info::CompactNodeInfo;
-use message::request::{self, RequestValidate};
-use message::response::ResponseValidate;
+use crate::error::DhtResult;
+use crate::message;
+use crate::message::compact_info::CompactNodeInfo;
+use crate::message::request::{self, RequestValidate};
+use crate::message::response::ResponseValidate;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct FindNodeRequest<'a> {
@@ -28,7 +28,7 @@ impl<'a> FindNodeRequest<'a> {
     /// The target_key argument is provided for cases where, due to forward compatibility,
     /// the target key we are interested in could fall under the target key or another key.
     pub fn from_parts(
-        rqst_root: &Dictionary<'a, Bencode<'a>>,
+        rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
         target_key: &str,
     ) -> DhtResult<FindNodeRequest<'a>> {
@@ -94,7 +94,7 @@ impl<'a> FindNodeResponse<'a> {
     }
 
     pub fn from_parts(
-        rsp_root: &Dictionary<'a, Bencode<'a>>,
+        rsp_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<FindNodeResponse<'a>> {
         let validate = ResponseValidate::new(trans_id);

@@ -8,8 +8,8 @@ use bip_util::bt::InfoHash;
 use bip_util::net;
 use mio::Sender;
 
-use router::Router;
-use worker::{self, DhtEvent, OneshotTask, ShutdownCause};
+use crate::router::Router;
+use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {

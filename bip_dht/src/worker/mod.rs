@@ -6,9 +6,9 @@ use bip_handshake::Handshaker;
 use bip_util::bt::InfoHash;
 use mio;
 
-use router::Router;
-use routing::table::{self, RoutingTable};
-use transaction::TransactionID;
+use crate::router::Router;
+use crate::routing::table::{self, RoutingTable};
+use crate::transaction::TransactionID;
 
 pub mod bootstrap;
 pub mod handler;

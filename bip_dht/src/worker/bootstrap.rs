@@ -6,13 +6,13 @@ use bip_handshake::Handshaker;
 use bip_util::bt::{self, NodeId};
 use mio::{EventLoop, Timeout};
 
-use message::find_node::FindNodeRequest;
-use routing::bucket::Bucket;
-use routing::node::{Node, NodeStatus};
-use routing::table::{self, BucketContents, RoutingTable};
-use transaction::{MIDGenerator, TransactionID};
-use worker::handler::DhtHandler;
-use worker::ScheduledTask;
+use crate::message::find_node::FindNodeRequest;
+use crate::routing::bucket::Bucket;
+use crate::routing::node::{Node, NodeStatus};
+use crate::routing::table::{self, BucketContents, RoutingTable};
+use crate::transaction::{MIDGenerator, TransactionID};
+use crate::worker::handler::DhtHandler;
+use crate::worker::ScheduledTask;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: u64 = 2500;
 const BOOTSTRAP_NODE_TIMEOUT: u64 = 500;

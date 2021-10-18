@@ -14,28 +14,28 @@ use bip_util::net::IpAddr;
 use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
-use message::announce_peer::{AnnouncePeerResponse, ConnectPort};
-use message::compact_info::{CompactNodeInfo, CompactValueInfo};
-use message::error::{ErrorCode, ErrorMessage};
-use message::find_node::FindNodeResponse;
-use message::get_peers::{CompactInfoType, GetPeersResponse};
-use message::ping::PingResponse;
-use message::request::RequestType;
-use message::response::{ExpectedResponse, ResponseType};
-use message::MessageType;
-use router::Router;
-use routing::node::Node;
-use routing::table::RoutingTable;
-use storage::AnnounceStorage;
-use token::{Token, TokenStore};
-use transaction::{AIDGenerator, ActionID, TransactionID};
-use worker::bootstrap::{BootstrapStatus, TableBootstrap};
-use worker::lookup::{LookupStatus, TableLookup};
-use worker::refresh::{RefreshStatus, TableRefresh};
-use worker::{DhtEvent, OneshotTask, ScheduledTask, ShutdownCause};
+use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
+use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
+use crate::message::error::{ErrorCode, ErrorMessage};
+use crate::message::find_node::FindNodeResponse;
+use crate::message::get_peers::{CompactInfoType, GetPeersResponse};
+use crate::message::ping::PingResponse;
+use crate::message::request::RequestType;
+use crate::message::response::{ExpectedResponse, ResponseType};
+use crate::message::MessageType;
+use crate::router::Router;
+use crate::routing::node::Node;
+use crate::routing::table::RoutingTable;
+use crate::storage::AnnounceStorage;
+use crate::token::{Token, TokenStore};
+use crate::transaction::{AIDGenerator, ActionID, TransactionID};
+use crate::worker::bootstrap::{BootstrapStatus, TableBootstrap};
+use crate::worker::lookup::{LookupStatus, TableLookup};
+use crate::worker::refresh::{RefreshStatus, TableRefresh};
+use crate::worker::{DhtEvent, OneshotTask, ScheduledTask, ShutdownCause};
 
-use routing::node::NodeStatus;
-use routing::table::BucketContents;
+use crate::routing::node::NodeStatus;
+use crate::routing::table::BucketContents;
 
 // TODO: Update modules to use find_node on the routing table to update the status of a given node.
 
@@ -844,7 +844,7 @@ fn handle_start_bootstrap<H>(
         BootstrapStatus::Completed => {
             // Check if our bootstrap was actually good
             if should_rebootstrap(&work_storage.routing_table) {
-                let (mut bootstrap, mut attempts) = match table_actions.get_mut(&action_id) {
+                let (bootstrap, attempts) = match table_actions.get_mut(&action_id) {
                     Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
                         (bootstrap, attempts)
                     }

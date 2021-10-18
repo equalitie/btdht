@@ -4,9 +4,9 @@
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 
-use error::DhtResult;
-use message;
-use message::request::{self, RequestValidate};
+use crate::error::DhtResult;
+use crate::message;
+use crate::message::request::{self, RequestValidate};
 
 const PORT_KEY: &'static str = "port";
 const IMPLIED_PORT_KEY: &'static str = "implied_port";
@@ -46,7 +46,7 @@ impl<'a> AnnouncePeerRequest<'a> {
     }
 
     pub fn from_parts(
-        rqst_root: &Dictionary<'a, Bencode<'a>>,
+        rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<AnnouncePeerRequest<'a>> {
         let validate = RequestValidate::new(trans_id);
@@ -144,7 +144,7 @@ impl<'a> AnnouncePeerResponse<'a> {
     }
 
     pub fn from_parts(
-        rqst_root: &Dictionary<'a, Bencode<'a>>,
+        rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<AnnouncePeerResponse<'a>> {
         let validate = RequestValidate::new(&trans_id);

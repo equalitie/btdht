@@ -5,8 +5,8 @@ use std::borrow::Cow;
 
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 
-use error::{DhtError, DhtErrorKind, DhtResult};
-use message;
+use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::message;
 
 const ERROR_ARGS_KEY: &'static str = "e";
 const NUM_ERROR_ARGS: usize = 2;
@@ -102,7 +102,7 @@ impl<'a> ErrorMessage<'a> {
     }
 
     pub fn from_parts(
-        root: &Dictionary<'a, Bencode<'a>>,
+        root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<ErrorMessage<'a>> {
         let validate = ErrorValidate;

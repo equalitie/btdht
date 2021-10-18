@@ -3,11 +3,11 @@ use std::collections::BTreeMap;
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 
-use error::{DhtError, DhtErrorKind, DhtResult};
-use message;
-use message::compact_info::{CompactNodeInfo, CompactValueInfo};
-use message::request::{self, RequestValidate};
-use message::response::{self, ResponseValidate};
+use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::message;
+use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
+use crate::message::request::{self, RequestValidate};
+use crate::message::response::{self, ResponseValidate};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct GetPeersRequest<'a> {
@@ -26,7 +26,7 @@ impl<'a> GetPeersRequest<'a> {
     }
 
     pub fn from_parts(
-        rqst_root: &Dictionary<'a, Bencode<'a>>,
+        rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<GetPeersRequest<'a>> {
         let validate = RequestValidate::new(trans_id);
@@ -101,7 +101,7 @@ impl<'a> GetPeersResponse<'a> {
     }
 
     pub fn from_parts(
-        rsp_root: &'a Dictionary<'a, Bencode<'a>>,
+        rsp_root: &'a dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<GetPeersResponse<'a>> {
         let validate = ResponseValidate::new(trans_id);

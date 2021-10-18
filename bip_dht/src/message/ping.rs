@@ -4,9 +4,9 @@
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::NodeId;
 
-use error::DhtResult;
-use message;
-use message::request::{self, RequestValidate};
+use crate::error::DhtResult;
+use crate::message;
+use crate::message::request::{self, RequestValidate};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct PingRequest<'a> {
@@ -23,7 +23,7 @@ impl<'a> PingRequest<'a> {
     }
 
     pub fn from_parts(
-        rqst_root: &Dictionary<'a, Bencode<'a>>,
+        rqst_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<PingRequest<'a>> {
         let validate = RequestValidate::new(trans_id);
@@ -72,7 +72,7 @@ impl<'a> PingResponse<'a> {
     }
 
     pub fn from_parts(
-        rsp_root: &Dictionary<'a, Bencode<'a>>,
+        rsp_root: &dyn Dictionary<'a, Bencode<'a>>,
         trans_id: &'a [u8],
     ) -> DhtResult<PingResponse<'a>> {
         let request = PingRequest::from_parts(rsp_root, trans_id)?;
