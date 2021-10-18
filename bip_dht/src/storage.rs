@@ -2,8 +2,9 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use bip_util::bt::InfoHash;
 use chrono::{DateTime, Duration, UTC};
+
+use crate::id::InfoHash;
 
 const MAX_ITEMS_STORED: usize = 500;
 
@@ -204,16 +205,16 @@ impl Eq for ItemExpiration {}
 
 #[cfg(test)]
 mod tests {
-    use bip_util::bt;
     use bip_util::test as bip_test;
 
+    use crate::id::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
     use chrono::Duration;
 
     #[test]
     fn positive_add_and_retrieve_contact() {
         let mut announce_store = AnnounceStorage::new();
-        let info_hash = [0u8; bt::INFO_HASH_LEN].into();
+        let info_hash = [0u8; INFO_HASH_LEN].into();
         let sock_addr = bip_test::dummy_socket_addr_v4();
 
         assert!(announce_store.add_item(info_hash, sock_addr));
@@ -228,7 +229,7 @@ mod tests {
     #[test]
     fn positive_add_and_retrieve_contacts() {
         let mut announce_store = AnnounceStorage::new();
-        let info_hash = [0u8; bt::INFO_HASH_LEN].into();
+        let info_hash = [0u8; INFO_HASH_LEN].into();
         let sock_addrs = bip_test::dummy_block_socket_addrs(storage::MAX_ITEMS_STORED as u16);
 
         for sock_addr in sock_addrs.iter() {
@@ -247,7 +248,7 @@ mod tests {
     #[test]
     fn positive_renew_contacts() {
         let mut announce_store = AnnounceStorage::new();
-        let info_hash = [0u8; bt::INFO_HASH_LEN].into();
+        let info_hash = [0u8; INFO_HASH_LEN].into();
         let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         for sock_addr in sock_addrs.iter().take(storage::MAX_ITEMS_STORED) {
@@ -255,7 +256,7 @@ mod tests {
         }
 
         // Try to add a new item
-        let other_info_hash = [1u8; bt::INFO_HASH_LEN].into();
+        let other_info_hash = [1u8; INFO_HASH_LEN].into();
 
         // Returns false because it wasnt added
         assert!(!announce_store.add_item(other_info_hash, sock_addrs[sock_addrs.len() - 1]));
@@ -273,7 +274,7 @@ mod tests {
     #[test]
     fn positive_full_storage_expire_one_infohash() {
         let mut announce_store = AnnounceStorage::new();
-        let info_hash = [0u8; bt::INFO_HASH_LEN].into();
+        let info_hash = [0u8; INFO_HASH_LEN].into();
         let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         // Fill up the announce storage completely
@@ -282,7 +283,7 @@ mod tests {
         }
 
         // Try to add a new item into the storage (under a different info hash)
-        let other_info_hash = [1u8; bt::INFO_HASH_LEN].into();
+        let other_info_hash = [1u8; INFO_HASH_LEN].into();
 
         // Returned false because it wasnt added
         assert!(!announce_store.add_item(other_info_hash, sock_addrs[sock_addrs.len() - 1]));
@@ -307,8 +308,8 @@ mod tests {
     #[test]
     fn positive_full_storage_expire_two_infohash() {
         let mut announce_store = AnnounceStorage::new();
-        let info_hash_one = [0u8; bt::INFO_HASH_LEN].into();
-        let info_hash_two = [1u8; bt::INFO_HASH_LEN].into();
+        let info_hash_one = [0u8; INFO_HASH_LEN].into();
+        let info_hash_two = [1u8; INFO_HASH_LEN].into();
         let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         // Fill up first info hash
@@ -328,7 +329,7 @@ mod tests {
         }
 
         // Try to add a third info hash with a contact
-        let info_hash_three = [2u8; bt::INFO_HASH_LEN].into();
+        let info_hash_three = [2u8; INFO_HASH_LEN].into();
         assert!(!announce_store.add_item(info_hash_three, sock_addrs[sock_addrs.len() - 1]));
         // Closure not invoked because it was not added
         let mut times_invoked = 0;

@@ -2,11 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::mpsc::SyncSender;
 
-use bip_util::bt::{self, InfoHash, NodeId};
 use bip_util::net;
-use bip_util::sha::ShaHash;
 use mio::{EventLoop, Timeout};
 
+use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
 use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
 use crate::routing::bucket;
@@ -473,7 +472,7 @@ fn pick_initial_nodes<'a, I>(sorted_nodes: I) -> [(Node, bool); INITIAL_PICK_NUM
 where
     I: Iterator<Item = &'a mut (Distance, Node, bool)>,
 {
-    let dummy_id = [0u8; bt::NODE_ID_LEN].into();
+    let dummy_id = [0u8; NODE_ID_LEN].into();
     let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
 
     let mut pick_nodes = [default.clone(), default.clone(), default.clone(), default];
@@ -496,7 +495,7 @@ fn pick_iterate_nodes<I>(
 where
     I: Iterator<Item = (NodeId, SocketAddrV4)>,
 {
-    let dummy_id = [0u8; bt::NODE_ID_LEN].into();
+    let dummy_id = [0u8; NODE_ID_LEN].into();
     let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
 
     let mut pick_nodes = [default.clone(), default.clone(), default];

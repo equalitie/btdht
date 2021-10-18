@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
-use bip_util::bt::{InfoHash, NodeId};
 
 use crate::error::{DhtError, DhtResult};
+use crate::id::{InfoHash, NodeId};
 use crate::message;
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::request::{self, RequestValidate};

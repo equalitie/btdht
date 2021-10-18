@@ -1,7 +1,7 @@
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
-use bip_util::bt::{InfoHash, NodeId};
 
 use crate::error::DhtResult;
+use crate::id::{InfoHash, NodeId};
 use crate::message;
 use crate::message::request::{self, RequestValidate};
 

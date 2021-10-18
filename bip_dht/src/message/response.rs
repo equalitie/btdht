@@ -1,7 +1,9 @@
+use std::convert::TryFrom;
+
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
-use bip_util::bt::NodeId;
 
 use crate::error::{DhtError, DhtResult};
+use crate::id::NodeId;
 use crate::message::announce_peer::AnnouncePeerResponse;
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::find_node::FindNodeResponse;
@@ -22,7 +24,7 @@ impl<'a> ResponseValidate<'a> {
     }
 
     pub fn validate_node_id(&self, node_id: &[u8]) -> DhtResult<NodeId> {
-        NodeId::from_hash(node_id).map_err(|_| DhtError::InvalidResponse {
+        NodeId::try_from(node_id).map_err(|_| DhtError::InvalidResponse {
             details: format!(
                 "TID {:?} Found Node ID With Invalid Length {:?}",
                 self.trans_id,

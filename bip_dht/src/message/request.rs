@@ -1,7 +1,9 @@
+use std::convert::TryFrom;
+
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
-use bip_util::bt::{InfoHash, NodeId};
 
 use crate::error::{DhtError, DhtResult};
+use crate::id::{InfoHash, NodeId};
 use crate::message;
 use crate::message::announce_peer::AnnouncePeerRequest;
 use crate::message::error::{ErrorCode, ErrorMessage};
@@ -31,7 +33,7 @@ impl<'a> RequestValidate<'a> {
     }
 
     pub fn validate_node_id(&self, node_id: &[u8]) -> DhtResult<NodeId> {
-        NodeId::from_hash(node_id).map_err(|_| {
+        NodeId::try_from(node_id).map_err(|_| {
             let error_msg = ErrorMessage::new(
                 self.trans_id.to_owned(),
                 ErrorCode::ProtocolError,
@@ -43,7 +45,7 @@ impl<'a> RequestValidate<'a> {
     }
 
     pub fn validate_info_hash(&self, info_hash: &[u8]) -> DhtResult<InfoHash> {
-        InfoHash::from_hash(info_hash).map_err(|_| {
+        InfoHash::try_from(info_hash).map_err(|_| {
             let error_msg = ErrorMessage::new(
                 self.trans_id.to_owned(),
                 ErrorCode::ProtocolError,

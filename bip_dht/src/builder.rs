@@ -3,10 +3,10 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver};
 
-use bip_util::bt::InfoHash;
 use bip_util::net;
 use mio::Sender;
 
+use crate::id::InfoHash;
 use crate::router::Router;
 use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 

@@ -7,12 +7,11 @@ use std::sync::mpsc::{self, SyncSender};
 use std::thread;
 
 use bip_bencode::Bencode;
-use bip_util::bt::InfoHash;
 use bip_util::convert;
-use bip_util::net::IpAddr;
 use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
+use crate::id::InfoHash;
 use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::error::{ErrorCode, ErrorMessage};
@@ -499,9 +498,7 @@ fn handle_incoming(
             }
 
             // Wrap up the nodes/values we are going to be giving them
-            let token = work_storage
-                .token_store
-                .checkout(IpAddr::from_socket_addr(addr));
+            let token = work_storage.token_store.checkout(addr.ip());
             let comapct_info_type = if !contact_info_bencode.is_empty() {
                 CompactInfoType::Both(
                     CompactNodeInfo::new(&closest_nodes_bytes).unwrap(),
@@ -539,9 +536,7 @@ fn handle_incoming(
 
             // Validate the token
             let is_valid = match Token::new(a.token()) {
-                Ok(t) => work_storage
-                    .token_store
-                    .checkin(IpAddr::from_socket_addr(addr), t),
+                Ok(t) => work_storage.token_store.checkin(addr.ip(), t),
                 Err(_) => false,
             };
 
@@ -705,15 +700,15 @@ fn handle_incoming(
 
             let opt_lookup = {
                 match table_actions.get_mut(&trans_id.action_id()) {
-                    Some(&mut TableAction::Lookup(ref mut lookup)) => Some(lookup),
-                    Some(&mut TableAction::Refresh(_)) => {
+                    Some(TableAction::Lookup(lookup)) => Some(lookup),
+                    Some(TableAction::Refresh(_)) => {
                         error!(
                             "bip_dht: Resolved a GetPeersResponse ActionID to a \
                                 TableRefresh..."
                         );
                         None
                     }
-                    Some(&mut TableAction::Bootstrap(_, _)) => {
+                    Some(TableAction::Bootstrap(_, _)) => {
                         error!(
                             "bip_dht: Resolved a GetPeersResponse ActionID to a \
                                 TableBootstrap..."

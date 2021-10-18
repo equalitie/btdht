@@ -2,8 +2,7 @@ use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::mpsc;
 
-use bip_util::bt::InfoHash;
-
+use crate::id::InfoHash;
 use crate::router::Router;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;

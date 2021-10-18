@@ -2,8 +2,7 @@ use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
 
-use bip_dht::{DhtBuilder, Router};
-use bip_util::bt::InfoHash;
+use bip_dht::{DhtBuilder, InfoHash, Router};
 
 fn main() {
     pretty_env_logger::init();

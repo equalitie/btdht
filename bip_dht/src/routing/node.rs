@@ -3,9 +3,9 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 
-use bip_util::bt::NodeId;
-use bip_util::test;
 use chrono::{DateTime, Duration, UTC};
+
+use crate::id::NodeId;
 
 // TODO: Should remove as_* functions and replace them with from_requested, from_responded, etc to hide the logic
 // of the nodes initial status.
@@ -56,8 +56,7 @@ impl Node {
     /// Create a questionable node that has responded to us before but never requested from us.
     pub fn as_questionable(id: NodeId, addr: SocketAddr) -> Node {
         let last_response_offset = Duration::minutes(MAX_LAST_SEEN_MINS);
-        // TODO: Dont use test helpers in actual code!!!
-        let last_response = test::travel_into_past(last_response_offset);
+        let last_response = UTC::now().checked_sub(last_response_offset).unwrap();
 
         Node {
             key: NodeKey { id, addr },
@@ -253,10 +252,10 @@ fn recently_requested(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-    use bip_util::test as bip_test;
     use chrono::Duration;
 
     use crate::routing::node::{Node, NodeStatus};
+    use crate::test;
 
     #[test]
     fn positive_encode_node() {
@@ -286,30 +285,28 @@ mod tests {
 
     #[test]
     fn positive_as_bad() {
-        let node = Node::as_bad(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_bad(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         assert_eq!(node.status(), NodeStatus::Bad);
     }
 
     #[test]
     fn positive_as_questionable() {
-        let node =
-            Node::as_questionable(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         assert_eq!(node.status(), NodeStatus::Questionable);
     }
 
     #[test]
     fn positive_as_good() {
-        let node = Node::as_good(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         assert_eq!(node.status(), NodeStatus::Good);
     }
 
     #[test]
     fn positive_response_renewal() {
-        let node =
-            Node::as_questionable(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         node.remote_response();
 
@@ -318,8 +315,7 @@ mod tests {
 
     #[test]
     fn positive_request_renewal() {
-        let node =
-            Node::as_questionable(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         node.remote_request();
 
@@ -328,10 +324,10 @@ mod tests {
 
     #[test]
     fn positive_node_idle() {
-        let node = Node::as_good(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         let time_offset = Duration::minutes(super::MAX_LAST_SEEN_MINS);
-        let idle_time = bip_test::travel_into_past(time_offset);
+        let idle_time = test::travel_into_past(time_offset);
 
         node.last_response.set(Some(idle_time));
 
@@ -340,8 +336,7 @@ mod tests {
 
     #[test]
     fn positive_node_idle_reqeusts() {
-        let node =
-            Node::as_questionable(bip_test::dummy_node_id(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         for _ in 0..super::MAX_REFRESH_REQUESTS {
             node.local_request();

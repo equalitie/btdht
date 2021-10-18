@@ -27,17 +27,18 @@ extern crate rand;
 
 mod builder;
 mod error;
+mod id;
 pub mod message;
 mod router;
 mod routing;
 mod storage;
+#[cfg(test)]
+mod test;
 mod token;
 mod transaction;
 mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
+pub use crate::id::{InfoHash, INFO_HASH_LEN};
 pub use crate::router::Router;
 pub use crate::worker::{DhtEvent, ShutdownCause};
-
-/// Test
-pub use bip_util::bt::{InfoHash, PeerId};

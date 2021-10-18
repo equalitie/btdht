@@ -2,8 +2,7 @@ use std::iter::Filter;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
 
-use bip_util::bt::{self, NodeId};
-
+use crate::id::{NodeId, NODE_ID_LEN};
 use crate::routing::node::{Node, NodeStatus};
 
 /// Maximum number of nodes that should reside in any bucket.
@@ -17,7 +16,7 @@ pub struct Bucket {
 impl Bucket {
     /// Create a new Bucket with all Nodes default initialized.
     pub fn new() -> Bucket {
-        let id = NodeId::from([0u8; bt::NODE_ID_LEN]);
+        let id = NodeId::from([0u8; NODE_ID_LEN]);
 
         let ip = Ipv4Addr::new(127, 0, 0, 1);
         let addr = SocketAddr::V4(SocketAddrV4::new(ip, 0));
@@ -159,10 +158,10 @@ impl<'a> Iterator for PingableNodes<'a> {
 
 #[cfg(test)]
 mod tests {
-    use bip_util::test as bip_test;
 
     use crate::routing::bucket::Bucket;
     use crate::routing::node::{Node, NodeStatus};
+    use crate::test;
 
     #[test]
     fn positive_initial_no_nodes() {
@@ -176,8 +175,8 @@ mod tests {
     fn positive_all_questionable_nodes() {
         let mut bucket = Bucket::new();
 
-        let dummy_addr = bip_test::dummy_socket_addr_v4();
-        let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
+        let dummy_addr = test::dummy_socket_addr_v4();
+        let dummy_ids = test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
         for id in dummy_ids {
             let node = Node::as_questionable(id, dummy_addr);
             bucket.add_node(node);
@@ -191,8 +190,8 @@ mod tests {
     fn positive_all_good_nodes() {
         let mut bucket = Bucket::new();
 
-        let dummy_addr = bip_test::dummy_socket_addr_v4();
-        let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
+        let dummy_addr = test::dummy_socket_addr_v4();
+        let dummy_ids = test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
         for id in dummy_ids {
             let node = Node::as_good(id, dummy_addr);
             bucket.add_node(node);
@@ -206,8 +205,8 @@ mod tests {
     fn positive_replace_questionable_node() {
         let mut bucket = Bucket::new();
 
-        let dummy_addr = bip_test::dummy_socket_addr_v4();
-        let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
+        let dummy_addr = test::dummy_socket_addr_v4();
+        let dummy_ids = test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
         for id in &dummy_ids {
             let node = Node::as_questionable(*id, dummy_addr);
             bucket.add_node(node);
@@ -228,8 +227,8 @@ mod tests {
     fn positive_resist_good_node_churn() {
         let mut bucket = Bucket::new();
 
-        let dummy_addr = bip_test::dummy_socket_addr_v4();
-        let dummy_ids = bip_test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
+        let dummy_addr = test::dummy_socket_addr_v4();
+        let dummy_ids = test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
         for id in &dummy_ids {
             let node = Node::as_good(*id, dummy_addr);
             bucket.add_node(node);
@@ -256,8 +255,8 @@ mod tests {
     fn positive_resist_questionable_node_churn() {
         let mut bucket = Bucket::new();
 
-        let dummy_addr = bip_test::dummy_socket_addr_v4();
-        let dummy_ids = bip_test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
+        let dummy_addr = test::dummy_socket_addr_v4();
+        let dummy_ids = test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
         for id in &dummy_ids {
             let node = Node::as_questionable(*id, dummy_addr);
             bucket.add_node(node);

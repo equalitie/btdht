@@ -1,10 +1,9 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use chrono::{DateTime, Duration, UTC};
 
 use bip_util::convert;
 use bip_util::error::{LengthError, LengthErrorKind, LengthResult};
-use bip_util::net::IpAddr;
 use bip_util::sha::{self, ShaHash};
 
 /// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
@@ -201,15 +200,15 @@ fn validate_token_from_addr_v6(v6_addr: Ipv6Addr, token: Token, secret: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use bip_util::test as bip_test;
     use chrono::Duration;
 
+    use crate::test;
     use crate::token::TokenStore;
 
     #[test]
     fn positive_accept_valid_v4_token() {
         let mut store = TokenStore::new();
-        let v4_addr = bip_test::dummy_ipv4_addr();
+        let v4_addr = test::dummy_ipv4_addr();
 
         let valid_token = store.checkout(v4_addr);
 
@@ -219,7 +218,7 @@ mod tests {
     #[test]
     fn positive_accept_valid_v6_token() {
         let mut store = TokenStore::new();
-        let v6_addr = bip_test::dummy_ipv6_addr();
+        let v6_addr = test::dummy_ipv6_addr();
 
         let valid_token = store.checkout(v6_addr);
 
@@ -229,12 +228,12 @@ mod tests {
     #[test]
     fn positive_accept_v4_token_from_second_secret() {
         let mut store = TokenStore::new();
-        let v4_addr = bip_test::dummy_ipv4_addr();
+        let v4_addr = test::dummy_ipv4_addr();
 
         let valid_token = store.checkout(v4_addr);
 
         let past_offset = Duration::minutes((super::REFRESH_INTERVAL_MINS * 2) - 1);
-        let past_time = bip_test::travel_into_past(past_offset);
+        let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
         assert!(store.checkin(v4_addr, valid_token));
@@ -243,12 +242,12 @@ mod tests {
     #[test]
     fn positive_accept_v6_token_from_second_secret() {
         let mut store = TokenStore::new();
-        let v6_addr = bip_test::dummy_ipv6_addr();
+        let v6_addr = test::dummy_ipv6_addr();
 
         let valid_token = store.checkout(v6_addr);
 
         let past_offset = Duration::minutes((super::REFRESH_INTERVAL_MINS * 2) - 1);
-        let past_time = bip_test::travel_into_past(past_offset);
+        let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
         assert!(store.checkin(v6_addr, valid_token));
@@ -258,12 +257,12 @@ mod tests {
     #[should_panic]
     fn negative_reject_expired_v4_token() {
         let mut store = TokenStore::new();
-        let v4_addr = bip_test::dummy_ipv4_addr();
+        let v4_addr = test::dummy_ipv4_addr();
 
         let valid_token = store.checkout(v4_addr);
 
         let past_offset = Duration::minutes(super::REFRESH_INTERVAL_MINS * 2);
-        let past_time = bip_test::travel_into_past(past_offset);
+        let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
         assert!(store.checkin(v4_addr, valid_token));
@@ -273,12 +272,12 @@ mod tests {
     #[should_panic]
     fn negative_reject_expired_v6_token() {
         let mut store = TokenStore::new();
-        let v6_addr = bip_test::dummy_ipv6_addr();
+        let v6_addr = test::dummy_ipv6_addr();
 
         let valid_token = store.checkout(v6_addr);
 
         let past_offset = Duration::minutes(super::REFRESH_INTERVAL_MINS * 2);
-        let past_time = bip_test::travel_into_past(past_offset);
+        let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
         assert!(store.checkin(v6_addr, valid_token));

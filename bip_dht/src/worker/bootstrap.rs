@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
 
-use bip_util::bt::{self, NodeId};
 use mio::{EventLoop, Timeout};
 
+use crate::id::NodeId;
 use crate::message::find_node::FindNodeRequest;
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};
@@ -179,7 +179,7 @@ impl TableBootstrap {
         out: &SyncSender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus {
-        let target_id = flip_id_bit_at_index(self.table_id, self.curr_bootstrap_bucket);
+        let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
 
         // Get the optimal iterator to bootstrap the current bucket
         if self.curr_bootstrap_bucket == 0 || self.curr_bootstrap_bucket == 1 {
@@ -305,16 +305,4 @@ impl TableBootstrap {
             BootstrapStatus::Bootstrapping
         }
     }
-}
-
-/// Panics if index is out of bounds.
-/// TODO: Move into bip_util crate
-fn flip_id_bit_at_index(node_id: NodeId, index: usize) -> NodeId {
-    let mut id_bytes: [u8; bt::NODE_ID_LEN] = node_id.into();
-    let (byte_index, bit_index) = (index / 8, index % 8);
-
-    let actual_bit_index = 7 - bit_index;
-    id_bytes[byte_index] ^= 1 << actual_bit_index;
-
-    id_bytes.into()
 }

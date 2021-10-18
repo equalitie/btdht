@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
 
-use bip_util::bt::{self, NodeId};
 use mio::EventLoop;
 
 use crate::message::find_node::FindNodeRequest;
@@ -42,7 +41,7 @@ impl TableRefresh {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
         }
-        let target_id = flip_id_bit_at_index(table.node_id(), self.curr_refresh_bucket);
+        let target_id = table.node_id().flip_bit(self.curr_refresh_bucket);
 
         info!(
             "bip_dht: Performing a refresh for bucket {}",
@@ -93,15 +92,4 @@ impl TableRefresh {
 
         RefreshStatus::Refreshing
     }
-}
-
-/// Panics if index is out of bounds.
-fn flip_id_bit_at_index(node_id: NodeId, index: usize) -> NodeId {
-    let mut id_bytes: [u8; bt::NODE_ID_LEN] = node_id.into();
-    let (byte_index, bit_index) = (index / 8, index % 8);
-
-    let actual_bit_index = 7 - bit_index;
-    id_bytes[byte_index] ^= 1 << actual_bit_index;
-
-    id_bytes.into()
 }

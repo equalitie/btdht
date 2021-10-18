@@ -2,14 +2,13 @@ use std::cmp::Ordering;
 use std::iter::Filter;
 use std::slice::Iter;
 
-use bip_util::bt::NodeId;
-use bip_util::sha::{self, ShaHash, XorRep};
 use rand;
 
+use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
 use crate::routing::bucket::{self, Bucket};
 use crate::routing::node::{Node, NodeStatus};
 
-pub const MAX_BUCKETS: usize = sha::SHA_HASH_LEN * 8;
+pub const MAX_BUCKETS: usize = SHA_HASH_LEN * 8;
 
 /// Routing table containing a table of routing nodes as well
 /// as the id of the local node participating in the dht.
@@ -138,7 +137,7 @@ fn can_split_bucket(num_buckets: usize, bucket_index: usize) -> bool {
 /// TODO: Shouldnt use this in the future to get an id for the routing table,
 /// generate one from the security module to be compliant with the spec.
 pub fn random_node_id() -> NodeId {
-    let mut random_sha_hash = [0u8; sha::SHA_HASH_LEN];
+    let mut random_sha_hash = [0u8; SHA_HASH_LEN];
 
     for byte in random_sha_hash.iter_mut() {
         *byte = rand::random::<u8>();
@@ -149,9 +148,7 @@ pub fn random_node_id() -> NodeId {
 
 /// Number of leading bits that are identical between the local and remote node ids.
 pub fn leading_bit_count(local_node: NodeId, remote_node: NodeId) -> usize {
-    let diff_id = local_node ^ remote_node;
-
-    diff_id.bits().take_while(|&x| x == XorRep::Same).count()
+    (local_node ^ remote_node).leading_zeros() as usize
 }
 
 /// Take the number of leading bits that are the same between our node and the remote
@@ -436,36 +433,25 @@ fn index_is_in_bounds(length: usize, checked_index: Option<usize>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use bip_util::bt::{self, NodeId};
-    use bip_util::test as bip_test;
 
+    use crate::id::{NodeId, NODE_ID_LEN};
     use crate::routing::bucket;
     use crate::routing::node::Node;
     use crate::routing::table::{self, BucketContents, RoutingTable};
-
-    // TODO: Move into bip_util crate
-    fn flip_id_bit_at_index(node_id: NodeId, index: usize) -> NodeId {
-        let mut id_bytes: [u8; bt::NODE_ID_LEN] = node_id.into();
-        let (byte_index, bit_index) = (index / 8, index % 8);
-
-        let actual_bit_index = 7 - bit_index;
-        id_bytes[byte_index] ^= 1 << actual_bit_index;
-
-        id_bytes.into()
-    }
+    use crate::test;
 
     #[test]
     fn positive_add_node_max_recursion() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
+        let table_id = [1u8; NODE_ID_LEN];
         let mut table = RoutingTable::new(table_id.into());
 
         let mut node_id = table_id;
         // Modify the id so it is placed in the last bucket
-        node_id[bt::NODE_ID_LEN - 1] = 0;
+        node_id[NODE_ID_LEN - 1] = 0;
 
         // Trigger a bucket overflow and since the ids are placed in the last bucket, all of
         // the buckets will be recursively created and inserted into the list of all buckets.
-        let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
+        let block_addrs = test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
         for block_addr in block_addrs {
             let node = Node::as_good(node_id.into(), block_addr);
 
@@ -475,7 +461,7 @@ mod tests {
 
     #[test]
     fn positive_initial_empty_buckets() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
+        let table_id = [1u8; NODE_ID_LEN];
         let table = RoutingTable::new(table_id.into());
 
         // First buckets should be empty
@@ -500,14 +486,14 @@ mod tests {
 
     #[test]
     fn positive_first_bucket_sorted() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
+        let table_id = [1u8; NODE_ID_LEN];
         let mut table = RoutingTable::new(table_id.into());
 
         let mut node_id = table_id;
         // Flip first bit so we are placed in the first bucket
         node_id[0] |= 128;
 
-        let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
+        let block_addrs = test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
         for block_addr in block_addrs {
             let node = Node::as_good(node_id.into(), block_addr);
 
@@ -548,14 +534,14 @@ mod tests {
 
     #[test]
     fn positive_last_bucket_sorted() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
+        let table_id = [1u8; NODE_ID_LEN];
         let mut table = RoutingTable::new(table_id.into());
 
         let mut node_id = table_id;
         // Flip last bit so we are placed in the last bucket
-        node_id[bt::NODE_ID_LEN - 1] = 0;
+        node_id[NODE_ID_LEN - 1] = 0;
 
-        let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
+        let block_addrs = test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
         for block_addr in block_addrs {
             let node = Node::as_good(node_id.into(), block_addr);
 
@@ -594,13 +580,13 @@ mod tests {
 
     #[test]
     fn positive_all_sorted_buckets() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
-        let mut table = RoutingTable::new(table_id.into());
+        let table_id = NodeId::from([1u8; NODE_ID_LEN]);
+        let mut table = RoutingTable::new(table_id);
 
-        let block_addrs = bip_test::dummy_block_socket_addrs(bucket::MAX_BUCKET_SIZE as u16);
+        let block_addrs = test::dummy_block_socket_addrs(bucket::MAX_BUCKET_SIZE as u16);
         for bit_flip_index in 0..table::MAX_BUCKETS {
             for block_addr in &block_addrs {
-                let bucket_node_id = flip_id_bit_at_index(table_id.into(), bit_flip_index);
+                let bucket_node_id = table_id.flip_bit(bit_flip_index);
 
                 table.add_node(Node::as_good(bucket_node_id, *block_addr));
             }
@@ -619,12 +605,12 @@ mod tests {
 
     #[test]
     fn negative_node_id_equal_table_id() {
-        let table_id = [1u8; bt::NODE_ID_LEN];
+        let table_id = [1u8; NODE_ID_LEN];
         let mut table = RoutingTable::new(table_id.into());
 
         assert_eq!(table.closest_nodes(table_id.into()).count(), 0);
 
-        let node = Node::as_good(table_id.into(), bip_test::dummy_socket_addr_v4());
+        let node = Node::as_good(table_id.into(), test::dummy_socket_addr_v4());
         table.add_node(node);
 
         assert_eq!(table.closest_nodes(table_id.into()).count(), 0);

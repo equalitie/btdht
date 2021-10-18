@@ -1,5 +1,4 @@
-use bip_dht::{DhtBuilder, DhtEvent};
-use bip_util::bt::InfoHash;
+use bip_dht::{DhtBuilder, DhtEvent, InfoHash};
 use std::net::{Ipv4Addr, SocketAddr};
 
 #[test]
