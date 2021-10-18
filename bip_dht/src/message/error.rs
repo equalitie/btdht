@@ -5,7 +5,7 @@ use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 use crate::error::{DhtError, DhtResult};
 use crate::message;
 
-const ERROR_ARGS_KEY: &'static str = "e";
+const ERROR_ARGS_KEY: &str = "e";
 const NUM_ERROR_ARGS: usize = 2;
 
 const GENERIC_ERROR_CODE: u8 = 201;
@@ -35,9 +35,9 @@ impl ErrorCode {
     }
 }
 
-impl Into<u8> for ErrorCode {
-    fn into(self) -> u8 {
-        match self {
+impl From<ErrorCode> for u8 {
+    fn from(error_code: ErrorCode) -> Self {
+        match error_code {
             ErrorCode::GenericError => GENERIC_ERROR_CODE,
             ErrorCode::ServerError => SERVER_ERROR_CODE,
             ErrorCode::ProtocolError => PROTOCOL_ERROR_CODE,
@@ -93,7 +93,7 @@ impl<'a> ErrorMessage<'a> {
 
         ErrorMessage {
             trans_id: trans_id_cow,
-            code: code,
+            code,
             message: message_cow,
         }
     }
@@ -118,7 +118,7 @@ impl<'a> ErrorMessage<'a> {
         })
     }
 
-    pub fn transaction_id<'b>(&'b self) -> &'b [u8] {
+    pub fn transaction_id(&self) -> &[u8] {
         &self.trans_id
     }
 
@@ -126,7 +126,7 @@ impl<'a> ErrorMessage<'a> {
         self.code
     }
 
-    pub fn error_message<'b>(&'b self) -> &'b str {
+    pub fn error_message(&self) -> &str {
         &self.message
     }
 

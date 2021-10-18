@@ -26,7 +26,7 @@ impl<'a> CompactNodeInfo<'a> {
                 BYTES_PER_COMPACT_NODE_INFO,
             ))
         } else {
-            Ok(CompactNodeInfo { nodes: nodes })
+            Ok(CompactNodeInfo { nodes })
         }
     }
 
@@ -96,7 +96,7 @@ impl<'a> CompactValueInfo<'a> {
             }
         }
 
-        Ok(CompactValueInfo { values: values })
+        Ok(CompactValueInfo { values })
     }
 
     pub fn values(&self) -> &'a [Bencode<'a>] {
@@ -244,9 +244,7 @@ mod tests {
         let bencode_values = Vec::new();
         let compact_value = CompactValueInfo::new(&bencode_values[..]).unwrap();
 
-        let collected_info: Vec<SocketAddrV4> = compact_value.into_iter().collect();
-
-        assert!(collected_info.is_empty());
+        assert!(compact_value.into_iter().next().is_none());
     }
 
     #[test]

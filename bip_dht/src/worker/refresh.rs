@@ -9,7 +9,7 @@ use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
 use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTask;
+use crate::worker::ScheduledTaskCheck;
 
 const REFRESH_INTERVAL_TIMEOUT: u64 = 6000;
 
@@ -28,7 +28,7 @@ pub struct TableRefresh {
 impl TableRefresh {
     pub fn new(id_generator: MIDGenerator) -> TableRefresh {
         TableRefresh {
-            id_generator: id_generator,
+            id_generator,
             curr_refresh_bucket: 0,
         }
     }
@@ -80,7 +80,7 @@ impl TableRefresh {
         // Start a timer for the next refresh
         if event_loop
             .timeout_ms(
-                (0, ScheduledTask::CheckTableRefresh(trans_id)),
+                (0, ScheduledTaskCheck::TableRefresh(trans_id)),
                 REFRESH_INTERVAL_TIMEOUT,
             )
             .is_err()

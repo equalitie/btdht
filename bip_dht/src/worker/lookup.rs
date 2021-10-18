@@ -14,7 +14,7 @@ use crate::routing::node::{Node, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTask;
+use crate::worker::ScheduledTaskCheck;
 
 const LOOKUP_TIMEOUT_MS: u64 = 1500;
 const ENDGAME_TIMEOUT_MS: u64 = 1500;
@@ -95,13 +95,13 @@ impl TableLookup {
 
         // Construct the lookup table structure
         let mut table_lookup = TableLookup {
-            table_id: table_id,
-            target_id: target_id,
+            table_id,
+            target_id,
             in_endgame: false,
             recv_values: false,
-            id_generator: id_generator,
-            will_announce: will_announce,
-            all_sorted_nodes: all_sorted_nodes,
+            id_generator,
+            will_announce,
+            all_sorted_nodes,
             announce_tokens: HashMap::new(),
             requested_nodes: HashSet::new(),
             active_lookups: HashMap::with_capacity(INITIAL_PICK_NUM),
@@ -197,10 +197,7 @@ impl TableLookup {
                 for (id, v4_addr) in nodes {
                     let addr = SocketAddr::V4(v4_addr);
                     let node = Node::as_questionable(id, addr);
-                    let will_ping = iterate_nodes
-                        .iter()
-                        .find(|&&(ref n, _)| n == &node)
-                        .is_some();
+                    let will_ping = iterate_nodes.iter().any(|(n, _)| n == &node);
 
                     insert_sorted_node(&mut self.all_sorted_nodes, self.target_id, node, will_ping);
                 }
@@ -239,10 +236,10 @@ impl TableLookup {
             }
 
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty() {
-                if self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed {
-                    return LookupStatus::Failed;
-                }
+            if self.active_lookups.is_empty()
+                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
+            {
+                return LookupStatus::Failed;
             }
         }
 
@@ -269,10 +266,10 @@ impl TableLookup {
 
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty() {
-                if self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed {
-                    return LookupStatus::Failed;
-                }
+            if self.active_lookups.is_empty()
+                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
+            {
+                return LookupStatus::Failed;
             }
         }
 
@@ -324,7 +321,9 @@ impl TableLookup {
 
                 if !fatal_error {
                     // We requested from the node, marke it down if the node is in our routing table
-                    table.find_node(node).map(|n| n.local_request());
+                    if let Some(n) = table.find_node(node) {
+                        n.local_request()
+                    }
                 }
             }
         }
@@ -366,7 +365,7 @@ impl TableLookup {
 
             // Try to start a timeout for the node
             let res_timeout = event_loop.timeout_ms(
-                (0, ScheduledTask::CheckLookupTimeout(trans_id)),
+                (0, ScheduledTaskCheck::LookupTimeout(trans_id)),
                 LOOKUP_TIMEOUT_MS,
             );
             let timeout = if let Ok(t) = res_timeout {
@@ -392,7 +391,9 @@ impl TableLookup {
             self.requested_nodes.insert(node.clone());
 
             // Update the node in the routing table
-            table.find_node(node).map(|n| n.local_request());
+            if let Some(n) = table.find_node(node) {
+                n.local_request()
+            }
 
             messages_sent += 1;
         }
@@ -418,7 +419,7 @@ impl TableLookup {
         let res_timeout = event_loop.timeout_ms(
             (
                 0,
-                ScheduledTask::CheckLookupEndGame(self.id_generator.generate()),
+                ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
             ),
             ENDGAME_TIMEOUT_MS,
         );
@@ -455,7 +456,9 @@ impl TableLookup {
                 }
 
                 // Mark that we requested from the node in the RoutingTable
-                table.find_node(node).map(|n| n.local_request());
+                if let Some(n) = table.find_node(node) {
+                    n.local_request()
+                }
 
                 // Mark that we requested from the node
                 *req = true;
@@ -474,12 +477,7 @@ where
     let dummy_id = [0u8; bt::NODE_ID_LEN].into();
     let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
 
-    let mut pick_nodes = [
-        default.clone(),
-        default.clone(),
-        default.clone(),
-        default.clone(),
-    ];
+    let mut pick_nodes = [default.clone(), default.clone(), default.clone(), default];
     for (src, dst) in sorted_nodes.zip(pick_nodes.iter_mut()) {
         dst.0 = src.1.clone();
         dst.1 = true;
@@ -502,7 +500,7 @@ where
     let dummy_id = [0u8; bt::NODE_ID_LEN].into();
     let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
 
-    let mut pick_nodes = [default.clone(), default.clone(), default.clone()];
+    let mut pick_nodes = [default.clone(), default.clone(), default];
     for (id, v4_addr) in unsorted_nodes {
         let addr = SocketAddr::V4(v4_addr);
         let node = Node::as_questionable(id, addr);

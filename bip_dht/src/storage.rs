@@ -175,9 +175,9 @@ struct ItemExpiration {
 impl ItemExpiration {
     pub fn new(info_hash: InfoHash, address: SocketAddr) -> ItemExpiration {
         ItemExpiration {
-            address: address,
+            address,
             inserted: UTC::now(),
-            info_hash: info_hash,
+            info_hash,
         }
     }
 

@@ -17,25 +17,25 @@ pub mod get_peers;
 pub mod ping;
 
 // Top level message keys
-const TRANSACTION_ID_KEY: &'static str = "t";
-const MESSAGE_TYPE_KEY: &'static str = "y";
-// const CLIENT_TYPE_KEY:    &'static str = "v";
+const TRANSACTION_ID_KEY: &str = "t";
+const MESSAGE_TYPE_KEY: &str = "y";
+// const CLIENT_TYPE_KEY:    &str = "v";
 
 // Top level message type sentinels
-const REQUEST_TYPE_KEY: &'static str = "q";
-const RESPONSE_TYPE_KEY: &'static str = "r";
-const ERROR_TYPE_KEY: &'static str = "e";
+const REQUEST_TYPE_KEY: &str = "q";
+const RESPONSE_TYPE_KEY: &str = "r";
+const ERROR_TYPE_KEY: &str = "e";
 
 // Refers to root dictionary itself
-const ROOT_ID_KEY: &'static str = "root";
+const ROOT_ID_KEY: &str = "root";
 
 // Keys common across message types
-const NODE_ID_KEY: &'static str = "id";
-const NODES_KEY: &'static str = "nodes";
-const VALUES_KEY: &'static str = "values";
-const TARGET_ID_KEY: &'static str = "target";
-const INFO_HASH_KEY: &'static str = "info_hash";
-const TOKEN_KEY: &'static str = "token";
+const NODE_ID_KEY: &str = "id";
+const NODES_KEY: &str = "nodes";
+const VALUES_KEY: &str = "values";
+const TARGET_ID_KEY: &str = "target";
+const INFO_HASH_KEY: &str = "info_hash";
+const TOKEN_KEY: &str = "token";
 
 // ----------------------------------------------------------------------------//
 

@@ -17,9 +17,9 @@ pub struct FindNodeRequest<'a> {
 impl<'a> FindNodeRequest<'a> {
     pub fn new(trans_id: &'a [u8], node_id: NodeId, target_id: NodeId) -> FindNodeRequest<'a> {
         FindNodeRequest {
-            trans_id: trans_id,
-            node_id: node_id,
-            target_id: target_id,
+            trans_id,
+            node_id,
+            target_id,
         }
     }
 
@@ -87,8 +87,8 @@ impl<'a> FindNodeResponse<'a> {
         let compact_nodes = validate.validate_nodes(nodes)?;
 
         Ok(FindNodeResponse {
-            trans_id: trans_id,
-            node_id: node_id,
+            trans_id,
+            node_id,
             nodes: compact_nodes,
         })
     }

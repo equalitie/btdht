@@ -11,7 +11,7 @@ use crate::routing::node::{Node, NodeStatus};
 use crate::routing::table::{self, BucketContents, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTask;
+use crate::worker::ScheduledTaskCheck;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: u64 = 2500;
 const BOOTSTRAP_NODE_TIMEOUT: u64 = 500;
@@ -52,8 +52,8 @@ impl TableBootstrap {
         let router_filter: HashSet<SocketAddr> = routers.collect();
 
         TableBootstrap {
-            table_id: table_id,
-            id_generator: id_generator,
+            table_id,
+            id_generator,
             starting_nodes: nodes,
             starting_routers: router_filter,
             active_messages: HashMap::new(),
@@ -77,7 +77,7 @@ impl TableBootstrap {
         let res_timeout = event_loop.timeout_ms(
             (
                 BOOTSTRAP_INITIAL_TIMEOUT,
-                ScheduledTask::CheckBootstrapTimeout(trans_id),
+                ScheduledTaskCheck::BootstrapTimeout(trans_id),
             ),
             BOOTSTRAP_INITIAL_TIMEOUT,
         );
@@ -109,7 +109,7 @@ impl TableBootstrap {
     }
 
     pub fn is_router(&self, addr: &SocketAddr) -> bool {
-        self.starting_routers.contains(&addr)
+        self.starting_routers.contains(addr)
     }
 
     pub fn recv_response(
@@ -262,7 +262,7 @@ impl TableBootstrap {
             let res_timeout = event_loop.timeout_ms(
                 (
                     BOOTSTRAP_NODE_TIMEOUT,
-                    ScheduledTask::CheckBootstrapTimeout(trans_id),
+                    ScheduledTaskCheck::BootstrapTimeout(trans_id),
                 ),
                 BOOTSTRAP_NODE_TIMEOUT,
             );
@@ -290,11 +290,11 @@ impl TableBootstrap {
 
         self.curr_bootstrap_bucket += 1;
         if self.curr_bootstrap_bucket == table::MAX_BUCKETS {
-            return BootstrapStatus::Completed;
+            BootstrapStatus::Completed
         } else if messages_sent == 0 {
             self.bootstrap_next_bucket(table, out, event_loop)
         } else {
-            return BootstrapStatus::Bootstrapping;
+            BootstrapStatus::Bootstrapping
         }
     }
 

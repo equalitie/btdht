@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::iter::Filter;
 use std::slice::Iter;
 
@@ -24,10 +25,7 @@ impl RoutingTable {
     pub fn new(node_id: NodeId) -> RoutingTable {
         let buckets = vec![Bucket::new()];
 
-        RoutingTable {
-            buckets: buckets,
-            node_id: node_id,
-        }
+        RoutingTable { buckets, node_id }
     }
 
     /// Return the node id of the RoutingTable.
@@ -40,12 +38,12 @@ impl RoutingTable {
     /// The closeness of nodes has a maximum granularity of a bucket. For most use
     /// cases this is fine since we will usually be performing lookups and aggregating
     /// a number of results equal to the size of a bucket.
-    pub fn closest_nodes<'a>(&'a self, node_id: NodeId) -> ClosestNodes<'a> {
+    pub fn closest_nodes(&self, node_id: NodeId) -> ClosestNodes {
         ClosestNodes::new(&self.buckets, self.node_id, node_id)
     }
 
     /// Iterator over all buckets in the routing table.
-    pub fn buckets<'a>(&'a self) -> Buckets<'a> {
+    pub fn buckets(&self) -> Buckets {
         Buckets::new(&self.buckets)
     }
 
@@ -54,15 +52,15 @@ impl RoutingTable {
         let bucket_index = leading_bit_count(self.node_id, node.id());
 
         // Check the sorted bucket
-        let opt_bucket_contents = if let Some(c) = self.buckets().skip(bucket_index).next() {
+        let opt_bucket_contents = if let Some(c) = self.buckets().nth(bucket_index) {
             // Got the sorted bucket
             Some(c)
         } else {
             // Grab the assorted bucket (if it exists)
             self.buckets().find(|c| match c {
-                &BucketContents::Empty => false,
-                &BucketContents::Sorted(_) => false,
-                &BucketContents::Assorted(_) => true,
+                BucketContents::Empty => false,
+                BucketContents::Sorted(_) => false,
+                BucketContents::Assorted(_) => true,
             })
         };
 
@@ -97,7 +95,7 @@ impl RoutingTable {
             // Bucket was full, try to split it
             if self.split_bucket(bucket_index) {
                 // Bucket split successfully, try to add again
-                self.bucket_node(node.clone(), num_same_bits);
+                self.bucket_node(node, num_same_bits);
             }
         }
     }
@@ -187,26 +185,17 @@ pub enum BucketContents<'a> {
 impl<'a> BucketContents<'a> {
     #[allow(unused)]
     fn is_empty(&self) -> bool {
-        match self {
-            &BucketContents::Empty => true,
-            _ => false,
-        }
+        matches!(self, BucketContents::Empty)
     }
 
     #[allow(unused)]
     fn is_sorted(&self) -> bool {
-        match self {
-            &BucketContents::Sorted(_) => true,
-            _ => false,
-        }
+        matches!(self, BucketContents::Sorted(_))
     }
 
     #[allow(unused)]
     fn is_assorted(&self) -> bool {
-        match self {
-            &BucketContents::Assorted(_) => true,
-            _ => false,
-        }
+        matches!(self, BucketContents::Assorted(_))
     }
 }
 
@@ -220,10 +209,7 @@ pub struct Buckets<'a> {
 
 impl<'a> Buckets<'a> {
     fn new(buckets: &'a [Bucket]) -> Buckets<'a> {
-        Buckets {
-            buckets: buckets,
-            index: 0,
-        }
+        Buckets { buckets, index: 0 }
     }
 }
 
@@ -231,29 +217,29 @@ impl<'a> Iterator for Buckets<'a> {
     type Item = BucketContents<'a>;
 
     fn next(&mut self) -> Option<BucketContents<'a>> {
-        if self.index > MAX_BUCKETS {
-            return None;
-        } else if self.index == MAX_BUCKETS {
-            // If not all sorted buckets were present, return the assorted bucket
-            // after the iteration of the last bucket occurs, which is here!
-            self.index += 1;
+        match self.index.cmp(&MAX_BUCKETS) {
+            Ordering::Greater => return None,
+            Ordering::Equal => {
+                // If not all sorted buckets were present, return the assorted bucket
+                // after the iteration of the last bucket occurs, which is here!
+                self.index += 1;
 
-            return if self.buckets.len() == MAX_BUCKETS || self.buckets.is_empty() {
-                None
-            } else {
-                Some(BucketContents::Assorted(
-                    &self.buckets[self.buckets.len() - 1],
-                ))
-            };
+                if self.buckets.len() == MAX_BUCKETS || self.buckets.is_empty() {
+                    return None;
+                } else {
+                    return Some(BucketContents::Assorted(
+                        &self.buckets[self.buckets.len() - 1],
+                    ));
+                };
+            }
+            Ordering::Less => (),
         }
 
-        if self.index + 1 < self.buckets.len() || self.buckets.len() == MAX_BUCKETS {
-            self.index += 1;
+        self.index += 1;
 
+        if self.index < self.buckets.len() || self.buckets.len() == MAX_BUCKETS {
             Some(BucketContents::Sorted(&self.buckets[self.index - 1]))
         } else {
-            self.index += 1;
-
             Some(BucketContents::Empty)
         }
     }
@@ -289,11 +275,11 @@ impl<'a> ClosestNodes<'a> {
         let assorted_nodes = precompute_assorted_nodes(buckets, self_node_id);
 
         ClosestNodes {
-            buckets: buckets,
-            current_iter: current_iter,
+            buckets,
+            current_iter,
             current_index: start_index,
-            start_index: start_index,
-            assorted_nodes: assorted_nodes,
+            start_index,
+            assorted_nodes,
         }
     }
 }
@@ -306,23 +292,18 @@ impl<'a> Iterator for ClosestNodes<'a> {
 
         // Check if we have any nodes left in the current iterator
         if let Some(ref mut iter) = self.current_iter {
-            match iter.next() {
-                Some(node) => return Some(node),
-                None => (),
-            };
+            if let Some(node) = iter.next() {
+                return Some(node);
+            }
         }
 
         // Check if we have any nodes to give in the assorted bucket
         if let Some(ref mut nodes) = self.assorted_nodes {
             let mut nodes_iter = nodes.iter_mut().filter(|tup| is_good_node(&tup.1));
 
-            match nodes_iter.find(|tup| tup.0 == current_index && !tup.2) {
-                Some(node) => {
-                    node.2 = true;
-
-                    return Some(node.1);
-                }
-                None => (),
+            if let Some(node) = nodes_iter.find(|tup| tup.0 == current_index && !tup.2) {
+                node.2 = true;
+                return Some(node.1);
             };
         }
 
@@ -341,10 +322,10 @@ impl<'a> Iterator for ClosestNodes<'a> {
 }
 
 /// Optionally returns the precomputed bucket positions for all assorted nodes.
-fn precompute_assorted_nodes<'a>(
-    buckets: &'a [Bucket],
+fn precompute_assorted_nodes(
+    buckets: &[Bucket],
     self_node_id: NodeId,
-) -> Option<[(usize, &'a Node, bool); bucket::MAX_BUCKET_SIZE]> {
+) -> Option<[(usize, &Node, bool); bucket::MAX_BUCKET_SIZE]> {
     if buckets.len() == MAX_BUCKETS {
         return None;
     }
@@ -369,7 +350,7 @@ fn precompute_assorted_nodes<'a>(
 }
 
 /// Optionally returns the filter iterator for the bucket at the specified index.
-fn bucket_iterator<'a>(buckets: &'a [Bucket], index: usize) -> Option<GoodNodes<'a>> {
+fn bucket_iterator(buckets: &[Bucket], index: usize) -> Option<GoodNodes> {
     if buckets.len() == MAX_BUCKETS {
         buckets
     } else {
@@ -380,7 +361,7 @@ fn bucket_iterator<'a>(buckets: &'a [Bucket], index: usize) -> Option<GoodNodes<
 }
 
 /// Converts the given iterator into a filter iterator to return only good nodes.
-fn good_node_filter<'a>(iter: Iter<'a, Node>) -> GoodNodes<'a> {
+fn good_node_filter(iter: Iter<Node>) -> GoodNodes {
     iter.filter(is_good_node)
 }
 
@@ -399,42 +380,46 @@ fn next_bucket_index(num_buckets: usize, start_index: usize, curr_index: usize) 
     // Since we prefer going right first, that means if we are on the right side then we want to go
     // to the same offset on the left, however, if we are on the left we want to go 1 past the offset
     // to the right. All assuming we can actually do this without going out of bounds.
-    if curr_index == start_index {
-        let right_index = start_index.checked_add(1);
-        let left_index = start_index.checked_sub(1);
+    match curr_index.cmp(&start_index) {
+        Ordering::Equal => {
+            let right_index = start_index.checked_add(1);
+            let left_index = start_index.checked_sub(1);
 
-        if index_is_in_bounds(num_buckets, right_index) {
-            Some(right_index.unwrap())
-        } else if index_is_in_bounds(num_buckets, left_index) {
-            Some(left_index.unwrap())
-        } else {
-            None
+            if index_is_in_bounds(num_buckets, right_index) {
+                Some(right_index.unwrap())
+            } else if index_is_in_bounds(num_buckets, left_index) {
+                Some(left_index.unwrap())
+            } else {
+                None
+            }
         }
-    } else if curr_index > start_index {
-        let offset = curr_index - start_index;
+        Ordering::Greater => {
+            let offset = curr_index - start_index;
 
-        let left_index = start_index.checked_sub(offset);
-        let right_index = curr_index.checked_add(1);
+            let left_index = start_index.checked_sub(offset);
+            let right_index = curr_index.checked_add(1);
 
-        if index_is_in_bounds(num_buckets, left_index) {
-            Some(left_index.unwrap())
-        } else if index_is_in_bounds(num_buckets, right_index) {
-            Some(right_index.unwrap())
-        } else {
-            None
+            if index_is_in_bounds(num_buckets, left_index) {
+                Some(left_index.unwrap())
+            } else if index_is_in_bounds(num_buckets, right_index) {
+                Some(right_index.unwrap())
+            } else {
+                None
+            }
         }
-    } else {
-        let offset = (start_index - curr_index) + 1;
+        Ordering::Less => {
+            let offset = (start_index - curr_index) + 1;
 
-        let right_index = start_index.checked_add(offset);
-        let left_index = curr_index.checked_sub(1);
+            let right_index = start_index.checked_add(offset);
+            let left_index = curr_index.checked_sub(1);
 
-        if index_is_in_bounds(num_buckets, right_index) {
-            Some(right_index.unwrap())
-        } else if index_is_in_bounds(num_buckets, left_index) {
-            Some(left_index.unwrap())
-        } else {
-            None
+            if index_is_in_bounds(num_buckets, right_index) {
+                Some(right_index.unwrap())
+            } else if index_is_in_bounds(num_buckets, left_index) {
+                Some(left_index.unwrap())
+            } else {
+                None
+            }
         }
     }
 }
@@ -481,8 +466,8 @@ mod tests {
         // Trigger a bucket overflow and since the ids are placed in the last bucket, all of
         // the buckets will be recursively created and inserted into the list of all buckets.
         let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
-        for index in 0..(bucket::MAX_BUCKET_SIZE + 1) {
-            let node = Node::as_good(node_id.into(), block_addrs[index]);
+        for block_addr in block_addrs {
+            let node = Node::as_good(node_id.into(), block_addr);
 
             table.add_node(node);
         }
@@ -501,7 +486,7 @@ mod tests {
         assert!(table
             .buckets()
             .take(table::MAX_BUCKETS)
-            .fold(true, |prev, contents| prev && contents.is_empty()));
+            .all(|contents| contents.is_empty()));
 
         // Last assorted bucket should show up
         assert_eq!(table.buckets().skip(table::MAX_BUCKETS).count(), 1);
@@ -523,8 +508,8 @@ mod tests {
         node_id[0] |= 128;
 
         let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
-        for index in 0..(bucket::MAX_BUCKET_SIZE + 1) {
-            let node = Node::as_good(node_id.into(), block_addrs[index]);
+        for block_addr in block_addrs {
+            let node = Node::as_good(node_id.into(), block_addr);
 
             table.add_node(node);
         }
@@ -549,7 +534,7 @@ mod tests {
             .buckets()
             .skip(1)
             .take(table::MAX_BUCKETS - 1)
-            .fold(true, |prev, contents| prev && contents.is_empty()));
+            .all(|contents| contents.is_empty()));
 
         // Last assorted bucket should show up
         assert_eq!(table.buckets().skip(table::MAX_BUCKETS).count(), 1);
@@ -571,8 +556,8 @@ mod tests {
         node_id[bt::NODE_ID_LEN - 1] = 0;
 
         let block_addrs = bip_test::dummy_block_socket_addrs((bucket::MAX_BUCKET_SIZE + 1) as u16);
-        for index in 0..(bucket::MAX_BUCKET_SIZE + 1) {
-            let node = Node::as_good(node_id.into(), block_addrs[index]);
+        for block_addr in block_addrs {
+            let node = Node::as_good(node_id.into(), block_addr);
 
             table.add_node(node);
         }
@@ -614,10 +599,10 @@ mod tests {
 
         let block_addrs = bip_test::dummy_block_socket_addrs(bucket::MAX_BUCKET_SIZE as u16);
         for bit_flip_index in 0..table::MAX_BUCKETS {
-            for addr_index in 0..block_addrs.len() {
+            for block_addr in &block_addrs {
                 let bucket_node_id = flip_id_bit_at_index(table_id.into(), bit_flip_index);
 
-                table.add_node(Node::as_good(bucket_node_id, block_addrs[addr_index]));
+                table.add_node(Node::as_good(bucket_node_id, *block_addr));
             }
         }
 

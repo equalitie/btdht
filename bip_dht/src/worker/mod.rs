@@ -31,15 +31,15 @@ pub enum OneshotTask {
 
 /// Task that our DHT will execute some time later.
 #[derive(Copy, Clone, Debug)]
-pub enum ScheduledTask {
+pub enum ScheduledTaskCheck {
     /// Check the progress of the bucket refresh.
-    CheckTableRefresh(TransactionID),
+    TableRefresh(TransactionID),
     /// Check the progress of the current bootstrap.
-    CheckBootstrapTimeout(TransactionID),
+    BootstrapTimeout(TransactionID),
     /// Check the progress of a current lookup.
-    CheckLookupTimeout(TransactionID),
+    LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
-    CheckLookupEndGame(TransactionID),
+    LookupEndGame(TransactionID),
 }
 
 /// Event that occured within the DHT which clients may be interested in.

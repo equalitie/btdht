@@ -46,8 +46,8 @@ impl Node {
     /// Create a new node that has recently responded to us but never requested from us.
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            id: id,
-            addr: addr,
+            id,
+            addr,
             last_response: Cell::new(Some(UTC::now())),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -61,8 +61,8 @@ impl Node {
         let last_response = test::travel_into_past(last_response_offset);
 
         Node {
-            id: id,
-            addr: addr,
+            id,
+            addr,
             last_response: Cell::new(Some(last_response)),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -72,8 +72,8 @@ impl Node {
     /// Create a new node that has never responded to us or requested from us.
     pub fn as_bad(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            id: id,
-            addr: addr,
+            id,
+            addr,
             last_response: Cell::new(None),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -353,20 +353,17 @@ mod tests {
     fn positive_good_status_ordering() {
         assert!(NodeStatus::Good > NodeStatus::Questionable);
         assert!(NodeStatus::Good > NodeStatus::Bad);
-        assert!(NodeStatus::Good == NodeStatus::Good);
     }
 
     #[test]
     fn positive_questionable_status_ordering() {
         assert!(NodeStatus::Questionable > NodeStatus::Bad);
         assert!(NodeStatus::Questionable < NodeStatus::Good);
-        assert!(NodeStatus::Questionable == NodeStatus::Questionable);
     }
 
     #[test]
     fn positive_bad_status_ordering() {
         assert!(NodeStatus::Bad < NodeStatus::Good);
         assert!(NodeStatus::Bad < NodeStatus::Questionable);
-        assert!(NodeStatus::Bad == NodeStatus::Bad);
     }
 }

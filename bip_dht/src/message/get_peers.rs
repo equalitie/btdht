@@ -19,9 +19,9 @@ pub struct GetPeersRequest<'a> {
 impl<'a> GetPeersRequest<'a> {
     pub fn new(trans_id: &'a [u8], node_id: NodeId, info_hash: InfoHash) -> GetPeersRequest<'a> {
         GetPeersRequest {
-            trans_id: trans_id,
-            node_id: node_id,
-            info_hash: info_hash,
+            trans_id,
+            node_id,
+            info_hash,
         }
     }
 
@@ -42,7 +42,7 @@ impl<'a> GetPeersRequest<'a> {
     }
 
     pub fn transaction_id(&self) -> &'a [u8] {
-        &self.trans_id
+        self.trans_id
     }
 
     pub fn node_id(&self) -> NodeId {
@@ -93,10 +93,10 @@ impl<'a> GetPeersResponse<'a> {
         info_type: CompactInfoType<'a>,
     ) -> GetPeersResponse<'a> {
         GetPeersResponse {
-            trans_id: trans_id,
-            node_id: node_id,
-            token: token,
-            info_type: info_type,
+            trans_id,
+            node_id,
+            token,
+            info_type,
         }
     }
 
@@ -165,12 +165,9 @@ impl<'a> GetPeersResponse<'a> {
             message::NODE_ID_KEY.as_bytes(),
             ben_bytes!(self.node_id.as_ref()),
         );
-        match self.token {
-            Some(token) => {
-                response_args.insert(message::TOKEN_KEY.as_bytes(), ben_bytes!(token));
-            }
-            None => (),
-        };
+        if let Some(token) = self.token {
+            response_args.insert(message::TOKEN_KEY.as_bytes(), ben_bytes!(token));
+        }
 
         match self.info_type {
             CompactInfoType::Nodes(nodes) => {

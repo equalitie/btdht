@@ -8,7 +8,7 @@ use crate::message::find_node::FindNodeResponse;
 use crate::message::get_peers::GetPeersResponse;
 use crate::message::ping::PingResponse;
 
-pub const RESPONSE_ARGS_KEY: &'static str = "r";
+pub const RESPONSE_ARGS_KEY: &str = "r";
 
 // ----------------------------------------------------------------------------//
 
@@ -18,7 +18,7 @@ pub struct ResponseValidate<'a> {
 
 impl<'a> ResponseValidate<'a> {
     pub fn new(trans_id: &'a [u8]) -> ResponseValidate<'a> {
-        ResponseValidate { trans_id: trans_id }
+        ResponseValidate { trans_id }
     }
 
     pub fn validate_node_id(&self, node_id: &[u8]) -> DhtResult<NodeId> {

@@ -38,12 +38,12 @@ impl Bucket {
 
     /// Iterator over all good nodes in the bucket.
     #[allow(unused)]
-    pub fn good_nodes<'a>(&'a self) -> GoodNodes<'a> {
+    pub fn good_nodes(&self) -> GoodNodes {
         GoodNodes::new(&self.nodes)
     }
 
     /// Iterator over all good nodes and questionable nodes in the bucket.
-    pub fn pingable_nodes<'a>(&'a self) -> PingableNodes<'a> {
+    pub fn pingable_nodes(&self) -> PingableNodes {
         PingableNodes::new(&self.nodes)
     }
 
@@ -59,7 +59,7 @@ impl Bucket {
     pub fn needs_refresh(&self) -> bool {
         self.nodes
             .iter()
-            .fold(true, |prev, node| prev && node.status() != NodeStatus::Good)
+            .all(|node| node.status() != NodeStatus::Good)
     }
 
     /// Attempt to add the given Node to the bucket if it is not in a bad state.
@@ -178,8 +178,8 @@ mod tests {
 
         let dummy_addr = bip_test::dummy_socket_addr_v4();
         let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
-        for index in 0..super::MAX_BUCKET_SIZE {
-            let node = Node::as_questionable(dummy_ids[index], dummy_addr);
+        for id in dummy_ids {
+            let node = Node::as_questionable(id, dummy_addr);
             bucket.add_node(node);
         }
 
@@ -193,8 +193,8 @@ mod tests {
 
         let dummy_addr = bip_test::dummy_socket_addr_v4();
         let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
-        for index in 0..super::MAX_BUCKET_SIZE {
-            let node = Node::as_good(dummy_ids[index], dummy_addr);
+        for id in dummy_ids {
+            let node = Node::as_good(id, dummy_addr);
             bucket.add_node(node);
         }
 
@@ -208,8 +208,8 @@ mod tests {
 
         let dummy_addr = bip_test::dummy_socket_addr_v4();
         let dummy_ids = bip_test::dummy_block_node_ids(super::MAX_BUCKET_SIZE as u8);
-        for index in 0..super::MAX_BUCKET_SIZE {
-            let node = Node::as_questionable(dummy_ids[index], dummy_addr);
+        for id in &dummy_ids {
+            let node = Node::as_questionable(*id, dummy_addr);
             bucket.add_node(node);
         }
 
@@ -230,8 +230,8 @@ mod tests {
 
         let dummy_addr = bip_test::dummy_socket_addr_v4();
         let dummy_ids = bip_test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
-        for index in 0..super::MAX_BUCKET_SIZE {
-            let node = Node::as_good(dummy_ids[index], dummy_addr);
+        for id in &dummy_ids {
+            let node = Node::as_good(*id, dummy_addr);
             bucket.add_node(node);
         }
 
@@ -243,19 +243,13 @@ mod tests {
         let new_good_node = Node::as_good(unused_id, dummy_addr);
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket
-            .good_nodes()
-            .find(|node| &&new_good_node == node)
-            .is_none());
+        assert!(!bucket.good_nodes().any(|node| &new_good_node == node));
 
         // Try to add it
         bucket.add_node(new_good_node.clone());
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket
-            .good_nodes()
-            .find(|node| &&new_good_node == node)
-            .is_none());
+        assert!(!bucket.good_nodes().any(|node| &new_good_node == node));
     }
 
     #[test]
@@ -264,8 +258,8 @@ mod tests {
 
         let dummy_addr = bip_test::dummy_socket_addr_v4();
         let dummy_ids = bip_test::dummy_block_node_ids((super::MAX_BUCKET_SIZE as u8) + 1);
-        for index in 0..super::MAX_BUCKET_SIZE {
-            let node = Node::as_questionable(dummy_ids[index], dummy_addr);
+        for id in &dummy_ids {
+            let node = Node::as_questionable(*id, dummy_addr);
             bucket.add_node(node);
         }
 
@@ -283,13 +277,12 @@ mod tests {
         let new_questionable_node = Node::as_questionable(unused_id, dummy_addr);
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket
+        assert!(!bucket
             .pingable_nodes()
-            .find(|node| &&new_questionable_node == node)
-            .is_none());
+            .any(|node| &new_questionable_node == node));
 
         // Try to add it
-        bucket.add_node(new_questionable_node.clone());
+        bucket.add_node(new_questionable_node);
 
         // Make sure the node is NOT in the bucket
         assert_eq!(

@@ -31,7 +31,7 @@ use crate::transaction::{AIDGenerator, ActionID, TransactionID};
 use crate::worker::bootstrap::{BootstrapStatus, TableBootstrap};
 use crate::worker::lookup::{LookupStatus, TableLookup};
 use crate::worker::refresh::{RefreshStatus, TableRefresh};
-use crate::worker::{DhtEvent, OneshotTask, ScheduledTask, ShutdownCause};
+use crate::worker::{DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause};
 
 use crate::routing::node::NodeStatus;
 use crate::routing::table::BucketContents;
@@ -95,6 +95,7 @@ enum TableAction {
 }
 
 /// Actions that we want to perform on our RoutingTable after bootstrapping finishes.
+#[allow(clippy::large_enum_variant)]
 enum PostBootstrapAction {
     /// Future lookup action.
     Lookup(InfoHash, bool),
@@ -144,27 +145,27 @@ impl DhtHandler {
         )];
 
         let detached = DetachedDhtHandler {
-            read_only: read_only,
+            read_only,
             announce_port,
             out_channel: out,
             token_store: TokenStore::new(),
-            aid_generator: aid_generator,
+            aid_generator,
             bootstrapping: false,
             routing_table: table,
             active_stores: AnnounceStorage::new(),
-            future_actions: future_actions,
+            future_actions,
             event_notifiers: Vec::new(),
         };
 
         Self {
-            detached: detached,
+            detached,
             table_actions: HashMap::new(),
         }
     }
 }
 
 impl Handler for DhtHandler {
-    type Timeout = (u64, ScheduledTask);
+    type Timeout = (u64, ScheduledTaskCheck);
     type Message = OneshotTask;
 
     fn notify(&mut self, event_loop: &mut EventLoop<DhtHandler>, task: OneshotTask) {
@@ -193,11 +194,11 @@ impl Handler for DhtHandler {
         }
     }
 
-    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler>, data: (u64, ScheduledTask)) {
+    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler>, data: (u64, ScheduledTaskCheck)) {
         let (_, task) = data;
 
         match task {
-            ScheduledTask::CheckTableRefresh(trans_id) => {
+            ScheduledTaskCheck::TableRefresh(trans_id) => {
                 handle_check_table_refresh(
                     &mut self.table_actions,
                     &mut self.detached,
@@ -205,13 +206,13 @@ impl Handler for DhtHandler {
                     trans_id,
                 );
             }
-            ScheduledTask::CheckBootstrapTimeout(trans_id) => {
+            ScheduledTaskCheck::BootstrapTimeout(trans_id) => {
                 handle_check_bootstrap_timeout(self, event_loop, trans_id);
             }
-            ScheduledTask::CheckLookupTimeout(trans_id) => {
+            ScheduledTaskCheck::LookupTimeout(trans_id) => {
                 handle_check_lookup_timeout(self, event_loop, trans_id);
             }
-            ScheduledTask::CheckLookupEndGame(trans_id) => {
+            ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 handle_check_lookup_endgame(self, event_loop, trans_id);
             }
         }
@@ -379,9 +380,8 @@ fn handle_incoming(
     // Also, check for read only flags on responses we get before adding nodes
     // to our RoutingTable.
     if work_storage.read_only {
-        match message {
-            Ok(MessageType::Request(_)) => return,
-            _ => (),
+        if let Ok(MessageType::Request(_)) = message {
+            return;
         }
     }
 
@@ -392,10 +392,9 @@ fn handle_incoming(
             let node = Node::as_good(p.node_id(), addr);
 
             // Node requested from us, mark it in the Routingtable
-            work_storage
-                .routing_table
-                .find_node(&node)
-                .map(|n| n.remote_request());
+            if let Some(n) = work_storage.routing_table.find_node(&node) {
+                n.remote_request()
+            }
 
             let ping_rsp =
                 PingResponse::new(p.transaction_id(), work_storage.routing_table.node_id());
@@ -411,10 +410,9 @@ fn handle_incoming(
             let node = Node::as_good(f.node_id(), addr);
 
             // Node requested from us, mark it in the Routingtable
-            work_storage
-                .routing_table
-                .find_node(&node)
-                .map(|n| n.remote_request());
+            if let Some(n) = work_storage.routing_table.find_node(&node) {
+                n.remote_request()
+            }
 
             // Grab the closest nodes
             let mut closest_nodes_bytes = Vec::with_capacity(26 * 8);
@@ -448,10 +446,9 @@ fn handle_incoming(
             let node = Node::as_good(g.node_id(), addr);
 
             // Node requested from us, mark it in the Routingtable
-            work_storage
-                .routing_table
-                .find_node(&node)
-                .map(|n| n.remote_request());
+            if let Some(n) = work_storage.routing_table.find_node(&node) {
+                n.remote_request()
+            }
 
             // TODO: Move socket address serialization code into bip_util
             // TODO: Check what the maximum number of values we can give without overflowing a udp packet
@@ -536,10 +533,9 @@ fn handle_incoming(
             let node = Node::as_good(a.node_id(), addr);
 
             // Node requested from us, mark it in the Routingtable
-            work_storage
-                .routing_table
-                .find_node(&node)
-                .map(|n| n.remote_request());
+            if let Some(n) = work_storage.routing_table.find_node(&node) {
+                n.remote_request()
+            }
 
             // Validate the token
             let is_valid = match Token::new(a.token()) {
@@ -796,7 +792,7 @@ fn handle_start_bootstrap(
 
     let router_iter = routers
         .into_iter()
-        .filter_map(|r| r.ipv4_addr().ok().map(|v4| SocketAddr::V4(v4)));
+        .filter_map(|r| r.ipv4_addr().ok().map(SocketAddr::V4));
 
     let mid_generator = work_storage.aid_generator.generate();
     let action_id = mid_generator.action_id();

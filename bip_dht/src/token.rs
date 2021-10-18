@@ -50,15 +50,15 @@ impl Token {
     }
 }
 
-impl Into<[u8; sha::SHA_HASH_LEN]> for Token {
-    fn into(self) -> [u8; sha::SHA_HASH_LEN] {
-        self.token
+impl From<Token> for [u8; sha::SHA_HASH_LEN] {
+    fn from(token: Token) -> [u8; sha::SHA_HASH_LEN] {
+        token.token
     }
 }
 
 impl From<[u8; sha::SHA_HASH_LEN]> for Token {
     fn from(token: [u8; sha::SHA_HASH_LEN]) -> Token {
-        Token { token: token }
+        Token { token }
     }
 }
 
@@ -88,9 +88,9 @@ impl TokenStore {
         let last_refresh = UTC::now();
 
         TokenStore {
-            curr_secret: curr_secret,
-            last_secret: last_secret,
-            last_refresh: last_refresh,
+            curr_secret,
+            last_secret,
+            last_refresh,
         }
     }
 

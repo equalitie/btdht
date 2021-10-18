@@ -32,8 +32,8 @@ fn main() {
     let stdin_lock = stdin.lock();
     for byte in stdin_lock.bytes() {
         match &[byte.unwrap()] {
-            b"a" => dht.search(hash.into(), true),
-            b"s" => dht.search(hash.into(), false),
+            b"a" => dht.search(hash, true),
+            b"s" => dht.search(hash, false),
             _ => (),
         }
     }
