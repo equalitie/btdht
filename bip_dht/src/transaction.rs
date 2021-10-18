@@ -1,3 +1,4 @@
+use rand::seq::SliceRandom;
 use std::convert::TryInto;
 
 // Transaction IDs are going to be vital for both scalability and performance concerns.
@@ -69,7 +70,7 @@ impl AIDGenerator {
         let (next_alloc, mut action_ids) = generate_aids(0);
 
         // Randomize the order of ids
-        bip_util::fisher_shuffle(&mut action_ids);
+        action_ids.shuffle(&mut rand::thread_rng());
 
         AIDGenerator {
             next_alloc,
@@ -91,7 +92,7 @@ impl AIDGenerator {
             let (next_alloc, mut action_ids) = generate_aids(self.next_alloc);
 
             // Randomize the order of ids
-            bip_util::fisher_shuffle(&mut action_ids);
+            action_ids.shuffle(&mut rand::thread_rng());
 
             self.next_alloc = next_alloc;
             self.action_ids = action_ids;
@@ -158,7 +159,7 @@ impl MIDGenerator {
             let (next_alloc, mut message_ids) = generate_mids(self.next_alloc);
 
             // Randomize the order of ids
-            bip_util::fisher_shuffle(&mut message_ids);
+            message_ids.shuffle(&mut rand::thread_rng());
 
             self.next_alloc = next_alloc;
             self.message_ids = message_ids;
