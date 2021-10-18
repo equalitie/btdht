@@ -10,7 +10,7 @@ use mio::{EventLoop, Timeout};
 use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
 use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
 use crate::routing::bucket;
-use crate::routing::node::{Node, NodeStatus};
+use crate::routing::node::{Node, NodeKey, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
@@ -52,8 +52,8 @@ pub struct TableLookup {
     // interestingly enough (and super important), this distance may not be eqaul to the
     // requested node's distance
     active_lookups: HashMap<TransactionID, (DistanceToBeat, Timeout)>,
-    announce_tokens: HashMap<Node, Vec<u8>>,
-    requested_nodes: HashSet<Node>,
+    announce_tokens: HashMap<NodeKey, Vec<u8>>,
+    requested_nodes: HashSet<NodeKey>,
     // Storing whether or not it has ever been pinged so that we
     // can perform the brute force lookup if the lookup failed
     all_sorted_nodes: Vec<(Distance, Node, bool)>,
@@ -148,7 +148,7 @@ impl TableLookup {
 
         // Add the announce token to our list of tokens
         if let Some(token) = msg.token() {
-            self.announce_tokens.insert(node, token.to_vec());
+            self.announce_tokens.insert(*node.key(), token.to_vec());
         }
 
         // Pull out the contact information from the message
@@ -167,9 +167,8 @@ impl TableLookup {
 
             // Filter for nodes that we have already requested from
             let already_requested = |node_info: &(NodeId, SocketAddrV4)| {
-                let node = Node::as_questionable(node_info.0, SocketAddr::V4(node_info.1));
-
-                !requested_nodes.contains(&node)
+                let node_key = NodeKey::new(node_info.0, SocketAddr::V4(node_info.1));
+                !requested_nodes.contains(&node_key)
             };
 
             // Get the closest distance (or the current distance)
@@ -289,14 +288,14 @@ impl TableLookup {
             // Partial borrow so the filter function doesnt capture all of self
             let announce_tokens = &self.announce_tokens;
 
-            for &(_, ref node, _) in self
+            for (_, node, _) in self
                 .all_sorted_nodes
                 .iter()
-                .filter(|&&(_, ref node, _)| announce_tokens.contains_key(node))
+                .filter(|(_, node, _)| announce_tokens.contains_key(node.key()))
                 .take(ANNOUNCE_PICK_NUM)
             {
                 let trans_id = self.id_generator.generate();
-                let token = announce_tokens.get(node).unwrap();
+                let token = announce_tokens.get(node.key()).unwrap();
                 let port = match announce_port {
                     Some(port) => ConnectPort::Explicit(port),
                     None => ConnectPort::Implied,
@@ -388,7 +387,7 @@ impl TableLookup {
             }
 
             // We requested from the node, mark it down
-            self.requested_nodes.insert(node.clone());
+            self.requested_nodes.insert(*node.key());
 
             // Update the node in the routing table
             if let Some(n) = table.find_node(node) {

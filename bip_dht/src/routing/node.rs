@@ -34,9 +34,9 @@ pub enum NodeStatus {
 }
 
 /// Node participating in the dht.
+#[derive(Clone)]
 pub struct Node {
-    id: NodeId,
-    addr: SocketAddr,
+    key: NodeKey,
     last_request: Cell<Option<DateTime<UTC>>>,
     last_response: Cell<Option<DateTime<UTC>>>,
     refresh_requests: Cell<usize>,
@@ -46,8 +46,7 @@ impl Node {
     /// Create a new node that has recently responded to us but never requested from us.
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            id,
-            addr,
+            key: NodeKey { id, addr },
             last_response: Cell::new(Some(UTC::now())),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -61,8 +60,7 @@ impl Node {
         let last_response = test::travel_into_past(last_response_offset);
 
         Node {
-            id,
-            addr,
+            key: NodeKey { id, addr },
             last_response: Cell::new(Some(last_response)),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -72,8 +70,7 @@ impl Node {
     /// Create a new node that has never responded to us or requested from us.
     pub fn as_bad(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            id,
-            addr,
+            key: NodeKey { id, addr },
             last_response: Cell::new(None),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -103,11 +100,11 @@ impl Node {
     }
 
     pub fn id(&self) -> NodeId {
-        self.id
+        self.key.id
     }
 
     pub fn addr(&self) -> SocketAddr {
-        self.addr
+        self.key.addr
     }
 
     pub fn encode(&self) -> [u8; 26] {
@@ -117,12 +114,12 @@ impl Node {
             let mut encoded_iter = encoded.iter_mut();
 
             // Copy the node id over
-            for (src, dst) in self.id.as_ref().iter().zip(encoded_iter.by_ref()) {
+            for (src, dst) in self.key.id.as_ref().iter().zip(encoded_iter.by_ref()) {
                 *dst = *src;
             }
 
             // Copy the ip address over
-            match self.addr {
+            match self.key.addr {
                 SocketAddr::V4(v4) => {
                     for (src, dst) in v4.ip().octets().iter().zip(encoded_iter.by_ref()) {
                         *dst = *src;
@@ -133,7 +130,7 @@ impl Node {
         }
 
         // Copy the port over
-        let port = self.addr.port();
+        let port = self.key.addr.port();
         encoded[24] = (port >> 8) as u8;
         encoded[25] = port as u8;
 
@@ -152,13 +149,17 @@ impl Node {
 
         recently_requested(self, curr_time)
     }
+
+    pub(crate) fn key(&self) -> &NodeKey {
+        &self.key
+    }
 }
 
 impl Eq for Node {}
 
 impl PartialEq<Node> for Node {
     fn eq(&self, other: &Node) -> bool {
-        self.id == other.id && self.addr == other.addr
+        self.key == other.key
     }
 }
 
@@ -167,20 +168,7 @@ impl Hash for Node {
     where
         H: Hasher,
     {
-        self.id.hash(state);
-        self.addr.hash(state);
-    }
-}
-
-impl Clone for Node {
-    fn clone(&self) -> Node {
-        Node {
-            id: self.id,
-            addr: self.addr,
-            last_response: self.last_response.clone(),
-            last_request: self.last_request.clone(),
-            refresh_requests: self.refresh_requests.clone(),
-        }
+        self.key.hash(state);
     }
 }
 
@@ -189,12 +177,25 @@ impl Debug for Node {
         f.write_fmt(format_args!(
             "Node{{ id: {:?}, addr: {:?}, last_request: {:?}, \
                                   last_response: {:?}, refresh_requests: {:?} }}",
-            self.id,
-            self.addr,
+            self.key.id,
+            self.key.addr,
             self.last_request.get(),
             self.last_response.get(),
             self.refresh_requests.get()
         ))
+    }
+}
+
+/// Key uniquely identifying a node in the network.
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct NodeKey {
+    pub id: NodeId,
+    pub addr: SocketAddr,
+}
+
+impl NodeKey {
+    pub fn new(id: NodeId, addr: SocketAddr) -> Self {
+        Self { id, addr }
     }
 }
 
