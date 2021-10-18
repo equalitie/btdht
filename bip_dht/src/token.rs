@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-use chrono::{DateTime, Duration, UTC};
+use std::time::{Duration, Instant};
 
 use crate::id::{LengthError, ShaHash, SHA_HASH_LEN};
 
@@ -20,7 +19,7 @@ use crate::id::{LengthError, ShaHash, SHA_HASH_LEN};
 /// individual token has been checked out from the store and so each token is valid for some time
 /// between 10 and 20 minutes in contrast with 5 and 10 minutes.
 
-const REFRESH_INTERVAL_MINS: i64 = 10;
+const REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 const IPV4_SECRET_BUFFER_LEN: usize = 4 + 4;
 const IPV6_SECRET_BUFFER_LEN: usize = 16 + 4;
@@ -62,7 +61,7 @@ impl AsRef<[u8]> for Token {
 pub struct TokenStore {
     curr_secret: u32,
     last_secret: u32,
-    last_refresh: DateTime<UTC>,
+    last_refresh: Instant,
 }
 
 impl TokenStore {
@@ -73,7 +72,7 @@ impl TokenStore {
         // under that secret. We could go the option route but that isnt as clean.
         let curr_secret = rand::random::<u32>();
         let last_secret = rand::random::<u32>();
-        let last_refresh = UTC::now();
+        let last_refresh = Instant::now();
 
         TokenStore {
             curr_secret,
@@ -100,12 +99,12 @@ impl TokenStore {
             1 => {
                 self.last_secret = self.curr_secret;
                 self.curr_secret = rand::random::<u32>();
-                self.last_refresh = UTC::now();
+                self.last_refresh = Instant::now();
             }
             _ => {
                 self.last_secret = rand::random::<u32>();
                 self.curr_secret = rand::random::<u32>();
-                self.last_refresh = UTC::now();
+                self.last_refresh = Instant::now();
             }
         };
     }
@@ -116,13 +115,11 @@ impl TokenStore {
 /// invalid.
 ///
 /// Returns the number of intervals that have passed since the last refresh time.
-fn intervals_passed(last_refresh: DateTime<UTC>) -> i64 {
-    let refresh_duration = Duration::minutes(REFRESH_INTERVAL_MINS);
-    let curr_time = UTC::now();
-
+fn intervals_passed(last_refresh: Instant) -> u64 {
+    let curr_time = Instant::now();
     let diff_time = curr_time - last_refresh;
 
-    diff_time.num_minutes() / refresh_duration.num_minutes()
+    diff_time.as_secs() / REFRESH_INTERVAL.as_secs()
 }
 
 /// Generate a token from an ip address and a secret.
@@ -189,7 +186,7 @@ fn validate_token_from_addr_v6(v6_addr: Ipv6Addr, token: Token, secret: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
+    use std::time::Duration;
 
     use crate::test;
     use crate::token::TokenStore;
@@ -221,7 +218,7 @@ mod tests {
 
         let valid_token = store.checkout(v4_addr);
 
-        let past_offset = Duration::minutes((super::REFRESH_INTERVAL_MINS * 2) - 1);
+        let past_offset = super::REFRESH_INTERVAL * 2 - Duration::from_secs(60);
         let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
@@ -235,7 +232,7 @@ mod tests {
 
         let valid_token = store.checkout(v6_addr);
 
-        let past_offset = Duration::minutes((super::REFRESH_INTERVAL_MINS * 2) - 1);
+        let past_offset = super::REFRESH_INTERVAL * 2 - Duration::from_secs(60);
         let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
@@ -250,7 +247,7 @@ mod tests {
 
         let valid_token = store.checkout(v4_addr);
 
-        let past_offset = Duration::minutes(super::REFRESH_INTERVAL_MINS * 2);
+        let past_offset = super::REFRESH_INTERVAL * 2;
         let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 
@@ -265,7 +262,7 @@ mod tests {
 
         let valid_token = store.checkout(v6_addr);
 
-        let past_offset = Duration::minutes(super::REFRESH_INTERVAL_MINS * 2);
+        let past_offset = super::REFRESH_INTERVAL * 2;
         let past_time = test::travel_into_past(past_offset);
         store.last_refresh = past_time;
 

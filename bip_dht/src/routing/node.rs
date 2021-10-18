@@ -2,8 +2,7 @@ use std::cell::Cell;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
-
-use chrono::{DateTime, Duration, UTC};
+use std::time::{Duration, Instant};
 
 use crate::id::NodeId;
 
@@ -18,7 +17,7 @@ use crate::id::NodeId;
 // TODO: Should we be storing a SocketAddr instead of a SocketAddrV4?
 
 /// Maximum wait period before a node becomes questionable.
-const MAX_LAST_SEEN_MINS: i64 = 15;
+const MAX_LAST_SEEN_MINS: u64 = 15;
 
 /// Maximum number of requests before a Questionable node becomes Bad.
 const MAX_REFRESH_REQUESTS: usize = 2;
@@ -37,8 +36,8 @@ pub enum NodeStatus {
 #[derive(Clone)]
 pub struct Node {
     key: NodeKey,
-    last_request: Cell<Option<DateTime<UTC>>>,
-    last_response: Cell<Option<DateTime<UTC>>>,
+    last_request: Cell<Option<Instant>>,
+    last_response: Cell<Option<Instant>>,
     refresh_requests: Cell<usize>,
 }
 
@@ -47,7 +46,7 @@ impl Node {
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
             key: NodeKey { id, addr },
-            last_response: Cell::new(Some(UTC::now())),
+            last_response: Cell::new(Some(Instant::now())),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
         }
@@ -55,8 +54,8 @@ impl Node {
 
     /// Create a questionable node that has responded to us before but never requested from us.
     pub fn as_questionable(id: NodeId, addr: SocketAddr) -> Node {
-        let last_response_offset = Duration::minutes(MAX_LAST_SEEN_MINS);
-        let last_response = UTC::now().checked_sub(last_response_offset).unwrap();
+        let last_response_offset = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
+        let last_response = Instant::now().checked_sub(last_response_offset).unwrap();
 
         Node {
             key: NodeKey { id, addr },
@@ -87,13 +86,13 @@ impl Node {
 
     /// Record that the node sent us a request.
     pub fn remote_request(&self) {
-        self.last_request.set(Some(UTC::now()));
+        self.last_request.set(Some(Instant::now()));
     }
 
     /// Record that the node sent us a response.
     #[allow(unused)] // TODO: find out why is this unused
     pub fn remote_response(&self) {
-        self.last_response.set(Some(UTC::now()));
+        self.last_response.set(Some(Instant::now()));
 
         self.refresh_requests.set(0);
     }
@@ -138,7 +137,7 @@ impl Node {
 
     /// Current status of the node.
     pub fn status(&self) -> NodeStatus {
-        let curr_time = UTC::now();
+        let curr_time = Instant::now();
 
         match recently_responded(self, curr_time) {
             NodeStatus::Good => return NodeStatus::Good,
@@ -207,7 +206,7 @@ impl NodeKey {
 ///
 /// Returns the status of the node where a Questionable status means the node has responded
 /// to us before, but not recently.
-fn recently_responded(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
+fn recently_responded(node: &Node, curr_time: Instant) -> NodeStatus {
     // Check if node has ever responded to us
     let since_response = match node.last_response.get() {
         Some(response_time) => curr_time - response_time,
@@ -215,7 +214,7 @@ fn recently_responded(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
     };
 
     // Check if node has recently responded to us
-    let max_last_response = Duration::minutes(MAX_LAST_SEEN_MINS);
+    let max_last_response = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
     if since_response < max_last_response {
         NodeStatus::Good
     } else {
@@ -228,8 +227,8 @@ fn recently_responded(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
 ///
 /// Returns the final status of the node given that the first scenario found the node to be
 /// Questionable.
-fn recently_requested(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
-    let max_last_request = Duration::minutes(MAX_LAST_SEEN_MINS);
+fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
+    let max_last_request = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
 
     // Check if the node has recently request from us
     if let Some(request_time) = node.last_request.get() {
@@ -251,8 +250,7 @@ fn recently_requested(node: &Node, curr_time: DateTime<UTC>) -> NodeStatus {
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-
-    use chrono::Duration;
+    use std::time::Duration;
 
     use crate::routing::node::{Node, NodeStatus};
     use crate::test;
@@ -326,7 +324,7 @@ mod tests {
     fn positive_node_idle() {
         let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
-        let time_offset = Duration::minutes(super::MAX_LAST_SEEN_MINS);
+        let time_offset = Duration::from_secs(super::MAX_LAST_SEEN_MINS * 60);
         let idle_time = test::travel_into_past(time_offset);
 
         node.last_response.set(Some(idle_time));

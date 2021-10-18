@@ -22,7 +22,6 @@ log           = "0.4.14"
 mio           = "0.5.0"
 rand          = "0.8.4"
 sha-1         = "0.9.8"
-chrono        = "0.2.0"
 thiserror     = "1.0.30"
 
 [dev-dependencies]

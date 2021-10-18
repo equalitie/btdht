@@ -6,7 +6,6 @@ extern crate bip_bencode;
 extern crate crc;
 #[macro_use]
 extern crate log;
-extern crate chrono;
 extern crate mio;
 
 // Mainline DHT extensions supported on behalf of libtorrent:

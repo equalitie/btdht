@@ -1,8 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
-use chrono::{DateTime, Duration, UTC};
+use std::time::{Duration, Instant};
 
 use crate::id::InfoHash;
 
@@ -25,10 +24,10 @@ impl AnnounceStorage {
 
     /// Returns true if the item was added/it's existing expiration updated, false otherwise.
     pub fn add_item(&mut self, info_hash: InfoHash, address: SocketAddr) -> bool {
-        self.add(info_hash, address, UTC::now())
+        self.add(info_hash, address, Instant::now())
     }
 
-    fn add(&mut self, info_hash: InfoHash, address: SocketAddr, curr_time: DateTime<UTC>) -> bool {
+    fn add(&mut self, info_hash: InfoHash, address: SocketAddr, curr_time: Instant) -> bool {
         // Clear out any old contacts that we have stored
         self.remove_expired_items(curr_time);
         let item = AnnounceItem::new(info_hash, address);
@@ -56,10 +55,10 @@ impl AnnounceStorage {
     where
         F: FnMut(SocketAddr),
     {
-        self.find(info_hash, item_func, UTC::now())
+        self.find(info_hash, item_func, Instant::now())
     }
 
-    fn find<F>(&mut self, info_hash: &InfoHash, mut item_func: F, curr_time: DateTime<UTC>)
+    fn find<F>(&mut self, info_hash: &InfoHash, mut item_func: F, curr_time: Instant)
     where
         F: FnMut(SocketAddr),
     {
@@ -106,7 +105,7 @@ impl AnnounceStorage {
     }
 
     /// Prunes all expired items from the internal list.
-    fn remove_expired_items(&mut self, curr_time: DateTime<UTC>) {
+    fn remove_expired_items(&mut self, curr_time: Instant) {
         let num_expired_items = self
             .expires
             .iter()
@@ -164,12 +163,12 @@ impl AnnounceItem {
 
 // ----------------------------------------------------------------------------//
 
-const EXPIRATION_TIME_HOURS: i64 = 24;
+const EXPIRATION_TIME: Duration = Duration::from_secs(24 * 60 * 60);
 
 #[derive(Debug, Clone)]
 struct ItemExpiration {
     address: SocketAddr,
-    inserted: DateTime<UTC>,
+    inserted: Instant,
     info_hash: InfoHash,
 }
 
@@ -177,13 +176,13 @@ impl ItemExpiration {
     pub fn new(info_hash: InfoHash, address: SocketAddr) -> ItemExpiration {
         ItemExpiration {
             address,
-            inserted: UTC::now(),
+            inserted: Instant::now(),
             info_hash,
         }
     }
 
-    pub fn is_expired(&self, now: DateTime<UTC>) -> bool {
-        now - self.inserted >= Duration::hours(EXPIRATION_TIME_HOURS)
+    pub fn is_expired(&self, now: Instant) -> bool {
+        now - self.inserted >= EXPIRATION_TIME
     }
 
     pub fn info_hash(&self) -> InfoHash {
@@ -208,7 +207,6 @@ mod tests {
     use crate::id::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
     use crate::test;
-    use chrono::Duration;
 
     #[test]
     fn positive_add_and_retrieve_contact() {
@@ -292,8 +290,7 @@ mod tests {
         assert_eq!(times_invoked, 0);
 
         // Try to add a new item into the storage mocking the current time
-        let mock_current_time =
-            test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
+        let mock_current_time = test::travel_into_future(storage::EXPIRATION_TIME);
         assert!(announce_store.add(
             other_info_hash,
             sock_addrs[sock_addrs.len() - 1],
@@ -336,8 +333,7 @@ mod tests {
         assert_eq!(times_invoked, 0);
 
         // Try to add a new item into the storage mocking the current time
-        let mock_current_time =
-            test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
+        let mock_current_time = test::travel_into_future(storage::EXPIRATION_TIME);
         assert!(announce_store.add(
             info_hash_three,
             sock_addrs[sock_addrs.len() - 1],
