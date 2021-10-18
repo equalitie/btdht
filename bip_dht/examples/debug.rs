@@ -8,7 +8,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
 
 use bip_dht::{DhtBuilder, Handshaker, Router};
-use bip_util::bt::{InfoHash, PeerId};
+use bip_util::bt::InfoHash;
 
 use log::{LogLevel, LogLevelFilter, LogMetadata, LogRecord};
 
@@ -32,14 +32,6 @@ struct SimpleHandshaker {
 }
 
 impl Handshaker for SimpleHandshaker {
-    /// Type of stream used to receive connections from.
-    type MetadataEnvelope = ();
-
-    /// Unique peer id used to identify ourselves to other peers.
-    fn id(&self) -> PeerId {
-        [0u8; 20].into()
-    }
-
     /// Advertise port that is being listened on by the handshaker.
     ///
     /// It is important that this is the external port that the peer will be sending data
@@ -49,7 +41,7 @@ impl Handshaker for SimpleHandshaker {
     }
 
     /// Initiates a handshake with the given socket address.
-    fn connect(&mut self, _: Option<PeerId>, _: InfoHash, addr: SocketAddr) {
+    fn connect(&mut self, _: InfoHash, addr: SocketAddr) {
         if self.filter.contains(&addr) {
             return;
         }
@@ -60,11 +52,6 @@ impl Handshaker for SimpleHandshaker {
             "Received new peer {:?}, total unique peers {}",
             addr, self.count
         );
-    }
-
-    /// Send the given Metadata back to the client.
-    fn metadata(&mut self, _: Self::MetadataEnvelope) {
-        ()
     }
 }
 

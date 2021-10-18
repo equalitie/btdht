@@ -776,7 +776,7 @@ fn handle_incoming<H>(
                             let sock_addr = SocketAddr::V4(v4_addr);
                             work_storage
                                 .handshaker
-                                .connect(None, lookup.info_hash(), sock_addr);
+                                .connect(lookup.info_hash(), sock_addr);
                         }
                     }
                 }
@@ -1091,7 +1091,7 @@ fn handle_check_lookup_timeout<H>(
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
 
-                work_storage.handshaker.connect(None, info_hash, sock_addr);
+                work_storage.handshaker.connect(info_hash, sock_addr);
             }
         }
     }
@@ -1153,7 +1153,7 @@ fn handle_check_lookup_endgame<H>(
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
 
-                work_storage.handshaker.connect(None, info_hash, sock_addr);
+                work_storage.handshaker.connect(info_hash, sock_addr);
             }
         }
     }
