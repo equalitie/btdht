@@ -18,7 +18,7 @@ edition        = "2018"
 [dependencies]
 bip_bencode   = { version = "0.2.0" }
 crc           = "1.2.0"
-log           = "0.3.0"
+log           = "0.4.14"
 mio           = "0.5.0"
 rand          = "0.8.4"
 sha-1         = "0.9.8"

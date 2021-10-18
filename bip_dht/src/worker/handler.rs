@@ -7,7 +7,6 @@ use std::sync::mpsc::{self, SyncSender};
 use std::thread;
 
 use bip_bencode::Bencode;
-use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
 use crate::id::InfoHash;
@@ -656,7 +655,7 @@ fn handle_incoming(
                 );
             }
 
-            if log_enabled!(LogLevel::Info) {
+            if log_enabled!(log::Level::Info) {
                 let mut total = 0;
 
                 for (index, bucket) in work_storage.routing_table.buckets().enumerate() {
