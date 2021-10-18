@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
 
-use bip_handshake::Handshaker;
 use bip_util::bt::{self, NodeId};
 use mio::{EventLoop, Timeout};
 
+use crate::handshaker::Handshaker;
 use crate::message::find_node::FindNodeRequest;
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};

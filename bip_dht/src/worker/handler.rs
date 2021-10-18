@@ -7,13 +7,13 @@ use std::sync::mpsc::{self, SyncSender};
 use std::thread;
 
 use bip_bencode::Bencode;
-use bip_handshake::Handshaker;
 use bip_util::bt::InfoHash;
 use bip_util::convert;
 use bip_util::net::IpAddr;
 use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
+use crate::handshaker::Handshaker;
 use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::error::{ErrorCode, ErrorMessage};

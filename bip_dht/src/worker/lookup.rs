@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::mpsc::SyncSender;
 
-use bip_handshake::Handshaker;
 use bip_util::bt::{self, InfoHash, NodeId};
 use bip_util::net;
 use bip_util::sha::ShaHash;
 use mio::{EventLoop, Timeout};
 
+use crate::handshaker::Handshaker;
 use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
 use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
 use crate::routing::bucket;

@@ -1,5 +1,4 @@
 extern crate bip_dht;
-extern crate bip_handshake;
 extern crate bip_util;
 extern crate log;
 
@@ -8,8 +7,7 @@ use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
 
-use bip_dht::{DhtBuilder, Router};
-use bip_handshake::Handshaker;
+use bip_dht::{DhtBuilder, Handshaker, Router};
 use bip_util::bt::{InfoHash, PeerId};
 
 use log::{LogLevel, LogLevelFilter, LogMetadata, LogRecord};

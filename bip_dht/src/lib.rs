@@ -2,7 +2,6 @@
 
 #[macro_use]
 extern crate bip_bencode;
-extern crate bip_handshake;
 extern crate bip_util;
 
 extern crate crc;
@@ -28,6 +27,7 @@ extern crate rand;
 
 mod builder;
 mod error;
+mod handshaker;
 pub mod message;
 mod router;
 mod routing;
@@ -38,9 +38,9 @@ mod transaction;
 mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
+pub use crate::handshaker::Handshaker;
 pub use crate::router::Router;
 pub use crate::worker::{DhtEvent, ShutdownCause};
 
-pub use bip_handshake::Handshaker;
 /// Test
 pub use bip_util::bt::{InfoHash, PeerId};
