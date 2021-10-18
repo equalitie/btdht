@@ -2,12 +2,11 @@ extern crate bip_dht;
 extern crate bip_util;
 extern crate log;
 
-use std::collections::HashSet;
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
 
-use bip_dht::{DhtBuilder, Handshaker, Router};
+use bip_dht::{DhtBuilder, Router};
 use bip_util::bt::InfoHash;
 
 use log::{LogLevel, LogLevelFilter, LogMetadata, LogRecord};
@@ -26,27 +25,6 @@ impl log::Log for SimpleLogger {
     }
 }
 
-struct SimpleHandshaker {
-    filter: HashSet<SocketAddr>,
-    count: usize,
-}
-
-impl Handshaker for SimpleHandshaker {
-    /// Initiates a handshake with the given socket address.
-    fn connect(&mut self, _: InfoHash, addr: SocketAddr) {
-        if self.filter.contains(&addr) {
-            return;
-        }
-
-        self.filter.insert(addr);
-        self.count += 1;
-        println!(
-            "Received new peer {:?}, total unique peers {}",
-            addr, self.count
-        );
-    }
-}
-
 fn main() {
     log::set_logger(|m| {
         m.set(LogLevelFilter::max());
@@ -55,17 +33,13 @@ fn main() {
     .unwrap();
     let hash = InfoHash::from_bytes(b"My Unique Info Hash");
 
-    let handshaker = SimpleHandshaker {
-        filter: HashSet::new(),
-        count: 0,
-    };
     let dht = DhtBuilder::with_router(Router::uTorrent)
         .set_source_addr(SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::new(0, 0, 0, 0),
             6889,
         )))
         .set_read_only(false)
-        .start_mainline(handshaker)
+        .start_mainline()
         .unwrap();
 
     // Spawn a thread to listen to and report events

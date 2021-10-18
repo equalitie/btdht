@@ -4,7 +4,6 @@ use std::sync::mpsc::SyncSender;
 use bip_util::bt::{self, NodeId};
 use mio::EventLoop;
 
-use crate::handshaker::Handshaker;
 use crate::message::find_node::FindNodeRequest;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
@@ -34,15 +33,12 @@ impl TableRefresh {
         }
     }
 
-    pub fn continue_refresh<H>(
+    pub fn continue_refresh(
         &mut self,
         table: &RoutingTable,
         out: &SyncSender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler<H>>,
-    ) -> RefreshStatus
-    where
-        H: Handshaker,
-    {
+        event_loop: &mut EventLoop<DhtHandler>,
+    ) -> RefreshStatus {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
         }

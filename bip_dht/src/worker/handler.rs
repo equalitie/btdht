@@ -13,7 +13,6 @@ use bip_util::net::IpAddr;
 use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
-use crate::handshaker::Handshaker;
 use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::error::{ErrorCode, ErrorMessage};
@@ -43,19 +42,15 @@ const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
 /// Spawns a DHT handler that maintains our routing table and executes our actions on the DHT.
-pub fn create_dht_handler<H>(
+pub fn create_dht_handler(
     table: RoutingTable,
     out: SyncSender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
-    handshaker: H,
     announce_port: Option<u16>,
     kill_sock: UdpSocket,
     kill_addr: SocketAddr,
-) -> io::Result<mio::Sender<OneshotTask>>
-where
-    H: Handshaker + 'static,
-{
-    let mut handler = DhtHandler::new(table, out, read_only, handshaker, announce_port);
+) -> io::Result<mio::Sender<OneshotTask>> {
+    let mut handler = DhtHandler::new(table, out, read_only, announce_port);
     let mut event_loop = EventLoop::new()?;
 
     let loop_channel = event_loop.channel();
@@ -108,16 +103,15 @@ enum PostBootstrapAction {
 }
 
 /// Storage for our EventLoop to invoke actions upon.
-pub struct DhtHandler<H> {
-    detached: DetachedDhtHandler<H>,
+pub struct DhtHandler {
+    detached: DetachedDhtHandler,
     table_actions: HashMap<ActionID, TableAction>,
 }
 
 /// Storage separate from the table actions allowing us to hold mutable references
 /// to table actions while still being able to pass around the bulky parameters.
-struct DetachedDhtHandler<H> {
+struct DetachedDhtHandler {
     read_only: bool,
-    handshaker: H,
     announce_port: Option<u16>,
     out_channel: SyncSender<(Vec<u8>, SocketAddr)>,
     token_store: TokenStore,
@@ -131,17 +125,13 @@ struct DetachedDhtHandler<H> {
     event_notifiers: Vec<mpsc::Sender<DhtEvent>>,
 }
 
-impl<H> DhtHandler<H>
-where
-    H: Handshaker,
-{
+impl DhtHandler {
     fn new(
         table: RoutingTable,
         out: SyncSender<(Vec<u8>, SocketAddr)>,
         read_only: bool,
-        handshaker: H,
         announce_port: Option<u16>,
-    ) -> DhtHandler<H> {
+    ) -> Self {
         let mut aid_generator = AIDGenerator::new();
 
         // Insert the refresh task to execute after the bootstrap
@@ -155,7 +145,6 @@ where
 
         let detached = DetachedDhtHandler {
             read_only: read_only,
-            handshaker: handshaker,
             announce_port,
             out_channel: out,
             token_store: TokenStore::new(),
@@ -167,21 +156,18 @@ where
             event_notifiers: Vec::new(),
         };
 
-        DhtHandler {
+        Self {
             detached: detached,
             table_actions: HashMap::new(),
         }
     }
 }
 
-impl<H> Handler for DhtHandler<H>
-where
-    H: Handshaker,
-{
+impl Handler for DhtHandler {
     type Timeout = (u64, ScheduledTask);
     type Message = OneshotTask;
 
-    fn notify(&mut self, event_loop: &mut EventLoop<DhtHandler<H>>, task: OneshotTask) {
+    fn notify(&mut self, event_loop: &mut EventLoop<DhtHandler>, task: OneshotTask) {
         match task {
             OneshotTask::Incoming(buffer, addr) => {
                 handle_incoming(self, event_loop, &buffer[..], addr);
@@ -207,7 +193,7 @@ where
         }
     }
 
-    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler<H>>, data: (u64, ScheduledTask)) {
+    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler>, data: (u64, ScheduledTask)) {
         let (_, task) = data;
 
         match task {
@@ -235,10 +221,7 @@ where
 // ----------------------------------------------------------------------------//
 
 /// Shut down the event loop by sending it a shutdown message with the given cause.
-fn shutdown_event_loop<H>(event_loop: &mut EventLoop<DhtHandler<H>>, cause: ShutdownCause)
-where
-    H: Handshaker,
-{
+fn shutdown_event_loop(event_loop: &mut EventLoop<DhtHandler>, cause: ShutdownCause) {
     if event_loop
         .channel()
         .send(OneshotTask::Shutdown(cause))
@@ -268,14 +251,12 @@ fn should_rebootstrap(table: &RoutingTable) -> bool {
 
 /// Broadcast that the bootstrap has completed.
 /// IMPORTANT: Should call this instead of broadcast_dht_event()!
-fn broadcast_bootstrap_completed<H>(
+fn broadcast_bootstrap_completed(
     action_id: ActionID,
     table_actions: &mut HashMap<ActionID, TableAction>,
-    work_storage: &mut DetachedDhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
-) where
-    H: Handshaker,
-{
+    work_storage: &mut DetachedDhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
+) {
     // Send notification that the bootstrap has completed.
     broadcast_dht_event(
         &mut work_storage.event_notifiers,
@@ -312,15 +293,12 @@ fn broadcast_bootstrap_completed<H>(
 
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
 /// Returns None if the DHT is shutting down, Some(true) if the rebootstrap process started, Some(false) if a rebootstrap is not necessary.
-fn attempt_rebootstrap<H>(
+fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
-    work_storage: &mut DetachedDhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
-) -> Option<bool>
-where
-    H: Handshaker,
-{
+    work_storage: &mut DetachedDhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
+) -> Option<bool> {
     // Increment the bootstrap counter
     *attempts += 1;
 
@@ -361,14 +339,12 @@ where
 
 // ----------------------------------------------------------------------------//
 
-fn handle_incoming<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_incoming(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     buffer: &[u8],
     addr: SocketAddr,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
     // Parse the buffer as a bencoded message
@@ -778,9 +754,10 @@ fn handle_incoming<H>(
                     LookupStatus::Values(values) => {
                         for v4_addr in values {
                             let sock_addr = SocketAddr::V4(v4_addr);
-                            work_storage
-                                .handshaker
-                                .connect(lookup.info_hash(), sock_addr);
+                            broadcast_dht_event(
+                                &mut work_storage.event_notifiers,
+                                DhtEvent::PeerFound(lookup.info_hash(), sock_addr),
+                            );
                         }
                     }
                 }
@@ -805,18 +782,16 @@ fn handle_incoming<H>(
     }
 }
 
-fn handle_register_sender<H>(handler: &mut DhtHandler<H>, sender: mpsc::Sender<DhtEvent>) {
+fn handle_register_sender(handler: &mut DhtHandler, sender: mpsc::Sender<DhtEvent>) {
     handler.detached.event_notifiers.push(sender);
 }
 
-fn handle_start_bootstrap<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_start_bootstrap(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     routers: Vec<Router>,
     nodes: Vec<SocketAddr>,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
     let router_iter = routers
@@ -867,15 +842,13 @@ fn handle_start_bootstrap<H>(
     }
 }
 
-fn handle_start_lookup<H>(
+fn handle_start_lookup(
     table_actions: &mut HashMap<ActionID, TableAction>,
-    work_storage: &mut DetachedDhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+    work_storage: &mut DetachedDhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     info_hash: InfoHash,
     should_announce: bool,
-) where
-    H: Handshaker,
-{
+) {
     let mid_generator = work_storage.aid_generator.generate();
     let action_id = mid_generator.action_id();
 
@@ -903,13 +876,11 @@ fn handle_start_lookup<H>(
     }
 }
 
-fn handle_shutdown<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_shutdown(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     cause: ShutdownCause,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, _) = (&mut handler.detached, &mut handler.table_actions);
 
     broadcast_dht_event(
@@ -920,14 +891,12 @@ fn handle_shutdown<H>(
     event_loop.shutdown();
 }
 
-fn handle_check_table_refresh<H>(
+fn handle_check_table_refresh(
     table_actions: &mut HashMap<ActionID, TableAction>,
-    work_storage: &mut DetachedDhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+    work_storage: &mut DetachedDhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     trans_id: TransactionID,
-) where
-    H: Handshaker,
-{
+) {
     let opt_refresh_status = match table_actions.get_mut(&trans_id.action_id()) {
         Some(&mut TableAction::Refresh(ref mut refresh)) => Some(refresh.continue_refresh(
             &work_storage.routing_table,
@@ -964,13 +933,11 @@ fn handle_check_table_refresh<H>(
     }
 }
 
-fn handle_check_bootstrap_timeout<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_check_bootstrap_timeout(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     trans_id: TransactionID,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
     let bootstrap_complete = {
@@ -1038,13 +1005,11 @@ fn handle_check_bootstrap_timeout<H>(
     }
 }
 
-fn handle_check_lookup_timeout<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_check_lookup_timeout(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     trans_id: TransactionID,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
     let opt_lookup_info = match table_actions.get_mut(&trans_id.action_id()) {
@@ -1094,20 +1059,20 @@ fn handle_check_lookup_timeout<H>(
             // Add values to handshaker
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
-
-                work_storage.handshaker.connect(info_hash, sock_addr);
+                broadcast_dht_event(
+                    &mut work_storage.event_notifiers,
+                    DhtEvent::PeerFound(info_hash, sock_addr),
+                )
             }
         }
     }
 }
 
-fn handle_check_lookup_endgame<H>(
-    handler: &mut DhtHandler<H>,
-    event_loop: &mut EventLoop<DhtHandler<H>>,
+fn handle_check_lookup_endgame(
+    handler: &mut DhtHandler,
+    event_loop: &mut EventLoop<DhtHandler>,
     trans_id: TransactionID,
-) where
-    H: Handshaker,
-{
+) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
     let opt_lookup_info = match table_actions.remove(&trans_id.action_id()) {
@@ -1156,8 +1121,10 @@ fn handle_check_lookup_endgame<H>(
             // Add values to handshaker
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
-
-                work_storage.handshaker.connect(info_hash, sock_addr);
+                broadcast_dht_event(
+                    &mut work_storage.event_notifiers,
+                    DhtEvent::PeerFound(info_hash, sock_addr),
+                )
             }
         }
     }

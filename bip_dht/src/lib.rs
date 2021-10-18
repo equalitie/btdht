@@ -27,7 +27,6 @@ extern crate rand;
 
 mod builder;
 mod error;
-mod handshaker;
 pub mod message;
 mod router;
 mod routing;
@@ -38,7 +37,6 @@ mod transaction;
 mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
-pub use crate::handshaker::Handshaker;
 pub use crate::router::Router;
 pub use crate::worker::{DhtEvent, ShutdownCause};
 

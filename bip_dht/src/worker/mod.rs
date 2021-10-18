@@ -5,7 +5,6 @@ use std::sync::mpsc;
 use bip_util::bt::InfoHash;
 use mio;
 
-use crate::handshaker::Handshaker;
 use crate::router::Router;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
@@ -49,6 +48,8 @@ pub enum ScheduledTask {
 pub enum DhtEvent {
     /// DHT completed the bootstrap.
     BootstrapCompleted,
+    /// Lookup operation for the given InfoHash found a peer.
+    PeerFound(InfoHash, SocketAddr),
     /// Lookup operation for the given InfoHash completed.
     LookupCompleted(InfoHash),
     /// DHT is shutting down for some reason.
@@ -68,19 +69,15 @@ pub enum ShutdownCause {
 
 /// Spawns the necessary workers that make up our local DHT node and connects them via channels
 /// so that they can send and receive DHT messages.
-pub fn start_mainline_dht<H>(
+pub fn start_mainline_dht(
     send_socket: UdpSocket,
     recv_socket: UdpSocket,
     read_only: bool,
     _: Option<SocketAddr>,
-    handshaker: H,
     announce_port: Option<u16>,
     kill_sock: UdpSocket,
     kill_addr: SocketAddr,
-) -> io::Result<mio::Sender<OneshotTask>>
-where
-    H: Handshaker + 'static,
-{
+) -> io::Result<mio::Sender<OneshotTask>> {
     let outgoing = messenger::create_outgoing_messenger(send_socket);
 
     // TODO: Utilize the security extension.
@@ -89,7 +86,6 @@ where
         routing_table,
         outgoing,
         read_only,
-        handshaker,
         announce_port,
         kill_sock,
         kill_addr,
