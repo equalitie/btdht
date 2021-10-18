@@ -186,7 +186,7 @@ fn validate_token_from_addr_v6(v6_addr: Ipv6Addr, token: Token, secret: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use crate::test;
     use crate::token::TokenStore;
@@ -219,7 +219,7 @@ mod tests {
         let valid_token = store.checkout(v4_addr);
 
         let past_offset = super::REFRESH_INTERVAL * 2 - Duration::from_secs(60);
-        let past_time = test::travel_into_past(past_offset);
+        let past_time = Instant::now() - past_offset;
         store.last_refresh = past_time;
 
         assert!(store.checkin(v4_addr, valid_token));
@@ -233,7 +233,7 @@ mod tests {
         let valid_token = store.checkout(v6_addr);
 
         let past_offset = super::REFRESH_INTERVAL * 2 - Duration::from_secs(60);
-        let past_time = test::travel_into_past(past_offset);
+        let past_time = Instant::now() - past_offset;
         store.last_refresh = past_time;
 
         assert!(store.checkin(v6_addr, valid_token));
@@ -248,7 +248,7 @@ mod tests {
         let valid_token = store.checkout(v4_addr);
 
         let past_offset = super::REFRESH_INTERVAL * 2;
-        let past_time = test::travel_into_past(past_offset);
+        let past_time = Instant::now() - past_offset;
         store.last_refresh = past_time;
 
         assert!(store.checkin(v4_addr, valid_token));
@@ -263,7 +263,7 @@ mod tests {
         let valid_token = store.checkout(v6_addr);
 
         let past_offset = super::REFRESH_INTERVAL * 2;
-        let past_time = test::travel_into_past(past_offset);
+        let past_time = Instant::now() - past_offset;
         store.last_refresh = past_time;
 
         assert!(store.checkin(v6_addr, valid_token));

@@ -250,7 +250,7 @@ fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use crate::routing::node::{Node, NodeStatus};
     use crate::test;
@@ -325,7 +325,7 @@ mod tests {
         let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         let time_offset = Duration::from_secs(super::MAX_LAST_SEEN_MINS * 60);
-        let idle_time = test::travel_into_past(time_offset);
+        let idle_time = Instant::now() - time_offset;
 
         node.last_response.set(Some(idle_time));
 

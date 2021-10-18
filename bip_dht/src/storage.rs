@@ -204,6 +204,8 @@ impl Eq for ItemExpiration {}
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use crate::id::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
     use crate::test;
@@ -290,7 +292,7 @@ mod tests {
         assert_eq!(times_invoked, 0);
 
         // Try to add a new item into the storage mocking the current time
-        let mock_current_time = test::travel_into_future(storage::EXPIRATION_TIME);
+        let mock_current_time = Instant::now() + storage::EXPIRATION_TIME;
         assert!(announce_store.add(
             other_info_hash,
             sock_addrs[sock_addrs.len() - 1],
@@ -333,7 +335,7 @@ mod tests {
         assert_eq!(times_invoked, 0);
 
         // Try to add a new item into the storage mocking the current time
-        let mock_current_time = test::travel_into_future(storage::EXPIRATION_TIME);
+        let mock_current_time = Instant::now() + storage::EXPIRATION_TIME;
         assert!(announce_store.add(
             info_hash_three,
             sock_addrs[sock_addrs.len() - 1],
