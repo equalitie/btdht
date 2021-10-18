@@ -1,7 +1,3 @@
-extern crate bip_dht;
-extern crate bip_util;
-extern crate log;
-
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::thread::{self};
@@ -9,28 +5,9 @@ use std::thread::{self};
 use bip_dht::{DhtBuilder, Router};
 use bip_util::bt::InfoHash;
 
-use log::{LogLevel, LogLevelFilter, LogMetadata, LogRecord};
-
-struct SimpleLogger;
-
-impl log::Log for SimpleLogger {
-    fn enabled(&self, metadata: &LogMetadata) -> bool {
-        metadata.level() <= LogLevel::Info
-    }
-
-    fn log(&self, record: &LogRecord) {
-        if self.enabled(record.metadata()) {
-            println!("{} - {}", record.level(), record.args());
-        }
-    }
-}
-
 fn main() {
-    log::set_logger(|m| {
-        m.set(LogLevelFilter::max());
-        Box::new(SimpleLogger)
-    })
-    .unwrap();
+    pretty_env_logger::init();
+
     let hash = InfoHash::from_bytes(b"My Unique Info Hash");
 
     let dht = DhtBuilder::with_router(Router::uTorrent)
