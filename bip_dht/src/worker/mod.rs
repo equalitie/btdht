@@ -74,6 +74,7 @@ pub fn start_mainline_dht<H>(
     read_only: bool,
     _: Option<SocketAddr>,
     handshaker: H,
+    announce_port: Option<u16>,
     kill_sock: UdpSocket,
     kill_addr: SocketAddr,
 ) -> io::Result<mio::Sender<OneshotTask>>
@@ -89,6 +90,7 @@ where
         outgoing,
         read_only,
         handshaker,
+        announce_port,
         kill_sock,
         kill_addr,
     )?;

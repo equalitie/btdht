@@ -291,7 +291,7 @@ impl TableLookup {
 
     pub fn recv_finished(
         &mut self,
-        handshake_port: u16,
+        announce_port: Option<u16>,
         table: &RoutingTable,
         out: &SyncSender<(Vec<u8>, SocketAddr)>,
     ) -> LookupStatus {
@@ -310,13 +310,17 @@ impl TableLookup {
             {
                 let trans_id = self.id_generator.generate();
                 let token = announce_tokens.get(node).unwrap();
+                let port = match announce_port {
+                    Some(port) => ConnectPort::Explicit(port),
+                    None => ConnectPort::Implied,
+                };
 
                 let announce_peer_req = AnnouncePeerRequest::new(
                     trans_id.as_ref(),
                     self.table_id,
                     self.target_id,
                     token.as_ref(),
-                    ConnectPort::Explicit(handshake_port),
+                    port,
                 );
                 let announce_peer_msg = announce_peer_req.encode();
 

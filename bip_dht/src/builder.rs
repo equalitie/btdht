@@ -34,6 +34,7 @@ impl MainlineDht {
             builder.read_only,
             builder.ext_addr,
             handshaker,
+            builder.announce_port,
             kill_sock,
             kill_addr,
         )?;
@@ -112,6 +113,7 @@ pub struct DhtBuilder {
     read_only: bool,
     src_addr: SocketAddr,
     ext_addr: Option<SocketAddr>,
+    announce_port: Option<u16>,
 }
 
 impl DhtBuilder {
@@ -126,6 +128,7 @@ impl DhtBuilder {
             read_only: true,
             src_addr: net::default_route_v4(),
             ext_addr: None,
+            announce_port: None,
         }
     }
 
@@ -191,6 +194,14 @@ impl DhtBuilder {
     pub fn set_source_addr(mut self, addr: SocketAddr) -> DhtBuilder {
         self.src_addr = addr;
 
+        self
+    }
+
+    /// Provide a port to include in the `announce_peer` requests we send.
+    ///
+    /// If this is not supplied, will use implied port.
+    pub fn set_announce_port(mut self, port: u16) -> Self {
+        self.announce_port = Some(port);
         self
     }
 

@@ -48,13 +48,14 @@ pub fn create_dht_handler<H>(
     out: SyncSender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
     handshaker: H,
+    announce_port: Option<u16>,
     kill_sock: UdpSocket,
     kill_addr: SocketAddr,
 ) -> io::Result<mio::Sender<OneshotTask>>
 where
     H: Handshaker + 'static,
 {
-    let mut handler = DhtHandler::new(table, out, read_only, handshaker);
+    let mut handler = DhtHandler::new(table, out, read_only, handshaker, announce_port);
     let mut event_loop = EventLoop::new()?;
 
     let loop_channel = event_loop.channel();
@@ -117,6 +118,7 @@ pub struct DhtHandler<H> {
 struct DetachedDhtHandler<H> {
     read_only: bool,
     handshaker: H,
+    announce_port: Option<u16>,
     out_channel: SyncSender<(Vec<u8>, SocketAddr)>,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
@@ -138,6 +140,7 @@ where
         out: SyncSender<(Vec<u8>, SocketAddr)>,
         read_only: bool,
         handshaker: H,
+        announce_port: Option<u16>,
     ) -> DhtHandler<H> {
         let mut aid_generator = AIDGenerator::new();
 
@@ -153,6 +156,7 @@ where
         let detached = DetachedDhtHandler {
             read_only: read_only,
             handshaker: handshaker,
+            announce_port,
             out_channel: out,
             token_store: TokenStore::new(),
             aid_generator: aid_generator,
@@ -1109,7 +1113,7 @@ fn handle_check_lookup_endgame<H>(
     let opt_lookup_info = match table_actions.remove(&trans_id.action_id()) {
         Some(TableAction::Lookup(mut lookup)) => Some((
             lookup.recv_finished(
-                work_storage.handshaker.port(),
+                work_storage.announce_port,
                 &work_storage.routing_table,
                 &work_storage.out_channel,
             ),

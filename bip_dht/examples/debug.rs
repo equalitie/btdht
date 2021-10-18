@@ -32,14 +32,6 @@ struct SimpleHandshaker {
 }
 
 impl Handshaker for SimpleHandshaker {
-    /// Advertise port that is being listened on by the handshaker.
-    ///
-    /// It is important that this is the external port that the peer will be sending data
-    /// to. This is relevant if the client employs nat traversal via upnp or other means.
-    fn port(&self) -> u16 {
-        6889
-    }
-
     /// Initiates a handshake with the given socket address.
     fn connect(&mut self, _: InfoHash, addr: SocketAddr) {
         if self.filter.contains(&addr) {
