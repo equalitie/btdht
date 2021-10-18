@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 use std::io;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::mpsc::{self, Receiver};
 
-use bip_util::net;
 use mio::Sender;
 
 use crate::id::InfoHash;
@@ -121,7 +120,7 @@ impl DhtBuilder {
             nodes: HashSet::new(),
             routers: HashSet::new(),
             read_only: true,
-            src_addr: net::default_route_v4(),
+            src_addr: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
             ext_addr: None,
             announce_port: None,
         }

@@ -205,17 +205,16 @@ impl Eq for ItemExpiration {}
 
 #[cfg(test)]
 mod tests {
-    use bip_util::test as bip_test;
-
     use crate::id::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
+    use crate::test;
     use chrono::Duration;
 
     #[test]
     fn positive_add_and_retrieve_contact() {
         let mut announce_store = AnnounceStorage::new();
         let info_hash = [0u8; INFO_HASH_LEN].into();
-        let sock_addr = bip_test::dummy_socket_addr_v4();
+        let sock_addr = test::dummy_socket_addr_v4();
 
         assert!(announce_store.add_item(info_hash, sock_addr));
 
@@ -230,7 +229,7 @@ mod tests {
     fn positive_add_and_retrieve_contacts() {
         let mut announce_store = AnnounceStorage::new();
         let info_hash = [0u8; INFO_HASH_LEN].into();
-        let sock_addrs = bip_test::dummy_block_socket_addrs(storage::MAX_ITEMS_STORED as u16);
+        let sock_addrs = test::dummy_block_socket_addrs(storage::MAX_ITEMS_STORED as u16);
 
         for sock_addr in sock_addrs.iter() {
             assert!(announce_store.add_item(info_hash, *sock_addr));
@@ -249,7 +248,7 @@ mod tests {
     fn positive_renew_contacts() {
         let mut announce_store = AnnounceStorage::new();
         let info_hash = [0u8; INFO_HASH_LEN].into();
-        let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
+        let sock_addrs = test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         for sock_addr in sock_addrs.iter().take(storage::MAX_ITEMS_STORED) {
             assert!(announce_store.add_item(info_hash, *sock_addr));
@@ -275,7 +274,7 @@ mod tests {
     fn positive_full_storage_expire_one_infohash() {
         let mut announce_store = AnnounceStorage::new();
         let info_hash = [0u8; INFO_HASH_LEN].into();
-        let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
+        let sock_addrs = test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         // Fill up the announce storage completely
         for sock_addr in sock_addrs.iter().take(storage::MAX_ITEMS_STORED) {
@@ -294,7 +293,7 @@ mod tests {
 
         // Try to add a new item into the storage mocking the current time
         let mock_current_time =
-            bip_test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
+            test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
         assert!(announce_store.add(
             other_info_hash,
             sock_addrs[sock_addrs.len() - 1],
@@ -310,7 +309,7 @@ mod tests {
         let mut announce_store = AnnounceStorage::new();
         let info_hash_one = [0u8; INFO_HASH_LEN].into();
         let info_hash_two = [1u8; INFO_HASH_LEN].into();
-        let sock_addrs = bip_test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
+        let sock_addrs = test::dummy_block_socket_addrs((storage::MAX_ITEMS_STORED + 1) as u16);
 
         // Fill up first info hash
         let num_contacts_first = storage::MAX_ITEMS_STORED / 2;
@@ -338,7 +337,7 @@ mod tests {
 
         // Try to add a new item into the storage mocking the current time
         let mock_current_time =
-            bip_test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
+            test::travel_into_future(Duration::hours(storage::EXPIRATION_TIME_HOURS));
         assert!(announce_store.add(
             info_hash_three,
             sock_addrs[sock_addrs.len() - 1],

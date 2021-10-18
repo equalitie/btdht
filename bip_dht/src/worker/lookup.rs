@@ -1,8 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::net::{SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::mpsc::SyncSender;
 
-use bip_util::net;
 use mio::{EventLoop, Timeout};
 
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
@@ -473,7 +472,10 @@ where
     I: Iterator<Item = &'a mut (Distance, Node, bool)>,
 {
     let dummy_id = [0u8; NODE_ID_LEN].into();
-    let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
+    let default = (
+        Node::as_bad(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+        false,
+    );
 
     let mut pick_nodes = [default.clone(), default.clone(), default.clone(), default];
     for (src, dst) in sorted_nodes.zip(pick_nodes.iter_mut()) {
@@ -496,7 +498,10 @@ where
     I: Iterator<Item = (NodeId, SocketAddrV4)>,
 {
     let dummy_id = [0u8; NODE_ID_LEN].into();
-    let default = (Node::as_bad(dummy_id, net::default_route_v4()), false);
+    let default = (
+        Node::as_bad(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+        false,
+    );
 
     let mut pick_nodes = [default.clone(), default.clone(), default];
     for (id, v4_addr) in unsorted_nodes {

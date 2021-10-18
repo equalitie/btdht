@@ -1,4 +1,4 @@
-use bip_util::convert;
+use std::convert::TryInto;
 
 // Transaction IDs are going to be vital for both scalability and performance concerns.
 // They allow us to both protect against unsolicited responses as well as dropping those
@@ -196,7 +196,7 @@ pub struct TransactionID {
 
 impl TransactionID {
     fn new(trans_id: u64) -> TransactionID {
-        let trans_id_bytes = convert::eight_bytes_to_array(trans_id);
+        let trans_id_bytes = trans_id.to_be_bytes();
 
         TransactionID {
             trans_id,
@@ -206,17 +206,8 @@ impl TransactionID {
 
     /// Construct a transaction id from a series of bytes.
     pub fn from_bytes(bytes: &[u8]) -> Option<TransactionID> {
-        if bytes.len() != TRANSACTION_ID_BYTES {
-            return None;
-        }
-        let mut trans_id = 0u64;
-
-        for byte in bytes.iter() {
-            trans_id <<= 8;
-            trans_id |= *byte as u64;
-        }
-
-        Some(TransactionID::new(trans_id))
+        let bytes = bytes.try_into().ok()?;
+        Some(TransactionID::new(u64::from_be_bytes(bytes)))
     }
 
     pub fn action_id(&self) -> ActionID {

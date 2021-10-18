@@ -2,7 +2,6 @@
 
 #[macro_use]
 extern crate bip_bencode;
-extern crate bip_util;
 
 extern crate crc;
 #[macro_use]

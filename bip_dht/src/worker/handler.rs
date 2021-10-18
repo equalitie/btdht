@@ -7,7 +7,6 @@ use std::sync::mpsc::{self, SyncSender};
 use std::thread;
 
 use bip_bencode::Bencode;
-use bip_util::convert;
 use log::LogLevel;
 use mio::{self, EventLoop, Handler};
 
@@ -456,17 +455,9 @@ fn handle_incoming(
             work_storage
                 .active_stores
                 .find_items(&g.info_hash(), |addr| {
-                    let mut bytes = [0u8; 6];
-                    let port = addr.port();
-
                     match addr {
                         SocketAddr::V4(v4_addr) => {
-                            for (src, dst) in convert::ipv4_to_bytes_be(*v4_addr.ip())
-                                .iter()
-                                .zip(bytes.iter_mut())
-                            {
-                                *dst = *src;
-                            }
+                            contact_info_bytes.extend_from_slice(&v4_addr.ip().octets());
                         }
                         SocketAddr::V6(_) => {
                             error!("AnnounceStorage contained an IPv6 Address...");
@@ -474,10 +465,7 @@ fn handle_incoming(
                         }
                     };
 
-                    bytes[4] = (port >> 8) as u8;
-                    bytes[5] = (port & 0x00FF) as u8;
-
-                    contact_info_bytes.extend_from_slice(&bytes);
+                    contact_info_bytes.extend_from_slice(&addr.port().to_be_bytes());
                 });
             // Grab the bencoded list (ugh, we really have to do this, better apis I say!!!)
             let mut contact_info_bencode = Vec::with_capacity(contact_info_bytes.len() / 6);

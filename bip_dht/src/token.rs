@@ -1,10 +1,9 @@
+use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use chrono::{DateTime, Duration, UTC};
 
-use bip_util::convert;
-use bip_util::error::{LengthError, LengthErrorKind, LengthResult};
-use bip_util::sha::{self, ShaHash};
+use crate::id::{LengthError, ShaHash, SHA_HASH_LEN};
 
 /// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
 /// secret will change every 10 minutes and tokens up to 10 minutes old will be accepted. This
@@ -28,35 +27,25 @@ const IPV6_SECRET_BUFFER_LEN: usize = 16 + 4;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Token {
-    token: [u8; sha::SHA_HASH_LEN],
+    token: [u8; SHA_HASH_LEN],
 }
 
 impl Token {
-    pub fn new(bytes: &[u8]) -> LengthResult<Token> {
-        if bytes.len() != sha::SHA_HASH_LEN {
-            Err(LengthError::new(
-                LengthErrorKind::LengthExpected,
-                sha::SHA_HASH_LEN,
-            ))
-        } else {
-            let mut token = [0u8; sha::SHA_HASH_LEN];
-
-            for (src, dst) in bytes.iter().zip(token.iter_mut()) {
-                *dst = *src;
-            }
-            Ok(Token::from(token))
-        }
+    pub fn new(bytes: &[u8]) -> Result<Self, LengthError> {
+        Ok(Self {
+            token: bytes.try_into().map_err(|_| LengthError)?,
+        })
     }
 }
 
-impl From<Token> for [u8; sha::SHA_HASH_LEN] {
-    fn from(token: Token) -> [u8; sha::SHA_HASH_LEN] {
+impl From<Token> for [u8; SHA_HASH_LEN] {
+    fn from(token: Token) -> [u8; SHA_HASH_LEN] {
         token.token
     }
 }
 
-impl From<[u8; sha::SHA_HASH_LEN]> for Token {
-    fn from(token: [u8; sha::SHA_HASH_LEN]) -> Token {
+impl From<[u8; SHA_HASH_LEN]> for Token {
+    fn from(token: [u8; SHA_HASH_LEN]) -> Token {
         Token { token }
     }
 }
@@ -147,8 +136,8 @@ fn generate_token_from_addr(addr: IpAddr, secret: u32) -> Token {
 /// Generate a token from an ipv4 address and a secret.
 fn generate_token_from_addr_v4(v4_addr: Ipv4Addr, secret: u32) -> Token {
     let mut buffer = [0u8; IPV4_SECRET_BUFFER_LEN];
-    let v4_bytes = convert::ipv4_to_bytes_be(v4_addr);
-    let secret_bytes = convert::four_bytes_to_array(secret);
+    let v4_bytes = v4_addr.octets();
+    let secret_bytes = secret.to_be_bytes();
 
     let source_iter = v4_bytes.iter().chain(secret_bytes.iter());
     for (dst, src) in buffer.iter_mut().zip(source_iter) {
@@ -156,14 +145,14 @@ fn generate_token_from_addr_v4(v4_addr: Ipv4Addr, secret: u32) -> Token {
     }
 
     let hash_buffer = ShaHash::from_bytes(&buffer);
-    Into::<[u8; sha::SHA_HASH_LEN]>::into(hash_buffer).into()
+    Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
 }
 
 /// Generate a token from an ipv6 address and a secret.
 fn generate_token_from_addr_v6(v6_addr: Ipv6Addr, secret: u32) -> Token {
     let mut buffer = [0u8; IPV6_SECRET_BUFFER_LEN];
-    let v6_bytes = convert::ipv6_to_bytes_be(v6_addr);
-    let secret_bytes = convert::four_bytes_to_array(secret);
+    let v6_bytes = v6_addr.octets();
+    let secret_bytes = secret.to_be_bytes();
 
     let source_iter = v6_bytes.iter().chain(secret_bytes.iter());
     for (dst, src) in buffer.iter_mut().zip(source_iter) {
@@ -171,7 +160,7 @@ fn generate_token_from_addr_v6(v6_addr: Ipv6Addr, secret: u32) -> Token {
     }
 
     let hash_buffer = ShaHash::from_bytes(&buffer);
-    Into::<[u8; sha::SHA_HASH_LEN]>::into(hash_buffer).into()
+    Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
 }
 
 /// Validate a token given an ip address and the two current secrets.
