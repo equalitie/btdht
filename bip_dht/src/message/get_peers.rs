@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bip_bencode::{Bencode, BencodeConvert, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 
-use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::error::{DhtError, DhtResult};
 use crate::message;
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::request::{self, RequestValidate};
@@ -133,9 +133,9 @@ impl<'a> GetPeersResponse<'a> {
                 CompactInfoType::Values(values_info)
             }
             (Err(_), Err(_)) => {
-                return Err(DhtError::from_kind(DhtErrorKind::InvalidResponse {
+                return Err(DhtError::InvalidResponse {
                     details: "Failed To Find nodes Or values In Node Response".to_owned(),
-                }))
+                })
             }
         };
 

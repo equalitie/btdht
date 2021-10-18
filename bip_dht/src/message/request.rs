@@ -1,7 +1,7 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 use bip_util::bt::{InfoHash, NodeId};
 
-use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::error::{DhtError, DhtResult};
 use crate::message;
 use crate::message::announce_peer::AnnouncePeerRequest;
 use crate::message::error::{ErrorCode, ErrorMessage};
@@ -38,7 +38,7 @@ impl<'a> RequestValidate<'a> {
                 format!("Node ID With Length {} Is Not Valid", node_id.len()),
             );
 
-            DhtError::from_kind(DhtErrorKind::InvalidRequest { msg: error_msg })
+            DhtError::InvalidRequest { msg: error_msg }
         })
     }
 
@@ -50,7 +50,7 @@ impl<'a> RequestValidate<'a> {
                 format!("InfoHash With Length {} Is Not Valid", info_hash.len()),
             );
 
-            DhtError::from_kind(DhtErrorKind::InvalidRequest { msg: error_msg })
+            DhtError::InvalidRequest { msg: error_msg }
         })
     }
 }
@@ -121,9 +121,7 @@ impl<'a> RequestType<'a> {
                         format!("Received Unknown Request Method: {}", unknown),
                     );
 
-                    Err(DhtError::from_kind(DhtErrorKind::InvalidRequest {
-                        msg: error_message,
-                    }))
+                    Err(DhtError::InvalidRequest { msg: error_message })
                 }
             }
         }

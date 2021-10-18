@@ -1,6 +1,6 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError};
 
-use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::error::{DhtError, DhtResult};
 use crate::message::error::ErrorMessage;
 use crate::message::request::RequestType;
 use crate::message::response::{ExpectedResponse, ResponseType};
@@ -85,9 +85,9 @@ impl<'a> MessageType<'a> {
                 let err_message = ErrorMessage::from_parts(msg_root, trans_id)?;
                 Ok(MessageType::Error(err_message))
             }
-            unknown => Err(DhtError::from_kind(DhtErrorKind::InvalidMessage {
+            unknown => Err(DhtError::InvalidMessage {
                 code: unknown.to_owned(),
-            })),
+            }),
         }
     }
 }

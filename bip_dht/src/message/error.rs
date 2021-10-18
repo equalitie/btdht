@@ -5,7 +5,7 @@ use std::borrow::Cow;
 
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 
-use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::error::{DhtError, DhtResult};
 use crate::message;
 
 const ERROR_ARGS_KEY: &'static str = "e";
@@ -31,9 +31,9 @@ impl ErrorCode {
             SERVER_ERROR_CODE => Ok(ErrorCode::ServerError),
             PROTOCOL_ERROR_CODE => Ok(ErrorCode::ProtocolError),
             METHOD_UNKNOWN_CODE => Ok(ErrorCode::MethodUnknown),
-            unknown => Err(DhtError::from_kind(DhtErrorKind::InvalidResponse {
+            unknown => Err(DhtError::InvalidResponse {
                 details: format!("Error Message Invalid Error Code {:?}", unknown),
-            })),
+            }),
         }
     }
 }
@@ -57,9 +57,9 @@ struct ErrorValidate;
 impl ErrorValidate {
     fn extract_error_args<'a>(&self, args: &[Bencode<'a>]) -> DhtResult<(u8, &'a str)> {
         if args.len() != NUM_ERROR_ARGS {
-            return Err(DhtError::from_kind(DhtErrorKind::InvalidResponse {
+            return Err(DhtError::InvalidResponse {
                 details: format!("Error Message Invalid Number Of Error Args: {}", args.len()),
-            }));
+            });
         }
 
         let code = self.convert_int(&args[0], &format!("{}[0]", ERROR_ARGS_KEY))?;

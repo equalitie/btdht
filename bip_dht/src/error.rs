@@ -1,41 +1,20 @@
-use std::io;
-
 use bip_bencode::BencodeConvertError;
+use thiserror::Error;
 
 use crate::message::error::ErrorMessage;
 
-error_chain! {
-    types {
-        DhtError, DhtErrorKind, DhtResultExt, DhtResult;
-    }
-
-    foreign_links {
-        Bencode(BencodeConvertError);
-        Io(io::Error);
-    }
-
-    errors {
-        InvalidMessage {
-            code: String
-        } {
-            description("Node Sent An Invalid Message")
-            display("Node Sent An Invalid Message With Message Code {}", code)
-        }
-        InvalidResponse {
-            details: String
-        } {
-            description("Node Sent Us An Invalid Response")
-            display("Node Sent Us An Invalid Response: {}", details)
-        }
-        UnsolicitedResponse {
-            description("Node Sent Us An Unsolicited Response")
-            display("Node Sent Us An Unsolicited Response")
-        }
-        InvalidRequest {
-            msg: ErrorMessage<'static>
-        } {
-            description("Node Sent Us An Invalid Request Message")
-            display("Node Sent Us An Invalid Request Message With Code {:?} And Message {}", msg.error_code(), msg.error_message())
-        }
-    }
+#[derive(Debug, Error)]
+pub enum DhtError {
+    #[error("bencode")]
+    Bencode(#[from] BencodeConvertError),
+    #[error("node sent an invalid message with message code {code}")]
+    InvalidMessage { code: String },
+    #[error("node sent us an invalid request message with code {:?} and message {}", .msg.error_code(), .msg.error_message())]
+    InvalidRequest { msg: ErrorMessage<'static> },
+    #[error("node sent us an invalid response: {details}")]
+    InvalidResponse { details: String },
+    #[error("node sent us an unsolicited response")]
+    UnsolicitedResponse,
 }
+
+pub type DhtResult<T, E = DhtError> = std::result::Result<T, E>;

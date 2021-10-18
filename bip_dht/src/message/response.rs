@@ -1,7 +1,7 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError, Dictionary};
 use bip_util::bt::NodeId;
 
-use crate::error::{DhtError, DhtErrorKind, DhtResult};
+use crate::error::{DhtError, DhtResult};
 use crate::message::announce_peer::AnnouncePeerResponse;
 use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
 use crate::message::find_node::FindNodeResponse;
@@ -22,28 +22,24 @@ impl<'a> ResponseValidate<'a> {
     }
 
     pub fn validate_node_id(&self, node_id: &[u8]) -> DhtResult<NodeId> {
-        NodeId::from_hash(node_id).map_err(|_| {
-            DhtError::from_kind(DhtErrorKind::InvalidResponse {
-                details: format!(
-                    "TID {:?} Found Node ID With Invalid Length {:?}",
-                    self.trans_id,
-                    node_id.len()
-                ),
-            })
+        NodeId::from_hash(node_id).map_err(|_| DhtError::InvalidResponse {
+            details: format!(
+                "TID {:?} Found Node ID With Invalid Length {:?}",
+                self.trans_id,
+                node_id.len()
+            ),
         })
     }
 
     /// Validate the given nodes string which should be IPv4 compact
     pub fn validate_nodes<'b>(&self, nodes: &'b [u8]) -> DhtResult<CompactNodeInfo<'b>> {
-        CompactNodeInfo::new(nodes).map_err(|_| {
-            DhtError::from_kind(DhtErrorKind::InvalidResponse {
-                details: format!(
-                    "TID {:?} Found Nodes Structure With {} Number Of Bytes Instead \
+        CompactNodeInfo::new(nodes).map_err(|_| DhtError::InvalidResponse {
+            details: format!(
+                "TID {:?} Found Nodes Structure With {} Number Of Bytes Instead \
                                   Of Correct Multiple",
-                    self.trans_id,
-                    nodes.len()
-                ),
-            })
+                self.trans_id,
+                nodes.len()
+            ),
         })
     }
 
@@ -55,23 +51,21 @@ impl<'a> ResponseValidate<'a> {
             match bencode.bytes() {
                 Some(_) => (),
                 None => {
-                    return Err(DhtError::from_kind(DhtErrorKind::InvalidResponse {
+                    return Err(DhtError::InvalidResponse {
                         details: format!(
                             "TID {:?} Found Values Structure As Non Bytes Type",
                             self.trans_id
                         ),
-                    }))
+                    })
                 }
             }
         }
 
-        CompactValueInfo::new(values).map_err(|_| {
-            DhtError::from_kind(DhtErrorKind::InvalidResponse {
-                details: format!(
-                    "TID {:?} Found Values Structrue With Wrong Number Of Bytes",
-                    self.trans_id
-                ),
-            })
+        CompactValueInfo::new(values).map_err(|_| DhtError::InvalidResponse {
+            details: format!(
+                "TID {:?} Found Values Structrue With Wrong Number Of Bytes",
+                self.trans_id
+            ),
         })
     }
 }
@@ -138,7 +132,7 @@ impl<'a> ResponseType<'a> {
             ExpectedResponse::PutData => {
                 unimplemented!();
             }
-            ExpectedResponse::None => Err(DhtError::from_kind(DhtErrorKind::UnsolicitedResponse)),
+            ExpectedResponse::None => Err(DhtError::UnsolicitedResponse),
         }
     }
 }
