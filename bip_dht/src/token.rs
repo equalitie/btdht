@@ -3,10 +3,10 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use chrono::{DateTime, Duration, UTC};
 use rand;
 
-use bip_util::error::{LengthResult, LengthError, LengthErrorKind};
 use bip_util::convert;
-use bip_util::sha::{self, ShaHash};
+use bip_util::error::{LengthError, LengthErrorKind, LengthResult};
 use bip_util::net::IpAddr;
+use bip_util::sha::{self, ShaHash};
 
 /// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
 /// secret will change every 10 minutes and tokens up to 10 minutes old will be accepted. This
@@ -36,7 +36,10 @@ pub struct Token {
 impl Token {
     pub fn new(bytes: &[u8]) -> LengthResult<Token> {
         if bytes.len() != sha::SHA_HASH_LEN {
-            Err(LengthError::new(LengthErrorKind::LengthExpected, sha::SHA_HASH_LEN))
+            Err(LengthError::new(
+                LengthErrorKind::LengthExpected,
+                sha::SHA_HASH_LEN,
+            ))
         } else {
             let mut token = [0u8; sha::SHA_HASH_LEN];
 
@@ -177,12 +180,12 @@ fn generate_token_from_addr_v6(v6_addr: Ipv6Addr, secret: u32) -> Token {
 fn validate_token_from_addr(addr: IpAddr, token: Token, secret_one: u32, secret_two: u32) -> bool {
     match addr {
         IpAddr::V4(v4) => {
-            validate_token_from_addr_v4(v4, token, secret_one) ||
-            validate_token_from_addr_v4(v4, token, secret_two)
+            validate_token_from_addr_v4(v4, token, secret_one)
+                || validate_token_from_addr_v4(v4, token, secret_two)
         }
         IpAddr::V6(v6) => {
-            validate_token_from_addr_v6(v6, token, secret_one) ||
-            validate_token_from_addr_v6(v6, token, secret_two)
+            validate_token_from_addr_v6(v6, token, secret_one)
+                || validate_token_from_addr_v6(v6, token, secret_two)
         }
     }
 }
@@ -199,8 +202,8 @@ fn validate_token_from_addr_v6(v6_addr: Ipv6Addr, token: Token, secret: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use chrono::Duration;
     use bip_util::test as bip_test;
+    use chrono::Duration;
 
     use token::TokenStore;
 

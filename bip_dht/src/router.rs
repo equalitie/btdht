@@ -1,5 +1,5 @@
 use std::fmt::{self, Display, Formatter};
-use std::io::{self, ErrorKind, Error};
+use std::io::{self, Error, ErrorKind};
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, ToSocketAddrs};
 use std::vec::IntoIter;
 
@@ -40,25 +40,30 @@ impl Router {
     // }
 
     pub fn ipv4_addr(&self) -> io::Result<SocketAddrV4> {
-        let addrs = try!(self.socket_addrs());
+        let addrs = self.socket_addrs()?;
 
-        addrs.filter_map(map_ipv4)
-            .next()
-            .ok_or(Error::new(ErrorKind::Other, "No IPv4 Addresses Found For Host"))
+        addrs.filter_map(map_ipv4).next().ok_or(Error::new(
+            ErrorKind::Other,
+            "No IPv4 Addresses Found For Host",
+        ))
     }
 
     pub fn ipv6_addr(&self) -> io::Result<SocketAddrV6> {
-        let addrs = try!(self.socket_addrs());
+        let addrs = self.socket_addrs()?;
 
-        addrs.filter_map(map_ipv6)
-            .next()
-            .ok_or(Error::new(ErrorKind::Other, "No IPv6 Addresses Found For Host"))
+        addrs.filter_map(map_ipv6).next().ok_or(Error::new(
+            ErrorKind::Other,
+            "No IPv6 Addresses Found For Host",
+        ))
     }
 
     pub fn socket_addr(&self) -> io::Result<SocketAddr> {
-        let mut addrs = try!(self.socket_addrs());
+        let mut addrs = self.socket_addrs()?;
 
-        addrs.next().ok_or(Error::new(ErrorKind::Other, "No SocketAddresses Found For Host"))
+        addrs.next().ok_or(Error::new(
+            ErrorKind::Other,
+            "No SocketAddresses Found For Host",
+        ))
     }
 
     fn socket_addrs(&self) -> io::Result<IntoIter<SocketAddr>> {
@@ -97,9 +102,10 @@ impl Display for Router {
                 f.write_fmt(format_args!("{}:{}", BITTORRENT_DHT.0, BITTORRENT_DHT.1))
             }
             Router::BitComet => f.write_fmt(format_args!("{}:{}", BITCOMET_DHT.0, BITCOMET_DHT.1)),
-            Router::Transmission => {
-                f.write_fmt(format_args!("{}:{}", TRANSMISSION_DHT.0, TRANSMISSION_DHT.1))
-            }
+            Router::Transmission => f.write_fmt(format_args!(
+                "{}:{}",
+                TRANSMISSION_DHT.0, TRANSMISSION_DHT.1
+            )),
             Router::Custom(n) => Display::fmt(&n, f),
         }
     }

@@ -1,18 +1,18 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::mpsc::SyncSender;
 
 use bip_handshake::Handshaker;
 use bip_util::bt::{self, NodeId};
-use mio::{Timeout, EventLoop};
+use mio::{EventLoop, Timeout};
 
 use message::find_node::FindNodeRequest;
 use routing::bucket::Bucket;
 use routing::node::{Node, NodeStatus};
-use routing::table::{self, RoutingTable, BucketContents};
+use routing::table::{self, BucketContents, RoutingTable};
 use transaction::{MIDGenerator, TransactionID};
-use worker::ScheduledTask;
 use worker::handler::DhtHandler;
+use worker::ScheduledTask;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: u64 = 2500;
 const BOOTSTRAP_NODE_TIMEOUT: u64 = 500;
@@ -41,12 +41,14 @@ pub struct TableBootstrap {
 }
 
 impl TableBootstrap {
-    pub fn new<I>(table_id: NodeId,
-                  id_generator: MIDGenerator,
-                  nodes: Vec<SocketAddr>,
-                  routers: I)
-                  -> TableBootstrap
-        where I: Iterator<Item = SocketAddr>
+    pub fn new<I>(
+        table_id: NodeId,
+        id_generator: MIDGenerator,
+        nodes: Vec<SocketAddr>,
+        routers: I,
+    ) -> TableBootstrap
+    where
+        I: Iterator<Item = SocketAddr>,
     {
         let router_filter: HashSet<SocketAddr> = routers.collect();
 
@@ -60,11 +62,13 @@ impl TableBootstrap {
         }
     }
 
-    pub fn start_bootstrap<H>(&mut self,
-                              out: &SyncSender<(Vec<u8>, SocketAddr)>,
-                              event_loop: &mut EventLoop<DhtHandler<H>>)
-                              -> BootstrapStatus
-        where H: Handshaker
+    pub fn start_bootstrap<H>(
+        &mut self,
+        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        event_loop: &mut EventLoop<DhtHandler<H>>,
+    ) -> BootstrapStatus
+    where
+        H: Handshaker,
     {
         // Reset the bootstrap state
         self.active_messages.clear();
@@ -74,9 +78,13 @@ impl TableBootstrap {
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
-        let res_timeout = event_loop.timeout_ms((BOOTSTRAP_INITIAL_TIMEOUT,
-                                                 ScheduledTask::CheckBootstrapTimeout(trans_id)),
-                                                BOOTSTRAP_INITIAL_TIMEOUT);
+        let res_timeout = event_loop.timeout_ms(
+            (
+                BOOTSTRAP_INITIAL_TIMEOUT,
+                ScheduledTask::CheckBootstrapTimeout(trans_id),
+            ),
+            BOOTSTRAP_INITIAL_TIMEOUT,
+        );
         let timeout = if let Ok(t) = res_timeout {
             t
         } else {
@@ -87,10 +95,14 @@ impl TableBootstrap {
         // Insert the timeout into the active bootstraps just so we can check if a response was valid (and begin the bucket bootstraps)
         self.active_messages.insert(trans_id, timeout);
 
-        let find_node_msg = FindNodeRequest::new(trans_id.as_ref(), self.table_id, self.table_id)
-            .encode();
+        let find_node_msg =
+            FindNodeRequest::new(trans_id.as_ref(), self.table_id, self.table_id).encode();
         // Ping all initial routers and nodes
-        for addr in self.starting_routers.iter().chain(self.starting_nodes.iter()) {
+        for addr in self
+            .starting_routers
+            .iter()
+            .chain(self.starting_nodes.iter())
+        {
             if out.send((find_node_msg.clone(), *addr)).is_err() {
                 error!("bip_dht: Failed to send bootstrap message to router through channel...");
                 return BootstrapStatus::Failed;
@@ -104,20 +116,24 @@ impl TableBootstrap {
         self.starting_routers.contains(&addr)
     }
 
-    pub fn recv_response<'a, H>(&mut self,
-                                trans_id: &TransactionID,
-                                table: &RoutingTable,
-                                out: &SyncSender<(Vec<u8>, SocketAddr)>,
-                                event_loop: &mut EventLoop<DhtHandler<H>>)
-                                -> BootstrapStatus
-        where H: Handshaker
+    pub fn recv_response<'a, H>(
+        &mut self,
+        trans_id: &TransactionID,
+        table: &RoutingTable,
+        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        event_loop: &mut EventLoop<DhtHandler<H>>,
+    ) -> BootstrapStatus
+    where
+        H: Handshaker,
     {
         // Process the message transaction id
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
-            warn!("bip_dht: Received expired/unsolicited node response for an active table \
-                   bootstrap...");
+            warn!(
+                "bip_dht: Received expired/unsolicited node response for an active table \
+                   bootstrap..."
+            );
             return self.current_bootstrap_status();
         };
 
@@ -140,17 +156,21 @@ impl TableBootstrap {
         self.current_bootstrap_status()
     }
 
-    pub fn recv_timeout<H>(&mut self,
-                           trans_id: &TransactionID,
-                           table: &RoutingTable,
-                           out: &SyncSender<(Vec<u8>, SocketAddr)>,
-                           event_loop: &mut EventLoop<DhtHandler<H>>)
-                           -> BootstrapStatus
-        where H: Handshaker
+    pub fn recv_timeout<H>(
+        &mut self,
+        trans_id: &TransactionID,
+        table: &RoutingTable,
+        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        event_loop: &mut EventLoop<DhtHandler<H>>,
+    ) -> BootstrapStatus
+    where
+        H: Handshaker,
     {
         if self.active_messages.remove(trans_id).is_none() {
-            warn!("bip_dht: Received expired/unsolicited node timeout for an active table \
-                   bootstrap...");
+            warn!(
+                "bip_dht: Received expired/unsolicited node timeout for an active table \
+                   bootstrap..."
+            );
             return self.current_bootstrap_status();
         }
 
@@ -163,18 +183,21 @@ impl TableBootstrap {
     }
 
     // Returns true if there are more buckets to bootstrap, false otherwise
-    fn bootstrap_next_bucket<H>(&mut self,
-                                table: &RoutingTable,
-                                out: &SyncSender<(Vec<u8>, SocketAddr)>,
-                                event_loop: &mut EventLoop<DhtHandler<H>>)
-                                -> BootstrapStatus
-        where H: Handshaker
+    fn bootstrap_next_bucket<H>(
+        &mut self,
+        table: &RoutingTable,
+        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        event_loop: &mut EventLoop<DhtHandler<H>>,
+    ) -> BootstrapStatus
+    where
+        H: Handshaker,
     {
         let target_id = flip_id_bit_at_index(self.table_id, self.curr_bootstrap_bucket);
 
         // Get the optimal iterator to bootstrap the current bucket
         if self.curr_bootstrap_bucket == 0 || self.curr_bootstrap_bucket == 1 {
-            let iter = table.closest_nodes(target_id)
+            let iter = table
+                .closest_nodes(target_id)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
             self.send_bootstrap_requests(iter, target_id, table, out, event_loop)
@@ -215,7 +238,8 @@ impl TableBootstrap {
             // buckets faster at the cost of less nodes in the higher buckets (since lower buckets are very easy to fill)...Although it should
             // even out since we are stagnating buckets, so doing it in reverse may make sense since on the 3rd iteration, it allows us to ping
             // questionable nodes in our first buckets right off the bat.
-            let iter = percent_25_bucket.chain(percent_50_bucket)
+            let iter = percent_25_bucket
+                .chain(percent_50_bucket)
                 .chain(percent_100_bucket)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
@@ -223,32 +247,39 @@ impl TableBootstrap {
         }
     }
 
-    fn send_bootstrap_requests<'a, H, I>(&mut self,
-                                         nodes: I,
-                                         target_id: NodeId,
-                                         table: &RoutingTable,
-                                         out: &SyncSender<(Vec<u8>, SocketAddr)>,
-                                         event_loop: &mut EventLoop<DhtHandler<H>>)
-                                         -> BootstrapStatus
-        where I: Iterator<Item = &'a Node>,
-              H: Handshaker
+    fn send_bootstrap_requests<'a, H, I>(
+        &mut self,
+        nodes: I,
+        target_id: NodeId,
+        table: &RoutingTable,
+        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        event_loop: &mut EventLoop<DhtHandler<H>>,
+    ) -> BootstrapStatus
+    where
+        I: Iterator<Item = &'a Node>,
+        H: Handshaker,
     {
-        info!("bip_dht: bootstrap::send_bootstrap_requests {}",
-              self.curr_bootstrap_bucket);
+        info!(
+            "bip_dht: bootstrap::send_bootstrap_requests {}",
+            self.curr_bootstrap_bucket
+        );
 
         let mut messages_sent = 0;
 
         for node in nodes.take(BOOTSTRAP_PINGS_PER_BUCKET) {
             // Generate a transaction id
             let trans_id = self.id_generator.generate();
-            let find_node_msg = FindNodeRequest::new(trans_id.as_ref(), self.table_id, target_id)
-                .encode();
+            let find_node_msg =
+                FindNodeRequest::new(trans_id.as_ref(), self.table_id, target_id).encode();
 
             // Add a timeout for the node
-            let res_timeout =
-                event_loop.timeout_ms((BOOTSTRAP_NODE_TIMEOUT,
-                                       ScheduledTask::CheckBootstrapTimeout(trans_id)),
-                                      BOOTSTRAP_NODE_TIMEOUT);
+            let res_timeout = event_loop.timeout_ms(
+                (
+                    BOOTSTRAP_NODE_TIMEOUT,
+                    ScheduledTask::CheckBootstrapTimeout(trans_id),
+                ),
+                BOOTSTRAP_NODE_TIMEOUT,
+            );
             let timeout = if let Ok(t) = res_timeout {
                 t
             } else {

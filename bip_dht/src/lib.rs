@@ -8,9 +8,9 @@ extern crate bip_util;
 extern crate crc;
 #[macro_use]
 extern crate log;
+extern crate chrono;
 extern crate mio;
 extern crate rand;
-extern crate chrono;
 #[macro_use]
 extern crate error_chain;
 
@@ -32,9 +32,9 @@ mod builder;
 mod error;
 pub mod message;
 mod router;
+mod routing;
 mod security;
 mod storage;
-mod routing;
 mod token;
 mod transaction;
 mod worker;

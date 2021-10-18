@@ -62,12 +62,10 @@ impl RoutingTable {
             Some(c)
         } else {
             // Grab the assorted bucket (if it exists)
-            self.buckets().find(|c| {
-                match c {
-                    &BucketContents::Empty => false,
-                    &BucketContents::Sorted(_) => false,
-                    &BucketContents::Assorted(_) => true,
-                }
+            self.buckets().find(|c| match c {
+                &BucketContents::Empty => false,
+                &BucketContents::Sorted(_) => false,
+                &BucketContents::Assorted(_) => true,
             })
         };
 
@@ -243,7 +241,9 @@ impl<'a> Iterator for Buckets<'a> {
             return if self.buckets.len() == MAX_BUCKETS || self.buckets.is_empty() {
                 None
             } else {
-                Some(BucketContents::Assorted(&self.buckets[self.buckets.len() - 1]))
+                Some(BucketContents::Assorted(
+                    &self.buckets[self.buckets.len() - 1],
+                ))
             };
         }
 
@@ -341,9 +341,10 @@ impl<'a> Iterator for ClosestNodes<'a> {
 }
 
 /// Optionally returns the precomputed bucket positions for all assorted nodes.
-fn precompute_assorted_nodes<'a>(buckets: &'a [Bucket],
-                                 self_node_id: NodeId)
-                                 -> Option<[(usize, &'a Node, bool); bucket::MAX_BUCKET_SIZE]> {
+fn precompute_assorted_nodes<'a>(
+    buckets: &'a [Bucket],
+    self_node_id: NodeId,
+) -> Option<[(usize, &'a Node, bool); bucket::MAX_BUCKET_SIZE]> {
     if buckets.len() == MAX_BUCKETS {
         return None;
     }
@@ -370,12 +371,12 @@ fn precompute_assorted_nodes<'a>(buckets: &'a [Bucket],
 /// Optionally returns the filter iterator for the bucket at the specified index.
 fn bucket_iterator<'a>(buckets: &'a [Bucket], index: usize) -> Option<GoodNodes<'a>> {
     if buckets.len() == MAX_BUCKETS {
-            buckets
-        } else {
-            &buckets[..(buckets.len() - 1)]
-        }
-        .get(index)
-        .map(|bucket| good_node_filter(bucket.iter()))
+        buckets
+    } else {
+        &buckets[..(buckets.len() - 1)]
+    }
+    .get(index)
+    .map(|bucket| good_node_filter(bucket.iter()))
 }
 
 /// Converts the given iterator into a filter iterator to return only good nodes.
@@ -453,9 +454,9 @@ mod tests {
     use bip_util::bt::{self, NodeId};
     use bip_util::test as bip_test;
 
-    use routing::table::{self, RoutingTable, BucketContents};
     use routing::bucket;
     use routing::node::Node;
+    use routing::table::{self, BucketContents, RoutingTable};
 
     // TODO: Move into bip_util crate
     fn flip_id_bit_at_index(node_id: NodeId, index: usize) -> NodeId {
@@ -493,9 +494,12 @@ mod tests {
         let mut table = RoutingTable::new(table_id.into());
 
         // First buckets should be empty
-        assert_eq!(table.buckets().take(table::MAX_BUCKETS).count(),
-                   table::MAX_BUCKETS);
-        assert!(table.buckets()
+        assert_eq!(
+            table.buckets().take(table::MAX_BUCKETS).count(),
+            table::MAX_BUCKETS
+        );
+        assert!(table
+            .buckets()
             .take(table::MAX_BUCKETS)
             .fold(true, |prev, contents| prev && contents.is_empty()));
 
@@ -537,9 +541,12 @@ mod tests {
         }
 
         // Middle buckets should be empty
-        assert_eq!(table.buckets().skip(1).take(table::MAX_BUCKETS - 1).count(),
-                   table::MAX_BUCKETS - 1);
-        assert!(table.buckets()
+        assert_eq!(
+            table.buckets().skip(1).take(table::MAX_BUCKETS - 1).count(),
+            table::MAX_BUCKETS - 1
+        );
+        assert!(table
+            .buckets()
             .skip(1)
             .take(table::MAX_BUCKETS - 1)
             .fold(true, |prev, contents| prev && contents.is_empty()));
@@ -571,8 +578,10 @@ mod tests {
         }
 
         // First buckets should be sorted (although they are all empty)
-        assert_eq!(table.buckets().take(table::MAX_BUCKETS - 1).count(),
-                   table::MAX_BUCKETS - 1);
+        assert_eq!(
+            table.buckets().take(table::MAX_BUCKETS - 1).count(),
+            table::MAX_BUCKETS - 1
+        );
         for bucket in table.buckets().take(table::MAX_BUCKETS - 1) {
             match bucket {
                 BucketContents::Sorted(b) => assert_eq!(b.pingable_nodes().count(), 0),
@@ -581,8 +590,10 @@ mod tests {
         }
 
         // Last bucket should be sorted
-        assert_eq!(table.buckets().skip(table::MAX_BUCKETS - 1).take(1).count(),
-                   1);
+        assert_eq!(
+            table.buckets().skip(table::MAX_BUCKETS - 1).take(1).count(),
+            1
+        );
         for bucket in table.buckets().skip(table::MAX_BUCKETS - 1).take(1) {
             match bucket {
                 BucketContents::Sorted(b) => {

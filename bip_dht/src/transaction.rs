@@ -187,7 +187,6 @@ fn generate_mids(next_alloc: u64) -> (u64, [u64; MESSAGE_ID_PREALLOC_LEN]) {
     (next_alloc_end, message_ids)
 }
 
-
 // ----------------------------------------------------------------------------//
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -249,7 +248,9 @@ impl ActionID {
         // The ACTUAL action id
         let shifted_action_id = trans_id >> MESSAGE_ID_SHIFT;
 
-        ActionID { action_id: shifted_action_id }
+        ActionID {
+            action_id: shifted_action_id,
+        }
     }
 }
 
@@ -268,7 +269,9 @@ impl MessageID {
         // The ACTUAL message id
         let shifted_message_id = trans_id & clear_action_id;
 
-        MessageID { message_id: shifted_message_id }
+        MessageID {
+            message_id: shifted_message_id,
+        }
     }
 }
 

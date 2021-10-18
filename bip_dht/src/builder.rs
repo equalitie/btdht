@@ -9,7 +9,7 @@ use bip_util::net;
 use mio::Sender;
 
 use router::Router;
-use worker::{self, OneshotTask, DhtEvent, ShutdownCause};
+use worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {
@@ -19,26 +19,32 @@ pub struct MainlineDht {
 impl MainlineDht {
     /// Start the MainlineDht with the given DhtBuilder and Handshaker.
     fn with_builder<H>(builder: DhtBuilder, handshaker: H) -> io::Result<MainlineDht>
-        where H: Handshaker + 'static
+    where
+        H: Handshaker + 'static,
     {
-        let send_sock = try!(UdpSocket::bind(&builder.src_addr));
-        let recv_sock = try!(send_sock.try_clone());
+        let send_sock = UdpSocket::bind(&builder.src_addr)?;
+        let recv_sock = send_sock.try_clone()?;
 
-        let kill_sock = try!(send_sock.try_clone());
-        let kill_addr = try!(send_sock.local_addr());
+        let kill_sock = send_sock.try_clone()?;
+        let kill_addr = send_sock.local_addr()?;
 
-        let send = try!(worker::start_mainline_dht(send_sock,
-                                                   recv_sock,
-                                                   builder.read_only,
-                                                   builder.ext_addr,
-                                                   handshaker,
-                                                   kill_sock,
-                                                   kill_addr));
+        let send = worker::start_mainline_dht(
+            send_sock,
+            recv_sock,
+            builder.read_only,
+            builder.ext_addr,
+            handshaker,
+            kill_sock,
+            kill_addr,
+        )?;
 
         let nodes: Vec<SocketAddr> = builder.nodes.into_iter().collect();
         let routers: Vec<Router> = builder.routers.into_iter().collect();
 
-        if send.send(OneshotTask::StartBootstrap(routers, nodes)).is_err() {
+        if send
+            .send(OneshotTask::StartBootstrap(routers, nodes))
+            .is_err()
+        {
             warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
         }
 
@@ -54,7 +60,11 @@ impl MainlineDht {
     /// If the initial bootstrap has not finished, the search will be queued and executed once
     /// the bootstrap has completed.
     pub fn search(&self, hash: InfoHash, announce: bool) {
-        if self.send.send(OneshotTask::StartLookup(hash, announce)).is_err() {
+        if self
+            .send
+            .send(OneshotTask::StartLookup(hash, announce))
+            .is_err()
+        {
             warn!("bip_dht: MainlineDht failed to send a start lookup message...");
         }
     }
@@ -79,9 +89,15 @@ impl MainlineDht {
 
 impl Drop for MainlineDht {
     fn drop(&mut self) {
-        if self.send.send(OneshotTask::Shutdown(ShutdownCause::ClientInitiated)).is_err() {
-            warn!("bip_dht: MainlineDht failed to send a shutdown message (may have already been \
-                   shutdown)...");
+        if self
+            .send
+            .send(OneshotTask::Shutdown(ShutdownCause::ClientInitiated))
+            .is_err()
+        {
+            warn!(
+                "bip_dht: MainlineDht failed to send a shutdown message (may have already been \
+                   shutdown)..."
+            );
         }
     }
 }
@@ -180,7 +196,8 @@ impl DhtBuilder {
 
     /// Start a mainline DHT with the current configuration.
     pub fn start_mainline<H>(self, handshaker: H) -> io::Result<MainlineDht>
-        where H: Handshaker + 'static
+    where
+        H: Handshaker + 'static,
     {
         MainlineDht::with_builder(self, handshaker)
     }

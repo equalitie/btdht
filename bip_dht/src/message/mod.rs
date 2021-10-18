@@ -1,20 +1,20 @@
 use bip_bencode::{Bencode, BencodeConvert, BencodeConvertError};
 
-use message::request::RequestType;
-use message::response::{ResponseType, ExpectedResponse};
-use message::error::ErrorMessage;
 use error::{DhtError, DhtErrorKind, DhtResult};
+use message::error::ErrorMessage;
+use message::request::RequestType;
+use message::response::{ExpectedResponse, ResponseType};
 
 pub mod compact_info;
 
+pub mod error;
 pub mod request;
 pub mod response;
-pub mod error;
 
-pub mod ping;
+pub mod announce_peer;
 pub mod find_node;
 pub mod get_peers;
-pub mod announce_peer;
+pub mod ping;
 
 // Top level message keys
 const TRANSACTION_ID_KEY: &'static str = "t";
@@ -61,32 +61,33 @@ pub enum MessageType<'a> {
 
 impl<'a> MessageType<'a> {
     pub fn new<T>(message: &'a Bencode<'a>, trans_mapper: T) -> DhtResult<MessageType<'a>>
-        where T: Fn(&[u8]) -> ExpectedResponse
+    where
+        T: Fn(&[u8]) -> ExpectedResponse,
     {
         let validate = MessageValidate;
-        let msg_root = try!(validate.convert_dict(message, ROOT_ID_KEY));
+        let msg_root = validate.convert_dict(message, ROOT_ID_KEY)?;
 
-        let trans_id = try!(validate.lookup_and_convert_bytes(msg_root, TRANSACTION_ID_KEY));
-        let msg_type = try!(validate.lookup_and_convert_str(msg_root, MESSAGE_TYPE_KEY));
+        let trans_id = validate.lookup_and_convert_bytes(msg_root, TRANSACTION_ID_KEY)?;
+        let msg_type = validate.lookup_and_convert_str(msg_root, MESSAGE_TYPE_KEY)?;
 
         match msg_type {
             REQUEST_TYPE_KEY => {
-                let rqst_type = try!(validate.lookup_and_convert_str(msg_root, REQUEST_TYPE_KEY));
-                let rqst_msg = try!(RequestType::from_parts(msg_root, trans_id, rqst_type));
+                let rqst_type = validate.lookup_and_convert_str(msg_root, REQUEST_TYPE_KEY)?;
+                let rqst_msg = RequestType::from_parts(msg_root, trans_id, rqst_type)?;
                 Ok(MessageType::Request(rqst_msg))
             }
             RESPONSE_TYPE_KEY => {
                 let rsp_type = trans_mapper(trans_id);
-                let rsp_message = try!(ResponseType::from_parts(msg_root, trans_id, rsp_type));
+                let rsp_message = ResponseType::from_parts(msg_root, trans_id, rsp_type)?;
                 Ok(MessageType::Response(rsp_message))
             }
             ERROR_TYPE_KEY => {
-                let err_message = try!(ErrorMessage::from_parts(msg_root, trans_id));
+                let err_message = ErrorMessage::from_parts(msg_root, trans_id)?;
                 Ok(MessageType::Error(err_message))
             }
-            unknown => {
-                Err(DhtError::from_kind(DhtErrorKind::InvalidMessage { code: unknown.to_owned() }))
-            }
+            unknown => Err(DhtError::from_kind(DhtErrorKind::InvalidMessage {
+                code: unknown.to_owned(),
+            })),
         }
     }
 }

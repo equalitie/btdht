@@ -2,7 +2,7 @@
 #![allow(unused)]
 
 use std::iter::Filter;
-use std::net::{Ipv4Addr, SocketAddrV4, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
 
 use bip_util::bt::{self, NodeId};
@@ -26,14 +26,16 @@ impl Bucket {
         let addr = SocketAddr::V4(SocketAddrV4::new(ip, 0));
 
         Bucket {
-            nodes: [Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr),
-                    Node::as_bad(id, addr)],
+            nodes: [
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+                Node::as_bad(id, addr),
+            ],
         }
     }
 
@@ -56,7 +58,9 @@ impl Bucket {
 
     /// Indicates if the bucket needs to be refreshed.
     pub fn needs_refresh(&self) -> bool {
-        self.nodes.iter().fold(true, |prev, node| prev && node.status() != NodeStatus::Good)
+        self.nodes
+            .iter()
+            .fold(true, |prev, node| prev && node.status() != NodeStatus::Good)
     }
 
     /// Attempt to add the given Node to the bucket if it is not in a bad state.
@@ -83,7 +87,10 @@ impl Bucket {
         // See if any lower priority nodes are present in the table, we cant do
         // nodes that have equal status because we have to prefer longer lasting
         // nodes in the case of a good status which helps with stability.
-        let replace_index = self.nodes.iter().position(|node| node.status() < new_node_status);
+        let replace_index = self
+            .nodes
+            .iter()
+            .position(|node| node.status() < new_node_status);
         if let Some(index) = replace_index {
             self.nodes[index] = new_node;
 
@@ -102,7 +109,9 @@ pub struct GoodNodes<'a> {
 
 impl<'a> GoodNodes<'a> {
     fn new(nodes: &'a [Node]) -> GoodNodes<'a> {
-        GoodNodes { iter: nodes.iter().filter(good_nodes_filter) }
+        GoodNodes {
+            iter: nodes.iter().filter(good_nodes_filter),
+        }
     }
 }
 
@@ -126,7 +135,9 @@ pub struct PingableNodes<'a> {
 
 impl<'a> PingableNodes<'a> {
     fn new(nodes: &'a [Node]) -> PingableNodes<'a> {
-        PingableNodes { iter: nodes.iter().filter(pingable_nodes_filter) }
+        PingableNodes {
+            iter: nodes.iter().filter(pingable_nodes_filter),
+        }
     }
 }
 
@@ -234,13 +245,19 @@ mod tests {
         let new_good_node = Node::as_good(unused_id, dummy_addr);
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket.good_nodes().find(|node| &&new_good_node == node).is_none());
+        assert!(bucket
+            .good_nodes()
+            .find(|node| &&new_good_node == node)
+            .is_none());
 
         // Try to add it
         bucket.add_node(new_good_node.clone());
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket.good_nodes().find(|node| &&new_good_node == node).is_none());
+        assert!(bucket
+            .good_nodes()
+            .find(|node| &&new_good_node == node)
+            .is_none());
     }
 
     #[test]
@@ -255,25 +272,34 @@ mod tests {
         }
 
         // All the nodes should be questionable
-        assert_eq!(bucket.pingable_nodes()
-                       .filter(|node| node.status() == NodeStatus::Questionable)
-                       .count(),
-                   super::MAX_BUCKET_SIZE);
+        assert_eq!(
+            bucket
+                .pingable_nodes()
+                .filter(|node| node.status() == NodeStatus::Questionable)
+                .count(),
+            super::MAX_BUCKET_SIZE
+        );
 
         // Create a new questionable node
         let unused_id = dummy_ids[dummy_ids.len() - 1];
         let new_questionable_node = Node::as_questionable(unused_id, dummy_addr);
 
         // Make sure the node is NOT in the bucket
-        assert!(bucket.pingable_nodes().find(|node| &&new_questionable_node == node).is_none());
+        assert!(bucket
+            .pingable_nodes()
+            .find(|node| &&new_questionable_node == node)
+            .is_none());
 
         // Try to add it
         bucket.add_node(new_questionable_node.clone());
 
         // Make sure the node is NOT in the bucket
-        assert_eq!(bucket.pingable_nodes()
-                       .filter(|node| node.status() == NodeStatus::Questionable)
-                       .count(),
-                   super::MAX_BUCKET_SIZE);
+        assert_eq!(
+            bucket
+                .pingable_nodes()
+                .filter(|node| node.status() == NodeStatus::Questionable)
+                .count(),
+            super::MAX_BUCKET_SIZE
+        );
     }
 }
