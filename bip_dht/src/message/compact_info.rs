@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::net::{Ipv4Addr, SocketAddrV4};
 
 use bip_bencode::Bencode;
-use bip_util::error::{LengthError, LengthErrorKind, LengthResult};
+use thiserror::Error;
 
 use crate::id::{NodeId, ShaHash, NODE_ID_LEN};
 
@@ -20,12 +20,9 @@ pub struct CompactNodeInfo<'a> {
 }
 
 impl<'a> CompactNodeInfo<'a> {
-    pub fn new(nodes: &'a [u8]) -> LengthResult<CompactNodeInfo<'a>> {
+    pub fn new(nodes: &'a [u8]) -> Result<CompactNodeInfo<'a>, InvalidCompactInfo> {
         if nodes.len() % BYTES_PER_COMPACT_NODE_INFO != 0 {
-            Err(LengthError::new(
-                LengthErrorKind::LengthMultipleExpected,
-                BYTES_PER_COMPACT_NODE_INFO,
-            ))
+            Err(InvalidCompactInfo)
         } else {
             Ok(CompactNodeInfo { nodes })
         }
@@ -83,17 +80,13 @@ impl<'a> CompactValueInfo<'a> {
     ///
     /// It is VERY important that the values have been checked to contain only
     /// bencoded bytes and not other types as that will result in a panic.
-    pub fn new(values: &'a [Bencode<'a>]) -> LengthResult<CompactValueInfo<'a>> {
-        for (index, node) in values.iter().enumerate() {
+    pub fn new(values: &'a [Bencode<'a>]) -> Result<CompactValueInfo<'a>, InvalidCompactInfo> {
+        for node in values {
             // TODO: Do not unwrap here please
             let compact_value = node.bytes().unwrap();
 
             if compact_value.len() != BYTES_PER_COMPACT_IP {
-                return Err(LengthError::with_index(
-                    LengthErrorKind::LengthExpected,
-                    BYTES_PER_COMPACT_IP,
-                    index,
-                ));
+                return Err(InvalidCompactInfo);
             }
         }
 
@@ -139,6 +132,10 @@ impl<'a> Iterator for CompactValueInfoIter<'a> {
     }
 }
 
+#[derive(Debug, Error)]
+#[error("invalid compact info")]
+pub struct InvalidCompactInfo;
+
 // ----------------------------------------------------------------------------//
 
 /// Panics if the size of compact_info is less than BYTES_PER_COMPACT_NODE_INFO.
@@ -152,12 +149,9 @@ fn parts_from_compact_info(compact_info: &[u8]) -> (NodeId, SocketAddrV4) {
     (node_id, socket)
 }
 
-fn socket_v4_from_bytes_be(bytes: &[u8]) -> LengthResult<SocketAddrV4> {
+fn socket_v4_from_bytes_be(bytes: &[u8]) -> Result<SocketAddrV4, InvalidCompactInfo> {
     if bytes.len() != BYTES_PER_COMPACT_IP {
-        Err(LengthError::new(
-            LengthErrorKind::LengthExpected,
-            BYTES_PER_COMPACT_IP,
-        ))
+        Err(InvalidCompactInfo)
     } else {
         let (oc_one, oc_two, oc_three, oc_four) = (bytes[0], bytes[1], bytes[2], bytes[3]);
 
