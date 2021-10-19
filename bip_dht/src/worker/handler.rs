@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::io;
-use std::mem;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use bip_bencode::Bencode;
 use tokio::{sync::mpsc, task};
@@ -42,8 +41,6 @@ pub fn create_dht_handler(
     out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
     announce_port: Option<u16>,
-    kill_sock: UdpSocket,
-    kill_addr: SocketAddr,
 ) -> io::Result<mio::Sender<OneshotTask>> {
     let mut handler = DhtHandler::new(table, out, read_only, announce_port);
     let mut event_loop = EventLoop::new()?;
@@ -51,25 +48,11 @@ pub fn create_dht_handler(
     let loop_channel = event_loop.channel();
 
     task::spawn(async move {
-        if event_loop.run(&mut handler).await.is_err() {
+        if event_loop.run(&mut handler).await.is_ok() {
+            info!("bip_dht: DhtHandler gracefully shut down, exiting thread...");
+        } else {
             error!("bip_dht: EventLoop shut down with an error...");
         }
-
-        // Make sure the handler and event loop are dropped before sending our incoming messenger kill
-        // message so that the incoming messenger can not send anything through their event loop channel.
-        mem::drop(event_loop);
-        mem::drop(handler);
-
-        // When event loop stops, we need to "wake" the incoming messenger with a socket message,
-        // when it processes the message and tries to pass it to us, it will see that our channel
-        // is closed and know that it should shut down. The outgoing messenger will shut itself down.
-        // TODO: This will not work if kill_addr is set to a default route 0.0.0.0, need to find another
-        // work around (potentially finding out the actual addresses for the current machine beforehand?)
-        if kill_sock.send_to(&b"0"[..], kill_addr).is_err() {
-            error!("bip_dht: Failed to send a wake up message to the incoming channel...");
-        }
-
-        info!("bip_dht: DhtHandler gracefully shut down, exiting thread...");
     });
 
     Ok(loop_channel)

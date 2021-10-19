@@ -11,6 +11,7 @@ async fn basic() {
         .set_source_addr(a_addr)
         .set_read_only(false)
         .start_mainline()
+        .await
         .unwrap();
     let mut events_a = node_a.events();
 
@@ -18,6 +19,7 @@ async fn basic() {
         .set_source_addr(b_addr)
         .set_read_only(false)
         .start_mainline()
+        .await
         .unwrap();
     let mut events_b = node_b.events();
 

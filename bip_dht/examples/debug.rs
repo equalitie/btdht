@@ -16,6 +16,7 @@ async fn main() {
         )))
         .set_read_only(false)
         .start_mainline()
+        .await
         .unwrap();
 
     // Spawn a thread to listen to and report events

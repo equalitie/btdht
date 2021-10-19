@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 
-use tokio::sync::mpsc;
+use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::id::InfoHash;
 use crate::mio::Sender;
@@ -16,21 +16,14 @@ pub struct MainlineDht {
 
 impl MainlineDht {
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(builder: DhtBuilder) -> io::Result<MainlineDht> {
-        let send_sock = UdpSocket::bind(&builder.src_addr)?;
-        let recv_sock = send_sock.try_clone()?;
-
-        let kill_sock = send_sock.try_clone()?;
-        let kill_addr = send_sock.local_addr()?;
+    async fn with_builder(builder: DhtBuilder) -> io::Result<Self> {
+        let sock = UdpSocket::bind(&builder.src_addr).await?;
 
         let send = worker::start_mainline_dht(
-            send_sock,
-            recv_sock,
+            sock,
             builder.read_only,
             builder.ext_addr,
             builder.announce_port,
-            kill_sock,
-            kill_addr,
         )?;
 
         let nodes: Vec<SocketAddr> = builder.nodes.into_iter().collect();
@@ -200,7 +193,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration.
-    pub fn start_mainline(self) -> io::Result<MainlineDht> {
-        MainlineDht::with_builder(self)
+    pub async fn start_mainline(self) -> io::Result<MainlineDht> {
+        MainlineDht::with_builder(self).await
     }
 }
