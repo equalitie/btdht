@@ -1,10 +1,10 @@
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::thread::{self};
 
 use bip_dht::{DhtBuilder, InfoHash, Router};
 
-fn main() {
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
     pretty_env_logger::init();
 
     let hash = InfoHash::from_bytes(b"My Unique Info Hash");
@@ -19,9 +19,9 @@ fn main() {
         .unwrap();
 
     // Spawn a thread to listen to and report events
-    let events = dht.events();
-    thread::spawn(move || {
-        for event in events {
+    let mut events = dht.events();
+    tokio::spawn(async move {
+        while let Some(event) = events.recv().await {
             println!("\nReceived Dht Event {:?}", event);
         }
     });

@@ -1,18 +1,18 @@
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc::{self, SyncSender};
 use std::thread;
 
-use mio::Sender;
+use tokio::{sync::mpsc, task};
 
+use crate::mio::Sender;
 use crate::worker::OneshotTask;
 
 const OUTGOING_MESSAGE_CAPACITY: usize = 4096;
 
-pub fn create_outgoing_messenger(socket: UdpSocket) -> SyncSender<(Vec<u8>, SocketAddr)> {
-    let (send, recv) = mpsc::sync_channel::<(Vec<u8>, SocketAddr)>(OUTGOING_MESSAGE_CAPACITY);
+pub fn create_outgoing_messenger(socket: UdpSocket) -> mpsc::Sender<(Vec<u8>, SocketAddr)> {
+    let (send, mut recv) = mpsc::channel::<(Vec<_>, _)>(OUTGOING_MESSAGE_CAPACITY);
 
-    thread::spawn(move || {
-        for (message, addr) in recv {
+    task::spawn(async move {
+        while let Some((message, addr)) = recv.recv().await {
             send_bytes(&socket, &message[..], addr);
         }
 

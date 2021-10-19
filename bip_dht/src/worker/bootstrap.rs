@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::mpsc::SyncSender;
 
-use mio::{EventLoop, Timeout};
+use tokio::sync::mpsc;
 
 use crate::id::NodeId;
 use crate::message::find_node::FindNodeRequest;
+use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};
 use crate::routing::table::{self, BucketContents, RoutingTable};
@@ -63,7 +63,7 @@ impl TableBootstrap {
 
     pub fn start_bootstrap(
         &mut self,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus {
         // Reset the bootstrap state
@@ -99,7 +99,7 @@ impl TableBootstrap {
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            if out.send((find_node_msg.clone(), *addr)).is_err() {
+            if out.blocking_send((find_node_msg.clone(), *addr)).is_err() {
                 error!("bip_dht: Failed to send bootstrap message to router through channel...");
                 return BootstrapStatus::Failed;
             }
@@ -116,7 +116,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus {
         // Process the message transaction id
@@ -153,7 +153,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
@@ -176,7 +176,7 @@ impl TableBootstrap {
     fn bootstrap_next_bucket(
         &mut self,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus {
         let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
@@ -239,7 +239,7 @@ impl TableBootstrap {
         nodes: I,
         target_id: NodeId,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> BootstrapStatus
     where
@@ -274,7 +274,7 @@ impl TableBootstrap {
             };
 
             // Send the message to the node
-            if out.send((find_node_msg, node.addr())).is_err() {
+            if out.blocking_send((find_node_msg, node.addr())).is_err() {
                 error!("bip_dht: Could not send a bootstrap message through the channel...");
                 return BootstrapStatus::Failed;
             }

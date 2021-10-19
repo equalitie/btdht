@@ -3,11 +3,9 @@ use std::convert::AsRef;
 use std::io;
 use std::mem;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6, UdpSocket};
-use std::sync::mpsc::{self, SyncSender};
-use std::thread;
 
 use bip_bencode::Bencode;
-use mio::{self, EventLoop, Handler};
+use tokio::{sync::mpsc, task};
 
 use crate::id::InfoHash;
 use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
@@ -19,8 +17,11 @@ use crate::message::ping::PingResponse;
 use crate::message::request::RequestType;
 use crate::message::response::{ExpectedResponse, ResponseType};
 use crate::message::MessageType;
+use crate::mio::{self, EventLoop, Handler};
 use crate::router::Router;
 use crate::routing::node::Node;
+use crate::routing::node::NodeStatus;
+use crate::routing::table::BucketContents;
 use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
@@ -30,9 +31,6 @@ use crate::worker::lookup::{LookupStatus, TableLookup};
 use crate::worker::refresh::{RefreshStatus, TableRefresh};
 use crate::worker::{DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause};
 
-use crate::routing::node::NodeStatus;
-use crate::routing::table::BucketContents;
-
 // TODO: Update modules to use find_node on the routing table to update the status of a given node.
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
@@ -41,7 +39,7 @@ const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 /// Spawns a DHT handler that maintains our routing table and executes our actions on the DHT.
 pub fn create_dht_handler(
     table: RoutingTable,
-    out: SyncSender<(Vec<u8>, SocketAddr)>,
+    out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
     announce_port: Option<u16>,
     kill_sock: UdpSocket,
@@ -52,8 +50,8 @@ pub fn create_dht_handler(
 
     let loop_channel = event_loop.channel();
 
-    thread::spawn(move || {
-        if event_loop.run(&mut handler).is_err() {
+    task::spawn(async move {
+        if event_loop.run(&mut handler).await.is_err() {
             error!("bip_dht: EventLoop shut down with an error...");
         }
 
@@ -111,7 +109,7 @@ pub struct DhtHandler {
 struct DetachedDhtHandler {
     read_only: bool,
     announce_port: Option<u16>,
-    out_channel: SyncSender<(Vec<u8>, SocketAddr)>,
+    out_channel: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
     bootstrapping: bool,
@@ -120,13 +118,13 @@ struct DetachedDhtHandler {
     // If future actions is not empty, that means we are still bootstrapping
     // since we will always spin up a table refresh action after bootstrapping.
     future_actions: Vec<PostBootstrapAction>,
-    event_notifiers: Vec<mpsc::Sender<DhtEvent>>,
+    event_notifiers: Vec<mpsc::UnboundedSender<DhtEvent>>,
 }
 
 impl DhtHandler {
     fn new(
         table: RoutingTable,
-        out: SyncSender<(Vec<u8>, SocketAddr)>,
+        out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
         read_only: bool,
         announce_port: Option<u16>,
     ) -> Self {
@@ -230,7 +228,7 @@ fn shutdown_event_loop(event_loop: &mut EventLoop<DhtHandler>, cause: ShutdownCa
 }
 
 /// Broadcast the given event to all of the event nodifiers.
-fn broadcast_dht_event(notifiers: &mut Vec<mpsc::Sender<DhtEvent>>, event: DhtEvent) {
+fn broadcast_dht_event(notifiers: &mut Vec<mpsc::UnboundedSender<DhtEvent>>, event: DhtEvent) {
     notifiers.retain(|send| send.send(event).is_ok());
 }
 
@@ -397,7 +395,11 @@ fn handle_incoming(
                 PingResponse::new(p.transaction_id(), work_storage.routing_table.node_id());
             let ping_msg = ping_rsp.encode();
 
-            if work_storage.out_channel.send((ping_msg, addr)).is_err() {
+            if work_storage
+                .out_channel
+                .blocking_send((ping_msg, addr))
+                .is_err()
+            {
                 error!("bip_dht: Failed to send a ping response on the out channel...");
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
@@ -431,7 +433,7 @@ fn handle_incoming(
 
             if work_storage
                 .out_channel
-                .send((find_node_msg, addr))
+                .blocking_send((find_node_msg, addr))
                 .is_err()
             {
                 error!("bip_dht: Failed to send a find node response on the out channel...");
@@ -505,7 +507,7 @@ fn handle_incoming(
 
             if work_storage
                 .out_channel
-                .send((get_peers_msg, addr))
+                .blocking_send((get_peers_msg, addr))
                 .is_err()
             {
                 error!("bip_dht: Failed to send a get peers response on the out channel...");
@@ -575,7 +577,11 @@ fn handle_incoming(
                 .encode()
             };
 
-            if work_storage.out_channel.send((response_msg, addr)).is_err() {
+            if work_storage
+                .out_channel
+                .blocking_send((response_msg, addr))
+                .is_err()
+            {
                 error!("bip_dht: Failed to send an announce peer response on the out channel...");
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
@@ -760,7 +766,7 @@ fn handle_incoming(
     }
 }
 
-fn handle_register_sender(handler: &mut DhtHandler, sender: mpsc::Sender<DhtEvent>) {
+fn handle_register_sender(handler: &mut DhtHandler, sender: mpsc::UnboundedSender<DhtEvent>) {
     handler.detached.event_notifiers.push(sender);
 }
 

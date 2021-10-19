@@ -1,9 +1,9 @@
 use std::net::SocketAddr;
-use std::sync::mpsc::SyncSender;
 
-use mio::EventLoop;
+use tokio::sync::mpsc;
 
 use crate::message::find_node::FindNodeRequest;
+use crate::mio::EventLoop;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
@@ -35,7 +35,7 @@ impl TableRefresh {
     pub fn continue_refresh(
         &mut self,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> RefreshStatus {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
@@ -61,7 +61,7 @@ impl TableRefresh {
             let find_node_msg = find_node_req.encode();
 
             // Send the message
-            if out.send((find_node_msg, node.addr())).is_err() {
+            if out.blocking_send((find_node_msg, node.addr())).is_err() {
                 error!(
                     "bip_dht: TableRefresh failed to send a refresh message to the out \
                         channel..."

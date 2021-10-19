@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::sync::mpsc::{self, Receiver};
 
-use mio::Sender;
+use tokio::sync::mpsc;
 
 use crate::id::InfoHash;
+use crate::mio::Sender;
 use crate::router::Router;
 use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 
@@ -68,8 +68,8 @@ impl MainlineDht {
     ///
     /// It is important to at least monitor the DHT for shutdown events as any calls
     /// after that event occurs will not be processed but no indication will be given.
-    pub fn events(&self) -> Receiver<DhtEvent> {
-        let (send, recv) = mpsc::channel();
+    pub fn events(&self) -> mpsc::UnboundedReceiver<DhtEvent> {
+        let (send, recv) = mpsc::unbounded_channel();
 
         if self.send.send(OneshotTask::RegisterSender(send)).is_err() {
             warn!("bip_dht: MainlineDht failed to send a register sender message...");

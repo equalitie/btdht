@@ -3,10 +3,8 @@
 #[macro_use]
 extern crate bip_bencode;
 
-extern crate crc;
 #[macro_use]
 extern crate log;
-extern crate mio;
 
 // Mainline DHT extensions supported on behalf of libtorrent:
 // - Always send 'nodes' on a get_peers response even if 'values' is present
@@ -26,6 +24,7 @@ mod builder;
 mod error;
 mod id;
 pub mod message;
+mod mio;
 mod router;
 mod routing;
 mod storage;

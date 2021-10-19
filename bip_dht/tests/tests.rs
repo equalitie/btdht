@@ -1,8 +1,8 @@
 use bip_dht::{DhtBuilder, DhtEvent, InfoHash};
 use std::net::{Ipv4Addr, SocketAddr};
 
-#[test]
-fn basic() {
+#[tokio::test]
+async fn basic() {
     // TODO: use random ports
     let a_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 20001));
     let b_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 20002));
@@ -12,14 +12,14 @@ fn basic() {
         .set_read_only(false)
         .start_mainline()
         .unwrap();
-    let events_a = node_a.events();
+    let mut events_a = node_a.events();
 
     let node_b = DhtBuilder::with_node(a_addr)
         .set_source_addr(b_addr)
         .set_read_only(false)
         .start_mainline()
         .unwrap();
-    let events_b = node_b.events();
+    let mut events_b = node_b.events();
 
     let the_info_hash = InfoHash::from_bytes(b"foo");
 
@@ -29,7 +29,7 @@ fn basic() {
 
     let mut lookup_completed = false;
 
-    for event in events_a.iter() {
+    while let Some(event) = events_a.recv().await {
         match event {
             DhtEvent::BootstrapCompleted => (),
             DhtEvent::LookupCompleted(info_hash) => {
@@ -51,7 +51,7 @@ fn basic() {
     let mut peer_found = false;
     let mut lookup_completed = false;
 
-    for event in events_b.iter() {
+    while let Some(event) = events_b.recv().await {
         match event {
             DhtEvent::BootstrapCompleted => (),
             DhtEvent::LookupCompleted(info_hash) => {

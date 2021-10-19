@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::mpsc::SyncSender;
 
-use mio::{EventLoop, Timeout};
+use tokio::sync::mpsc;
 
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
 use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
+use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeKey, NodeStatus};
 use crate::routing::table::RoutingTable;
@@ -66,7 +66,7 @@ impl TableLookup {
         id_generator: MIDGenerator,
         will_announce: bool,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> Option<TableLookup> {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
@@ -125,7 +125,7 @@ impl TableLookup {
         trans_id: &TransactionID,
         msg: GetPeersResponse<'a>,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> LookupStatus {
         // Process the message transaction id
@@ -250,7 +250,7 @@ impl TableLookup {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
@@ -277,7 +277,7 @@ impl TableLookup {
         &mut self,
         announce_port: Option<u16>,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
     ) -> LookupStatus {
         let mut fatal_error = false;
 
@@ -308,7 +308,7 @@ impl TableLookup {
                 );
                 let announce_peer_msg = announce_peer_req.encode();
 
-                if out.send((announce_peer_msg, node.addr())).is_err() {
+                if out.blocking_send((announce_peer_msg, node.addr())).is_err() {
                     error!(
                         "bip_dht: TableLookup announce request failed to send through the out \
                             channel..."
@@ -348,7 +348,7 @@ impl TableLookup {
         &mut self,
         nodes: I,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> LookupStatus
     where
@@ -379,7 +379,7 @@ impl TableLookup {
             // Send the message to the node
             let get_peers_msg =
                 GetPeersRequest::new(trans_id.as_ref(), self.table_id, self.target_id).encode();
-            if out.send((get_peers_msg, node.addr())).is_err() {
+            if out.blocking_send((get_peers_msg, node.addr())).is_err() {
                 error!("bip_dht: Could not send a lookup message through the channel...");
                 return LookupStatus::Failed;
             }
@@ -406,7 +406,7 @@ impl TableLookup {
     fn start_endgame_round(
         &mut self,
         table: &RoutingTable,
-        out: &SyncSender<(Vec<u8>, SocketAddr)>,
+        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
     ) -> LookupStatus {
         // Entering the endgame phase
@@ -447,7 +447,7 @@ impl TableLookup {
                 // Send the message to the node
                 let get_peers_msg =
                     GetPeersRequest::new(trans_id.as_ref(), self.table_id, self.target_id).encode();
-                if out.send((get_peers_msg, node.addr())).is_err() {
+                if out.blocking_send((get_peers_msg, node.addr())).is_err() {
                     error!("bip_dht: Could not send an endgame message through the channel...");
                     return LookupStatus::Failed;
                 }

@@ -1,8 +1,10 @@
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::mpsc;
+
+use tokio::sync::mpsc;
 
 use crate::id::InfoHash;
+use crate::mio;
 use crate::router::Router;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
@@ -19,7 +21,7 @@ pub enum OneshotTask {
     /// Process an incoming message from a remote node.
     Incoming(Vec<u8>, SocketAddr),
     /// Register a sender to send DhtEvents to.
-    RegisterSender(mpsc::Sender<DhtEvent>),
+    RegisterSender(mpsc::UnboundedSender<DhtEvent>),
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(Vec<Router>, Vec<SocketAddr>),
     /// Start a lookup for the given InfoHash.
