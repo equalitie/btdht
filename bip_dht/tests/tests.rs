@@ -1,7 +1,7 @@
 use bip_dht::{DhtBuilder, DhtEvent, InfoHash};
 use std::net::{Ipv4Addr, SocketAddr};
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn basic() {
     // TODO: use random ports
     let a_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 20001));

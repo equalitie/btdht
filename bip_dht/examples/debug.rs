@@ -3,7 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use bip_dht::{DhtBuilder, InfoHash, Router};
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
     pretty_env_logger::init();
 
