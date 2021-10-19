@@ -24,6 +24,7 @@ mod builder;
 mod error;
 mod id;
 pub mod message;
+mod message2; // TODO: rename to `message` when the old `message` module is gone.
 mod mio;
 mod router;
 mod routing;

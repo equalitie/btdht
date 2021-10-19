@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::{
     convert::{TryFrom, TryInto},
@@ -9,8 +10,10 @@ use thiserror::Error;
 pub const SHA_HASH_LEN: usize = 20;
 
 /// SHA-1 hash wrapper type for performing operations on the hash.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ShaHash {
+    #[serde(with = "hash_bytes")]
     hash: [u8; SHA_HASH_LEN],
 }
 
@@ -89,6 +92,36 @@ impl BitXor<ShaHash> for ShaHash {
         }
 
         self
+    }
+}
+
+mod hash_bytes {
+    use super::SHA_HASH_LEN;
+    use serde::{
+        de::{Deserialize, Deserializer, Error},
+        ser::{Serialize, Serializer},
+    };
+    use serde_bytes::{ByteBuf, Bytes};
+    use std::convert::TryInto;
+
+    pub(super) fn serialize<S: Serializer>(
+        bytes: &[u8; SHA_HASH_LEN],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        Bytes::new(bytes.as_ref()).serialize(s)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<[u8; SHA_HASH_LEN], D::Error> {
+        let buf = ByteBuf::deserialize(d)?;
+        let buf = buf.into_vec();
+        let len = buf.len();
+
+        buf.try_into().map_err(|_| {
+            let expected = format!("{}", SHA_HASH_LEN);
+            D::Error::invalid_length(len, &expected.as_ref())
+        })
     }
 }
 
