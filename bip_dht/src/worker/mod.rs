@@ -1,5 +1,5 @@
-use std::{io, net::SocketAddr, sync::Arc};
-use tokio::{net::UdpSocket, sync::mpsc};
+use std::{io, net::SocketAddr};
+use tokio::{net::UdpSocket, sync::mpsc, task};
 
 use crate::id::InfoHash;
 use crate::mio;
@@ -65,6 +65,8 @@ pub enum ShutdownCause {
     Unspecified,
 }
 
+const OUTGOING_MESSAGE_CAPACITY: usize = 4096;
+
 /// Spawns the necessary workers that make up our local DHT node and connects them via channels
 /// so that they can send and receive DHT messages.
 pub fn start_mainline_dht(
@@ -73,15 +75,18 @@ pub fn start_mainline_dht(
     _: Option<SocketAddr>,
     announce_port: Option<u16>,
 ) -> io::Result<mio::Sender<OneshotTask>> {
-    let socket = Arc::new(socket);
-    let outgoing = messenger::create_outgoing_messenger(socket.clone());
+    let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_MESSAGE_CAPACITY);
 
     // TODO: Utilize the security extension.
     let routing_table = RoutingTable::new(table::random_node_id());
     let message_sender =
-        handler::create_dht_handler(routing_table, outgoing, read_only, announce_port)?;
+        handler::create_dht_handler(routing_table, outgoing_tx, read_only, announce_port)?;
 
-    messenger::create_incoming_messenger(socket, message_sender.clone());
+    task::spawn(messenger::create(
+        socket,
+        message_sender.clone(),
+        outgoing_rx,
+    ));
 
     Ok(message_sender)
 }
