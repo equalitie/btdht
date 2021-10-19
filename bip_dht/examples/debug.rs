@@ -1,7 +1,7 @@
+use bip_dht::{DhtBuilder, InfoHash, Router};
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-
-use bip_dht::{DhtBuilder, InfoHash, Router};
+use tokio::net::UdpSocket;
 
 #[tokio::main]
 async fn main() {
@@ -9,14 +9,12 @@ async fn main() {
 
     let hash = InfoHash::from_bytes(b"My Unique Info Hash");
 
+    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 6889));
+    let socket = UdpSocket::bind(addr).await.unwrap();
+
     let dht = DhtBuilder::with_router(Router::uTorrent)
-        .set_source_addr(SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::new(0, 0, 0, 0),
-            6889,
-        )))
         .set_read_only(false)
-        .start_mainline()
-        .await
+        .start_mainline(socket)
         .unwrap();
 
     // Spawn a thread to listen to and report events

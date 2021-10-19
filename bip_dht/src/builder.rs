@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use tokio::{net::UdpSocket, sync::mpsc};
 
@@ -16,15 +16,8 @@ pub struct MainlineDht {
 
 impl MainlineDht {
     /// Start the MainlineDht with the given DhtBuilder.
-    async fn with_builder(builder: DhtBuilder) -> io::Result<Self> {
-        let sock = UdpSocket::bind(&builder.src_addr).await?;
-
-        let send = worker::start_mainline_dht(
-            sock,
-            builder.read_only,
-            builder.ext_addr,
-            builder.announce_port,
-        )?;
+    fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> io::Result<Self> {
+        let send = worker::start_mainline_dht(socket, builder.read_only, builder.announce_port)?;
 
         let nodes: Vec<SocketAddr> = builder.nodes.into_iter().collect();
         let routers: Vec<Router> = builder.routers.into_iter().collect();
@@ -98,8 +91,6 @@ pub struct DhtBuilder {
     nodes: HashSet<SocketAddr>,
     routers: HashSet<Router>,
     read_only: bool,
-    src_addr: SocketAddr,
-    ext_addr: Option<SocketAddr>,
     announce_port: Option<u16>,
 }
 
@@ -113,8 +104,6 @@ impl DhtBuilder {
             nodes: HashSet::new(),
             routers: HashSet::new(),
             read_only: true,
-            src_addr: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
-            ext_addr: None,
             announce_port: None,
         }
     }
@@ -164,26 +153,6 @@ impl DhtBuilder {
         self
     }
 
-    /// Provide the DHT with our external address. If this is not supplied we will
-    /// have to deduce this information from remote nodes.
-    ///
-    /// Purpose of the external address is to generate a NodeId that conforms to
-    /// BEP 42 so that nodes can safely store information on our node.
-    pub fn set_external_addr(mut self, addr: SocketAddr) -> DhtBuilder {
-        self.ext_addr = Some(addr);
-
-        self
-    }
-
-    /// Provide the DHT with the source address.
-    ///
-    /// If this is not supplied we will use the OS default route.
-    pub fn set_source_addr(mut self, addr: SocketAddr) -> DhtBuilder {
-        self.src_addr = addr;
-
-        self
-    }
-
     /// Provide a port to include in the `announce_peer` requests we send.
     ///
     /// If this is not supplied, will use implied port.
@@ -192,8 +161,8 @@ impl DhtBuilder {
         self
     }
 
-    /// Start a mainline DHT with the current configuration.
-    pub async fn start_mainline(self) -> io::Result<MainlineDht> {
-        MainlineDht::with_builder(self).await
+    /// Start a mainline DHT with the current configuration and bind it to the provided socket.
+    pub fn start_mainline(self, socket: UdpSocket) -> io::Result<MainlineDht> {
+        MainlineDht::with_builder(self, socket)
     }
 }

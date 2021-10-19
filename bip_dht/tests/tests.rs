@@ -1,25 +1,24 @@
 use bip_dht::{DhtBuilder, DhtEvent, InfoHash};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
+use tokio::net::UdpSocket;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn basic() {
-    // TODO: use random ports
-    let a_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 20001));
-    let b_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 20002));
+    let a_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let a_addr = a_socket.local_addr().unwrap();
+
+    let b_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let b_addr = b_socket.local_addr().unwrap();
 
     let node_a = DhtBuilder::with_node(b_addr)
-        .set_source_addr(a_addr)
         .set_read_only(false)
-        .start_mainline()
-        .await
+        .start_mainline(a_socket)
         .unwrap();
     let mut events_a = node_a.events();
 
     let node_b = DhtBuilder::with_node(a_addr)
-        .set_source_addr(b_addr)
         .set_read_only(false)
-        .start_mainline()
-        .await
+        .start_mainline(b_socket)
         .unwrap();
     let mut events_b = node_b.events();
 

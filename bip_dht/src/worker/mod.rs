@@ -72,7 +72,6 @@ const OUTGOING_MESSAGE_CAPACITY: usize = 4096;
 pub fn start_mainline_dht(
     socket: UdpSocket,
     read_only: bool,
-    _: Option<SocketAddr>,
     announce_port: Option<u16>,
 ) -> io::Result<mio::Sender<OneshotTask>> {
     let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_MESSAGE_CAPACITY);
