@@ -1,6 +1,10 @@
 use crate::id::{InfoHash, NodeId};
-use serde::{de::Deserializer, Deserialize, Serialize};
-use std::convert::TryFrom;
+use serde::{
+    de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
+    ser::{SerializeSeq, Serializer},
+    Deserialize, Serialize,
+};
+use std::{convert::TryFrom, fmt};
 use thiserror::Error;
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -147,18 +151,56 @@ pub struct Error {
     message: String,
 }
 
+// Using custom Serialize/Deserialize impls because the format is too weird.
+impl Serialize for Error {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut seq = s.serialize_seq(Some(2))?;
+        seq.serialize_element(&self.code)?;
+        seq.serialize_element(&self.message)?;
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Error {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct ErrorVisitor;
+
+        impl<'de> Visitor<'de> for ErrorVisitor {
+            type Value = Error;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "a list of two elements: an integer and a string")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let code = seq
+                    .next_element()?
+                    .ok_or_else(|| A::Error::invalid_length(0, &self))?;
+                let message = seq
+                    .next_element()?
+                    .ok_or_else(|| A::Error::invalid_length(1, &self))?;
+
+                // Make sure the list is consumed to the end.
+                if seq.next_element::<IgnoredAny>()?.is_some() {
+                    return Err(A::Error::invalid_length(3, &self));
+                }
+
+                Ok(Error { code, message })
+            }
+        }
+
+        d.deserialize_seq(ErrorVisitor)
+    }
+}
+
+// Intermediate format to help serializing/deserializing. This shouldn't be necessary because we
+// should be able to achieve what we need via a combination of `flatten` and `tag` serde attributes,
+// but it seems the `serde_bencode` crate doesn't handle those too well.
+// TODO: fix the issues upstream, then do this properly.
 #[derive(Debug, Serialize, Deserialize)]
 struct RawMessage {
     #[serde(rename = "t", with = "serde_bytes")]
     transaction_id: Vec<u8>,
-
-    #[serde(
-        rename = "v",
-        default,
-        skip_serializing_if = "Vec::is_empty",
-        with = "serde_bytes"
-    )]
-    version: Vec<u8>,
 
     #[serde(rename = "y")]
     message_type: MessageType,
@@ -168,6 +210,9 @@ struct RawMessage {
 
     #[serde(rename = "a", default, skip_serializing_if = "Option::is_none")]
     request: Option<RawRequest>,
+
+    #[serde(rename = "e", default, skip_serializing_if = "Option::is_none")]
+    error: Option<Error>,
 }
 
 impl From<Message> for RawMessage {
@@ -178,14 +223,20 @@ impl From<Message> for RawMessage {
 
                 Self {
                     transaction_id: msg.transaction_id,
-                    version: Vec::new(),
                     message_type: MessageType::Request,
                     request_type: Some(request_type),
                     request: Some(request),
+                    error: None,
                 }
             }
             MessageBody::Response(_) => todo!(),
-            MessageBody::Error(_) => todo!(),
+            MessageBody::Error(error) => Self {
+                transaction_id: msg.transaction_id,
+                message_type: MessageType::Error,
+                request_type: None,
+                request: None,
+                error: Some(error),
+            },
         }
     }
 }
@@ -206,7 +257,14 @@ impl TryFrom<RawMessage> for Message {
                 })
             }
             MessageType::Response => todo!(),
-            MessageType::Error => todo!(),
+            MessageType::Error => {
+                let error = raw.error.ok_or(DecodeError::MissingField("e"))?;
+
+                Ok(Self {
+                    transaction_id: raw.transaction_id,
+                    body: MessageBody::Error(error),
+                })
+            }
         }
     }
 }
@@ -284,20 +342,20 @@ mod tests {
     #[test]
     fn serialize_ping_request() {
         let encoded = "d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
-        let expected = Message {
+        let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::Ping(PingRequest {
                 id: NodeId::from(*b"abcdefghij0123456789"),
             })),
         };
 
-        test_serialize_deserialize(encoded, &expected)
+        assert_serialize_deserialize(encoded, &decoded)
     }
 
     #[test]
     fn serialize_find_node_request() {
         let encoded = "d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz123456e1:q9:find_node1:t2:aa1:y1:qe";
-        let expected = Message {
+        let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: NodeId::from(*b"abcdefghij0123456789"),
@@ -305,13 +363,13 @@ mod tests {
             })),
         };
 
-        test_serialize_deserialize(encoded, &expected)
+        assert_serialize_deserialize(encoded, &decoded)
     }
 
     #[test]
     fn serialize_get_peers_request() {
         let encoded = "d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz123456e1:q9:get_peers1:t2:aa1:y1:qe";
-        let expected = Message {
+        let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                 id: NodeId::from(*b"abcdefghij0123456789"),
@@ -319,7 +377,7 @@ mod tests {
             })),
         };
 
-        test_serialize_deserialize(encoded, &expected)
+        assert_serialize_deserialize(encoded, &decoded)
     }
 
     #[test]
@@ -335,13 +393,12 @@ mod tests {
             })),
         };
 
-        test_serialize_deserialize(encoded, &decoded);
+        assert_serialize_deserialize(encoded, &decoded);
     }
 
     #[test]
     fn serialize_announce_peer_request_with_explicit_port() {
         let encoded = "d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz1234564:porti6881e5:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe";
-
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::AnnouncePeer(AnnouncePeerRequest {
@@ -352,25 +409,25 @@ mod tests {
             })),
         };
 
-        test_serialize_deserialize(encoded, &decoded);
+        assert_serialize_deserialize(encoded, &decoded);
     }
 
-    // #[test]
-    // fn serialize_error() {
-    //     let encoded = "d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
-    //     let expected = Message {
-    //         transaction_id: b"aa",
-    //         body: MessageBody::Error(Error {
-    //             code: 201,
-    //             message: "A Generic Error Ocurred",
-    //         }),
-    //     };
+    #[test]
+    fn serialize_error() {
+        let encoded = "d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Error(Error {
+                code: 201,
+                message: "A Generic Error Ocurred".to_owned(),
+            }),
+        };
 
-    //     test_serialize_deserialize(encoded, &expected)
-    // }
+        assert_serialize_deserialize(encoded, &decoded)
+    }
 
     #[track_caller]
-    fn test_serialize_deserialize(encoded: &str, decoded: &Message) {
+    fn assert_serialize_deserialize(encoded: &str, decoded: &Message) {
         assert_eq!(serde_bencode::to_string(decoded).unwrap(), encoded);
         assert_eq!(
             serde_bencode::from_str::<Message>(encoded).unwrap(),
