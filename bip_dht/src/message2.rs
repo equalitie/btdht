@@ -1,10 +1,13 @@
-use crate::id::{InfoHash, NodeId};
+use crate::{
+    compact,
+    id::{InfoHash, NodeId},
+};
 use serde::{
     de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
     ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
 };
-use std::{convert::TryFrom, fmt};
+use std::{convert::TryFrom, fmt, net::SocketAddrV4};
 use thiserror::Error;
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -142,8 +145,49 @@ pub struct AnnouncePeerRequest {
     pub token: Vec<u8>,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub enum Response {}
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Response {
+    FindNode(FindNodeResponse),
+    GetPeers(GetPeersResponse),
+    // NOTE: `Ping` must be last here to prevent other variants to be deserialized as `Ping` due to
+    //       this enum being `untagged`.
+    Ping(PingResponse),
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PingResponse {
+    pub id: NodeId,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FindNodeResponse {
+    pub id: NodeId,
+
+    #[serde(with = "compact")]
+    pub nodes: Vec<NodeInfo>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct GetPeersResponse {
+    pub id: NodeId,
+
+    #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<SocketAddrV4>,
+
+    #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<NodeInfo>,
+
+    #[serde(with = "serde_bytes")]
+    pub token: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub struct NodeInfo {
+    pub id: NodeId,
+    pub addr: SocketAddrV4,
+}
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Error {
@@ -211,6 +255,9 @@ struct RawMessage {
     #[serde(rename = "a", default, skip_serializing_if = "Option::is_none")]
     request: Option<RawRequest>,
 
+    #[serde(rename = "r", default, skip_serializing_if = "Option::is_none")]
+    response: Option<Response>,
+
     #[serde(rename = "e", default, skip_serializing_if = "Option::is_none")]
     error: Option<Error>,
 }
@@ -226,15 +273,24 @@ impl From<Message> for RawMessage {
                     message_type: MessageType::Request,
                     request_type: Some(request_type),
                     request: Some(request),
+                    response: None,
                     error: None,
                 }
             }
-            MessageBody::Response(_) => todo!(),
+            MessageBody::Response(response) => Self {
+                transaction_id: msg.transaction_id,
+                message_type: MessageType::Response,
+                request_type: None,
+                request: None,
+                response: Some(response),
+                error: None,
+            },
             MessageBody::Error(error) => Self {
                 transaction_id: msg.transaction_id,
                 message_type: MessageType::Error,
                 request_type: None,
                 request: None,
+                response: None,
                 error: Some(error),
             },
         }
@@ -256,7 +312,14 @@ impl TryFrom<RawMessage> for Message {
                     body: MessageBody::Request(request),
                 })
             }
-            MessageType::Response => todo!(),
+            MessageType::Response => {
+                let response = raw.response.ok_or(DecodeError::MissingField("r"))?;
+
+                Ok(Self {
+                    transaction_id: raw.transaction_id,
+                    body: MessageBody::Response(response),
+                })
+            }
             MessageType::Error => {
                 let error = raw.error.ok_or(DecodeError::MissingField("e"))?;
 
@@ -330,14 +393,7 @@ enum DecodeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // DEBUG:
-    // #[test]
-    // fn foo() {
-    //     let encoded = "d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
-    //     let raw: RawMessage = serde_bencode::from_str(encoded).unwrap();
-    //     println!("{:?}", raw);
-    // }
+    use std::net::Ipv4Addr;
 
     #[test]
     fn serialize_ping_request() {
@@ -413,6 +469,63 @@ mod tests {
     }
 
     #[test]
+    fn serialize_ping_response() {
+        let encoded = "d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::Ping(PingResponse {
+                id: NodeId::from(*b"mnopqrstuvwxyz123456"),
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded);
+    }
+
+    #[test]
+    fn serialize_find_node_response() {
+        let encoded = b"d1:rd2:id20:0123456789abcdefghij5:nodes26:\x6d\x6e\x6f\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x31\x32\x33\x34\x35\x36\x7f\x00\x00\x01\x1a\xe1e1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::FindNode(FindNodeResponse {
+                id: NodeId::from(*b"0123456789abcdefghij"),
+                nodes: vec![NodeInfo {
+                    id: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                    addr: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6881),
+                }],
+            })),
+        };
+
+        let actual_encoded = serde_bencode::to_bytes(&decoded).unwrap();
+        assert_eq!(actual_encoded, encoded);
+
+        let actual_decoded: Message = serde_bencode::from_bytes(&encoded[..]).unwrap();
+        assert_eq!(actual_decoded, decoded);
+    }
+
+    #[test]
+    fn serialize_get_peers_response_with_values() {
+        let encoded = b"d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::GetPeers(GetPeersResponse {
+                id: NodeId::from(*b"abcdefghij0123456789"),
+                values: vec![
+                    SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
+                    SocketAddrV4::new(Ipv4Addr::new(105, 100, 104, 116), 28269),
+                ],
+                nodes: vec![],
+                token: b"aoeusnth".to_vec(),
+            })),
+        };
+
+        let actual_encoded = serde_bencode::to_bytes(&decoded).unwrap();
+        // assert_eq!(actual_encoded, encoded);
+
+        let actual_decoded: Message = serde_bencode::from_bytes(&encoded[..]).unwrap();
+        assert_eq!(actual_decoded, decoded);
+    }
+
+    #[test]
     fn serialize_error() {
         let encoded = "d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
         let decoded = Message {
@@ -423,7 +536,7 @@ mod tests {
             }),
         };
 
-        assert_serialize_deserialize(encoded, &decoded)
+        assert_serialize_deserialize(encoded, &decoded);
     }
 
     #[track_caller]

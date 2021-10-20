@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::{
     convert::{TryFrom, TryInto},
+    fmt,
     ops::BitXor,
 };
 use thiserror::Error;
@@ -10,7 +11,7 @@ use thiserror::Error;
 pub const SHA_HASH_LEN: usize = 20;
 
 /// SHA-1 hash wrapper type for performing operations on the hash.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ShaHash {
     #[serde(with = "hash_bytes")]
@@ -92,6 +93,22 @@ impl BitXor<ShaHash> for ShaHash {
         }
 
         self
+    }
+}
+
+impl fmt::LowerHex for ShaHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in &self.hash {
+            write!(f, "{:02x}", b)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ShaHash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:x}", self)
     }
 }
 

@@ -21,6 +21,7 @@ extern crate log;
 // const VUZE_DHT: (&'static str, u16) = ("dht.aelitis.com", 6881);
 
 mod builder;
+mod compact;
 mod error;
 mod id;
 pub mod message;
