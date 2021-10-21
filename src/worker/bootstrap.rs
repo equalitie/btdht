@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -13,8 +14,8 @@ use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
 use crate::worker::ScheduledTaskCheck;
 
-const BOOTSTRAP_INITIAL_TIMEOUT: u64 = 2500;
-const BOOTSTRAP_NODE_TIMEOUT: u64 = 500;
+const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
+const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
 
 const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 
@@ -69,7 +70,7 @@ impl TableBootstrap {
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
-        let timeout = event_loop.timeout_ms(
+        let timeout = event_loop.timeout(
             (
                 BOOTSTRAP_INITIAL_TIMEOUT,
                 ScheduledTaskCheck::BootstrapTimeout(trans_id),
@@ -261,7 +262,7 @@ impl TableBootstrap {
             .encode();
 
             // Add a timeout for the node
-            let timeout = event_loop.timeout_ms(
+            let timeout = event_loop.timeout(
                 (
                     BOOTSTRAP_NODE_TIMEOUT,
                     ScheduledTaskCheck::BootstrapTimeout(trans_id),

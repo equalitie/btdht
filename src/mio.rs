@@ -41,9 +41,8 @@ impl<H: Handler> EventLoop<H> {
         self.notify_tx.clone()
     }
 
-    pub fn timeout_ms(&mut self, token: H::Timeout, delay: u64) -> Timeout {
-        self.timer
-            .schedule(Instant::now() + Duration::from_millis(delay), token)
+    pub fn timeout(&mut self, token: H::Timeout, delay: Duration) -> Timeout {
+        self.timer.schedule(Instant::now() + delay, token)
     }
 
     pub fn clear_timeout(&mut self, timeout: Timeout) -> bool {

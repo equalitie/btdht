@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -15,8 +16,8 @@ use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
 use crate::worker::ScheduledTaskCheck;
 
-const LOOKUP_TIMEOUT_MS: u64 = 1500;
-const ENDGAME_TIMEOUT_MS: u64 = 1500;
+const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
+const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
 
 // Currently using the aggressive variant of the standard lookup procedure.
 // https://people.kth.se/~rauljc/p2p11/jimenez2011subsecond.pdf
@@ -347,9 +348,12 @@ impl TableLookup {
             let trans_id = self.id_generator.generate();
 
             // Try to start a timeout for the node
-            let timeout = event_loop.timeout_ms(
-                (0, ScheduledTaskCheck::LookupTimeout(trans_id)),
-                LOOKUP_TIMEOUT_MS,
+            let timeout = event_loop.timeout(
+                (
+                    Duration::from_millis(0),
+                    ScheduledTaskCheck::LookupTimeout(trans_id),
+                ),
+                LOOKUP_TIMEOUT,
             );
 
             // Associate the transaction id with the distance the returned nodes must beat and the timeout token
@@ -400,12 +404,12 @@ impl TableLookup {
         self.in_endgame = true;
 
         // Try to start a global message timeout for the endgame
-        let timeout = event_loop.timeout_ms(
+        let timeout = event_loop.timeout(
             (
-                0,
+                Duration::from_millis(0),
                 ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
             ),
-            ENDGAME_TIMEOUT_MS,
+            ENDGAME_TIMEOUT,
         );
 
         // Request all unpinged nodes if we didnt receive any values

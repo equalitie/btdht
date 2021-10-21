@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 use tokio::sync::mpsc;
 
@@ -10,7 +10,7 @@ use crate::transaction::MIDGenerator;
 use crate::worker::handler::DhtHandler;
 use crate::worker::ScheduledTaskCheck;
 
-const REFRESH_INTERVAL_TIMEOUT: u64 = 6000;
+const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
 
 pub(crate) enum RefreshStatus {
     /// Refresh is in progress.
@@ -84,8 +84,11 @@ impl TableRefresh {
         let trans_id = self.id_generator.generate();
 
         // Start a timer for the next refresh
-        event_loop.timeout_ms(
-            (0, ScheduledTaskCheck::TableRefresh(trans_id)),
+        event_loop.timeout(
+            (
+                Duration::from_millis(0),
+                ScheduledTaskCheck::TableRefresh(trans_id),
+            ),
             REFRESH_INTERVAL_TIMEOUT,
         );
 
