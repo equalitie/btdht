@@ -1,4 +1,4 @@
-use bip_dht::{DhtBuilder, DhtEvent, InfoHash};
+use btdht::{DhtBuilder, DhtEvent, InfoHash};
 use std::net::Ipv4Addr;
 use tokio::net::UdpSocket;
 

@@ -1,4 +1,4 @@
-# Bittorrent Mainline DHT (bip_dht)
+# Bittorrent Mainline DHT (btdht)
 
 Implementation of the bittorrent mainline dht. Originally foked from [bip-rs](https://github.com/GGist/bip-rs)
 

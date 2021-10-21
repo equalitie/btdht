@@ -1,19 +1,10 @@
 [package]
-name          = "bip_dht"
+name          = "btdht"
 version       = "0.6.0"
 description   = "Implementation of the bittorrent mainline DHT"
-
-authors       = ["Andrew <amiller4421@gmail.com>"]
-
-homepage      = "https://github.com/GGist/bip-rs"
-repository    = "https://github.com/GGist/bip-rs/tree/master/bip_dht"
-documentation = "https://docs.rs/bip_dht/"
-
-keywords      = ["dht", "distributed", "hash", "mainline", "bittorrent"]
-
+authors       = ["Andrew <amiller4421@gmail.com>", "Adam Cigánek <adam.ciganek@gmail.com>"]
 license       = "MIT/Apache-2.0"
-
-edition        = "2018"
+edition       = "2018"
 
 [dependencies]
 futures-util  = { version = "0.3.15", default_features = false }

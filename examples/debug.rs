@@ -1,4 +1,4 @@
-use bip_dht::{router, DhtBuilder, InfoHash};
+use btdht::{router, DhtBuilder, InfoHash};
 use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::{self, UdpSocket};
