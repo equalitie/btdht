@@ -73,46 +73,27 @@ impl Compact for NodeInfo {
     }
 }
 
-impl Compact for Vec<SocketAddrV4> {
-    type Buffer = Vec<u8>;
-
-    fn decode(src: &[u8]) -> Option<Self> {
-        decode_vec(src, SOCKET_ADDR_LEN)
-    }
-
-    fn encode(&self) -> Self::Buffer {
-        encode_slice(self)
-    }
-}
-
 impl Compact for Vec<NodeInfo> {
     type Buffer = Vec<u8>;
 
     fn decode(src: &[u8]) -> Option<Self> {
-        decode_vec(src, NODE_INFO_LEN)
+        let num = src.len() / NODE_INFO_LEN;
+        let vec = (0..num)
+            .filter_map(|index| NodeInfo::decode(&src[index * NODE_INFO_LEN..]))
+            .collect();
+
+        Some(vec)
     }
 
     fn encode(&self) -> Self::Buffer {
-        encode_slice(self)
+        self.iter().fold(Vec::new(), |mut output, item| {
+            output.extend_from_slice(item.encode().as_ref());
+            output
+        })
     }
 }
 
-fn decode_vec<T: Compact>(src: &[u8], item_len: usize) -> Option<Vec<T>> {
-    let num = src.len() / item_len;
-    let vec = (0..num)
-        .filter_map(|index| T::decode(&src[index * item_len..]))
-        .collect();
-
-    Some(vec)
-}
-
-fn encode_slice<T: Compact>(items: &[T]) -> Vec<u8> {
-    items.iter().fold(Vec::new(), |mut output, item| {
-        output.extend_from_slice(item.encode().as_ref());
-        output
-    })
-}
-
+/// Serialize a `Compact` value as bytes.
 pub(crate) fn serialize<T, S>(value: &T, s: S) -> Result<S::Ok, S::Error>
 where
     T: Compact,
@@ -121,6 +102,7 @@ where
     s.serialize_bytes(value.encode().as_ref())
 }
 
+/// Deserialize a `Compact` value from bytes.
 pub(crate) fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
 where
     T: Compact,
@@ -131,6 +113,62 @@ where
         let msg = format!("multiple of {} or {}", SOCKET_ADDR_LEN, NODE_INFO_LEN);
         D::Error::invalid_length(buf.len(), &msg.as_ref())
     })
+}
+
+/// Serialize/deserialize a `Vec` of `Compact` values as a list of bytes.
+pub(crate) mod vec {
+    use super::Compact;
+    use serde::{
+        de::{Deserializer, Error as _, SeqAccess, Visitor},
+        ser::{SerializeSeq, Serializer},
+    };
+    use serde_bytes::{ByteBuf, Bytes};
+    use std::{fmt, marker::PhantomData};
+
+    pub(crate) fn serialize<T, S>(items: &[T], s: S) -> Result<S::Ok, S::Error>
+    where
+        T: Compact,
+        S: Serializer,
+    {
+        let mut seq = s.serialize_seq(Some(items.len()))?;
+        for item in items {
+            seq.serialize_element(Bytes::new(item.encode().as_ref()))?
+        }
+        seq.end()
+    }
+
+    pub(crate) fn deserialize<'de, T, D>(d: D) -> Result<Vec<T>, D::Error>
+    where
+        T: Compact,
+        D: Deserializer<'de>,
+    {
+        struct CompactVecVisitor<U>(PhantomData<U>);
+
+        impl<'de, U: Compact> Visitor<'de> for CompactVecVisitor<U> {
+            type Value = Vec<U>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "list of bytes")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut output = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+
+                while let Some(bytes) = seq.next_element::<ByteBuf>()? {
+                    let item = U::decode(&bytes)
+                        .ok_or_else(|| A::Error::invalid_length(bytes.len(), &self))?;
+                    output.push(item);
+                }
+
+                Ok(output)
+            }
+        }
+
+        d.deserialize_seq(CompactVecVisitor(PhantomData))
+    }
 }
 
 #[cfg(test)]

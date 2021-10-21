@@ -148,16 +148,19 @@ pub struct AnnouncePeerRequest {
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Response {
-    FindNode(FindNodeResponse),
+    // NOTE: the order these variants are listen in is important to make sure they deserialize
+    // properly because we use `untagged` enum for this.
     GetPeers(GetPeersResponse),
-    // NOTE: `Ping` must be last here to prevent other variants to be deserialized as `Ping` due to
-    //       this enum being `untagged`.
-    Ping(PingResponse),
+    FindNode(FindNodeResponse),
+    // This is a reponse to either `ping` or `announce_peer`. They are not distinguishable just by
+    // looking at the message itself, so that's why we put them into a single variant. To tell which
+    // response this is, one has to look up the transaction created when sending the corresponding
+    // request.
+    Ack(AckResponse),
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PingResponse {
+pub struct AckResponse {
     pub id: NodeId,
 }
 
@@ -173,7 +176,7 @@ pub struct FindNodeResponse {
 pub struct GetPeersResponse {
     pub id: NodeId,
 
-    #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(with = "compact::vec", default, skip_serializing_if = "Vec::is_empty")]
     pub values: Vec<SocketAddrV4>,
 
     #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
@@ -469,11 +472,11 @@ mod tests {
     }
 
     #[test]
-    fn serialize_ping_response() {
+    fn serialize_ack_response() {
         let encoded = "d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
-            body: MessageBody::Response(Response::Ping(PingResponse {
+            body: MessageBody::Response(Response::Ack(AckResponse {
                 id: NodeId::from(*b"mnopqrstuvwxyz123456"),
             })),
         };
@@ -483,28 +486,25 @@ mod tests {
 
     #[test]
     fn serialize_find_node_response() {
-        let encoded = b"d1:rd2:id20:0123456789abcdefghij5:nodes26:\x6d\x6e\x6f\x70\x71\x72\x73\x74\x75\x76\x77\x78\x79\x7a\x31\x32\x33\x34\x35\x36\x7f\x00\x00\x01\x1a\xe1e1:t2:aa1:y1:re";
+        let encoded =
+            "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz123456axje.ue1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response::FindNode(FindNodeResponse {
                 id: NodeId::from(*b"0123456789abcdefghij"),
                 nodes: vec![NodeInfo {
                     id: NodeId::from(*b"mnopqrstuvwxyz123456"),
-                    addr: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6881),
+                    addr: SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
                 }],
             })),
         };
 
-        let actual_encoded = serde_bencode::to_bytes(&decoded).unwrap();
-        assert_eq!(actual_encoded, encoded);
-
-        let actual_decoded: Message = serde_bencode::from_bytes(&encoded[..]).unwrap();
-        assert_eq!(actual_decoded, decoded);
+        assert_serialize_deserialize(encoded, &decoded);
     }
 
     #[test]
     fn serialize_get_peers_response_with_values() {
-        let encoded = b"d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re";
+        let encoded = "d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response::GetPeers(GetPeersResponse {
@@ -518,11 +518,33 @@ mod tests {
             })),
         };
 
-        let actual_encoded = serde_bencode::to_bytes(&decoded).unwrap();
-        // assert_eq!(actual_encoded, encoded);
+        assert_serialize_deserialize(encoded, &decoded);
+    }
 
-        let actual_decoded: Message = serde_bencode::from_bytes(&encoded[..]).unwrap();
-        assert_eq!(actual_decoded, decoded);
+    #[test]
+    fn serialize_get_peers_response_with_nodes() {
+        let encoded =
+            "d1:rd2:id20:abcdefghij01234567895:nodes52:mnopqrstuvwxyz123456axje.u789abcdefghijklmnopqidhtnm5:token8:aoeusnthe1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::GetPeers(GetPeersResponse {
+                id: NodeId::from(*b"abcdefghij0123456789"),
+                values: vec![],
+                nodes: vec![
+                    NodeInfo {
+                        id: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                        addr: SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
+                    },
+                    NodeInfo {
+                        id: NodeId::from(*b"789abcdefghijklmnopq"),
+                        addr: SocketAddrV4::new(Ipv4Addr::new(105, 100, 104, 116), 28269),
+                    },
+                ],
+                token: b"aoeusnth".to_vec(),
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded);
     }
 
     #[test]
