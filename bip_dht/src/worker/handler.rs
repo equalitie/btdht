@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use tokio::{sync::mpsc, task};
 
 use crate::id::InfoHash;
-use crate::message2::{
+use crate::message::{
     error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
     Request, Response,
 };

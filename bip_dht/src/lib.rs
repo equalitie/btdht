@@ -20,7 +20,7 @@ extern crate log;
 mod builder;
 mod compact;
 mod id;
-pub mod message2; // TODO: rename to `message` when the old `message` module is gone.
+pub mod message; // TODO: rename to `message` when the old `message` module is gone.
 mod mio;
 mod router;
 mod routing;

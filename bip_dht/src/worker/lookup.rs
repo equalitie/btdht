@@ -4,7 +4,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::sync::mpsc;
 
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
-use crate::message2::{
+use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
 use crate::mio::{EventLoop, Timeout};

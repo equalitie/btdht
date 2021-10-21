@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
 use crate::id::NodeId;
-use crate::message2::{FindNodeRequest, Message, MessageBody, Request};
+use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};

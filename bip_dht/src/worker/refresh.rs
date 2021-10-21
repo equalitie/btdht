@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use tokio::sync::mpsc;
 
-use crate::message2::{FindNodeRequest, Message, MessageBody, Request};
+use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::mio::EventLoop;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
