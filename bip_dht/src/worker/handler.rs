@@ -1,21 +1,18 @@
 use std::collections::HashMap;
 use std::convert::AsRef;
 use std::io;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::SocketAddr;
 
-use bip_bencode::Bencode;
 use tokio::{sync::mpsc, task};
 
 use crate::id::InfoHash;
-use crate::message::announce_peer::{AnnouncePeerResponse, ConnectPort};
-use crate::message::compact_info::{CompactNodeInfo, CompactValueInfo};
-use crate::message::error::{ErrorCode, ErrorMessage};
-use crate::message::find_node::FindNodeResponse;
-use crate::message::get_peers::{CompactInfoType, GetPeersResponse};
-use crate::message::ping::PingResponse;
-use crate::message::request::RequestType;
-use crate::message::response::{ExpectedResponse, ResponseType};
-use crate::message::MessageType;
+
+// TODO: remove these
+use crate::message::error::ErrorCode;
+
+use crate::message2::{
+    AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody, Request, Response,
+};
 use crate::mio::{self, EventLoop, Handler};
 use crate::router::Router;
 use crate::routing::node::Node;
@@ -326,57 +323,65 @@ fn handle_incoming(
 ) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
 
-    // Parse the buffer as a bencoded message
-    let bencode = if let Ok(b) = Bencode::decode(buffer) {
-        b
-    } else {
-        warn!("bip_dht: Received invalid bencode data...");
-        return;
+    let message = match Message::decode(buffer) {
+        Ok(message) => message,
+        Err(error) => {
+            warn!("bip_dht: Received invalid bencode data: {}", error);
+            return;
+        }
     };
 
-    // Parse the bencode as a message
-    // Check to make sure we issued the transaction id (or that it is still valid)
-    let message = MessageType::new(&bencode, |trans| {
+    // Validate response
+    if let MessageBody::Response(response) = &message.body {
         // Check if we can interpret the response transaction id as one of ours.
-        let trans_id = if let Some(t) = TransactionID::from_bytes(trans) {
-            t
+        let trans_id = if let Some(trans_id) = TransactionID::from_bytes(&message.transaction_id) {
+            trans_id
         } else {
-            return ExpectedResponse::None;
+            warn!("bip_dht: Received response with invalid transaction id");
+            return;
         };
 
         // Match the response action id with our current actions
-        match table_actions.get(&trans_id.action_id()) {
-            Some(&TableAction::Lookup(_)) => ExpectedResponse::GetPeers,
-            Some(&TableAction::Refresh(_)) => ExpectedResponse::FindNode,
-            Some(&TableAction::Bootstrap(_, _)) => ExpectedResponse::FindNode,
-            None => ExpectedResponse::None,
+        match (table_actions.get(&trans_id.action_id()), response) {
+            (Some(TableAction::Lookup(_)), Response::GetPeers(_))
+            | (Some(TableAction::Refresh(_)), Response::FindNode(_))
+            | (Some(TableAction::Bootstrap(..)), Response::FindNode(_)) => (),
+            _ => {
+                warn!("bip_dht: Received unsolicited response");
+                return;
+            }
         }
-    });
+    }
 
     // Do not process requests if we are read only
     // TODO: Add read only flags to messages we send it we are read only!
     // Also, check for read only flags on responses we get before adding nodes
     // to our RoutingTable.
     if work_storage.read_only {
-        if let Ok(MessageType::Request(_)) = message {
+        if let MessageBody::Request(_) = message.body {
             return;
         }
     }
 
     // Process the given message
-    match message {
-        Ok(MessageType::Request(RequestType::Ping(p))) => {
+    match message.body {
+        MessageBody::Request(Request::Ping(p)) => {
             info!("bip_dht: Received a PingRequest...");
-            let node = Node::as_good(p.node_id(), addr);
+            let node = Node::as_good(p.id, addr);
 
             // Node requested from us, mark it in the Routingtable
             if let Some(n) = work_storage.routing_table.find_node(&node) {
                 n.remote_request()
             }
 
-            let ping_rsp =
-                PingResponse::new(p.transaction_id(), work_storage.routing_table.node_id());
-            let ping_msg = ping_rsp.encode();
+            let ping_rsp = AckResponse {
+                id: work_storage.routing_table.node_id(),
+            };
+            let ping_msg = Message {
+                transaction_id: message.transaction_id,
+                body: MessageBody::Response(Response::Ack(ping_rsp)),
+            };
+            let ping_msg = ping_msg.encode();
 
             if work_storage
                 .out_channel
@@ -387,9 +392,9 @@ fn handle_incoming(
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
         }
-        Ok(MessageType::Request(RequestType::FindNode(f))) => {
+        MessageBody::Request(Request::FindNode(f)) => {
             info!("bip_dht: Received a FindNodeRequest...");
-            let node = Node::as_good(f.node_id(), addr);
+            let node = Node::as_good(f.id, addr);
 
             // Node requested from us, mark it in the Routingtable
             if let Some(n) = work_storage.routing_table.find_node(&node) {
@@ -397,22 +402,22 @@ fn handle_incoming(
             }
 
             // Grab the closest nodes
-            let mut closest_nodes_bytes = Vec::with_capacity(26 * 8);
-            for node in work_storage
+            let closest_nodes = work_storage
                 .routing_table
-                .closest_nodes(f.target_id())
+                .closest_nodes(f.target)
                 .take(8)
-            {
-                closest_nodes_bytes.extend_from_slice(&node.encode());
-            }
+                .map(|node| *node.info())
+                .collect();
 
-            let find_node_rsp = FindNodeResponse::new(
-                f.transaction_id(),
-                work_storage.routing_table.node_id(),
-                &closest_nodes_bytes,
-            )
-            .unwrap();
-            let find_node_msg = find_node_rsp.encode();
+            let find_node_rsp = FindNodeResponse {
+                id: work_storage.routing_table.node_id(),
+                nodes: closest_nodes,
+            };
+            let find_node_msg = Message {
+                transaction_id: message.transaction_id,
+                body: MessageBody::Response(Response::FindNode(find_node_rsp)),
+            };
+            let find_node_msg = find_node_msg.encode();
 
             if work_storage
                 .out_channel
@@ -423,70 +428,50 @@ fn handle_incoming(
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
         }
-        Ok(MessageType::Request(RequestType::GetPeers(g))) => {
+        MessageBody::Request(Request::GetPeers(g)) => {
             info!("bip_dht: Received a GetPeersRequest...");
-            let node = Node::as_good(g.node_id(), addr);
+            let node = Node::as_good(g.id, addr);
 
             // Node requested from us, mark it in the Routingtable
             if let Some(n) = work_storage.routing_table.find_node(&node) {
                 n.remote_request()
             }
 
-            // TODO: Move socket address serialization code into bip_util
             // TODO: Check what the maximum number of values we can give without overflowing a udp packet
             // Also, if we arent going to give all of the contacts, we may want to shuffle which ones we give
-            let mut contact_info_bytes = Vec::with_capacity(6 * 20);
+            let mut values = Vec::new();
             work_storage
                 .active_stores
-                .find_items(&g.info_hash(), |addr| {
-                    match addr {
-                        SocketAddr::V4(v4_addr) => {
-                            contact_info_bytes.extend_from_slice(&v4_addr.ip().octets());
-                        }
-                        SocketAddr::V6(_) => {
-                            error!("AnnounceStorage contained an IPv6 Address...");
-                            return;
-                        }
-                    };
-
-                    contact_info_bytes.extend_from_slice(&addr.port().to_be_bytes());
+                .find_items(&g.info_hash, |addr| match addr {
+                    SocketAddr::V4(v4_addr) => {
+                        values.push(v4_addr);
+                    }
+                    SocketAddr::V6(_) => {
+                        error!("AnnounceStorage contained an IPv6 Address...");
+                    }
                 });
-            // Grab the bencoded list (ugh, we really have to do this, better apis I say!!!)
-            let mut contact_info_bencode = Vec::with_capacity(contact_info_bytes.len() / 6);
-            for chunk_index in 0..(contact_info_bytes.len() / 6) {
-                let (start, end) = (chunk_index * 6, chunk_index * 6 + 6);
-
-                contact_info_bencode.push(ben_bytes!(&contact_info_bytes[start..end]));
-            }
 
             // Grab the closest nodes
-            let mut closest_nodes_bytes = Vec::with_capacity(26 * 8);
-            for node in work_storage
+            let nodes = work_storage
                 .routing_table
-                .closest_nodes(g.info_hash())
+                .closest_nodes(g.info_hash)
                 .take(8)
-            {
-                closest_nodes_bytes.extend_from_slice(&node.encode());
-            }
+                .map(|node| *node.info())
+                .collect();
 
-            // Wrap up the nodes/values we are going to be giving them
             let token = work_storage.token_store.checkout(addr.ip());
-            let comapct_info_type = if !contact_info_bencode.is_empty() {
-                CompactInfoType::Both(
-                    CompactNodeInfo::new(&closest_nodes_bytes).unwrap(),
-                    CompactValueInfo::new(&contact_info_bencode).unwrap(),
-                )
-            } else {
-                CompactInfoType::Nodes(CompactNodeInfo::new(&closest_nodes_bytes).unwrap())
-            };
 
-            let get_peers_rsp = GetPeersResponse::new(
-                g.transaction_id(),
-                work_storage.routing_table.node_id(),
-                Some(token.as_ref()),
-                comapct_info_type,
-            );
-            let get_peers_msg = get_peers_rsp.encode();
+            let get_peers_rsp = GetPeersResponse {
+                id: work_storage.routing_table.node_id(),
+                values,
+                nodes,
+                token: token.as_ref().to_vec(),
+            };
+            let get_peers_msg = Message {
+                transaction_id: message.transaction_id,
+                body: MessageBody::Response(Response::GetPeers(get_peers_rsp)),
+            };
+            let get_peers_msg = get_peers_msg.encode();
 
             if work_storage
                 .out_channel
@@ -497,9 +482,9 @@ fn handle_incoming(
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
         }
-        Ok(MessageType::Request(RequestType::AnnouncePeer(a))) => {
+        MessageBody::Request(Request::AnnouncePeer(a)) => {
             info!("bip_dht: Received an AnnouncePeerRequest...");
-            let node = Node::as_good(a.node_id(), addr);
+            let node = Node::as_good(a.id, addr);
 
             // Node requested from us, mark it in the Routingtable
             if let Some(n) = work_storage.routing_table.find_node(&node) {
@@ -507,56 +492,57 @@ fn handle_incoming(
             }
 
             // Validate the token
-            let is_valid = match Token::new(a.token()) {
+            let is_valid = match Token::new(&a.token) {
                 Ok(t) => work_storage.token_store.checkin(addr.ip(), t),
                 Err(_) => false,
             };
 
             // Create a socket address based on the implied/explicit port number
-            let connect_addr = match a.connect_port() {
-                ConnectPort::Implied => addr,
-                ConnectPort::Explicit(port) => match addr {
-                    SocketAddr::V4(v4_addr) => {
-                        SocketAddr::V4(SocketAddrV4::new(*v4_addr.ip(), port))
-                    }
-                    SocketAddr::V6(v6_addr) => SocketAddr::V6(SocketAddrV6::new(
-                        *v6_addr.ip(),
-                        port,
-                        v6_addr.flowinfo(),
-                        v6_addr.scope_id(),
-                    )),
-                },
+            let connect_addr = match a.port {
+                None => addr,
+                Some(port) => {
+                    let mut addr = addr;
+                    addr.set_port(port);
+                    addr
+                }
             };
 
             // Resolve type of response we are going to send
             let response_msg = if !is_valid {
                 // Node gave us an invalid token
                 warn!("bip_dht: Remote node sent us an invalid token for an AnnounceRequest...");
-                ErrorMessage::new(
-                    a.transaction_id().to_vec(),
-                    ErrorCode::ProtocolError,
-                    "Received An Invalid Token".to_owned(),
-                )
+                Message {
+                    transaction_id: message.transaction_id,
+                    body: MessageBody::Error(Error {
+                        code: ErrorCode::ProtocolError.into(),
+                        message: "received an invalid token".to_owned(),
+                    }),
+                }
                 .encode()
             } else if work_storage
                 .active_stores
-                .add_item(a.info_hash(), connect_addr)
+                .add_item(a.info_hash, connect_addr)
             {
                 // Node successfully stored the value with us, send an announce response
-                AnnouncePeerResponse::new(a.transaction_id(), work_storage.routing_table.node_id())
-                    .encode()
+                Message {
+                    transaction_id: message.transaction_id,
+                    body: MessageBody::Response(Response::Ack(AckResponse {
+                        id: work_storage.routing_table.node_id(),
+                    })),
+                }
+                .encode()
             } else {
                 // Node unsuccessfully stored the value with us, send them an error message
                 // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
-                warn!(
-                    "bip_dht: AnnounceStorage failed to store contact information because it \
-                       is full..."
-                );
-                ErrorMessage::new(
-                    a.transaction_id().to_vec(),
-                    ErrorCode::ServerError,
-                    "Announce Storage Is Full".to_owned(),
-                )
+                warn!("bip_dht: AnnounceStorage failed to store contact information because it is full...");
+
+                Message {
+                    transaction_id: message.transaction_id,
+                    body: MessageBody::Error(Error {
+                        code: ErrorCode::ServerError.into(),
+                        message: "announce storage is full".to_owned(),
+                    }),
+                }
                 .encode()
             };
 
@@ -569,18 +555,16 @@ fn handle_incoming(
                 shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
             }
         }
-        Ok(MessageType::Response(ResponseType::FindNode(f))) => {
+        MessageBody::Response(Response::FindNode(f)) => {
             info!("bip_dht: Received a FindNodeResponse...");
-            let trans_id = TransactionID::from_bytes(f.transaction_id()).unwrap();
-            let node = Node::as_good(f.node_id(), addr);
+            let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+            let node = Node::as_good(f.id, addr);
 
             // Add the payload nodes as questionable
-            for (id, v4_addr) in f.nodes() {
-                let sock_addr = SocketAddr::V4(v4_addr);
-
+            for node in f.nodes {
                 work_storage
                     .routing_table
-                    .add_node(Node::as_questionable(id, sock_addr));
+                    .add_node(Node::as_questionable(node.id, node.addr));
             }
 
             let bootstrap_complete = {
@@ -667,10 +651,10 @@ fn handle_incoming(
                 print!("\nTotal: {}\n\n\n", total);
             }
         }
-        Ok(MessageType::Response(ResponseType::GetPeers(g))) => {
+        MessageBody::Response(Response::GetPeers(g)) => {
             // info!("bip_dht: Received a GetPeersResponse...");
-            let trans_id = TransactionID::from_bytes(g.transaction_id()).unwrap();
-            let node = Node::as_good(g.node_id(), addr);
+            let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+            let node = Node::as_good(g.id, addr);
 
             work_storage.routing_table.add_node(node.clone());
 
@@ -730,21 +714,13 @@ fn handle_incoming(
                 }
             }
         }
-        Ok(MessageType::Response(ResponseType::Ping(_))) => {
-            info!("bip_dht: Received a PingResponse...");
-
-            // Yeah...we should never be getting this type of response (we never use this message)
+        MessageBody::Response(Response::Ack(_)) => {
+            info!("bip_dht: Received a AckResponse...");
+            // TODO: mark the node as good?
         }
-        Ok(MessageType::Response(ResponseType::AnnouncePeer(_))) => {
-            info!("bip_dht: Received an AnnouncePeerResponse...");
-        }
-        Ok(MessageType::Error(e)) => {
+        MessageBody::Error(e) => {
             info!("bip_dht: Received an ErrorMessage...");
-
             warn!("bip_dht: KRPC error message from {:?}: {:?}", addr, e);
-        }
-        Err(e) => {
-            warn!("bip_dht: Error parsing KRPC message: {:?}", e);
         }
     }
 }

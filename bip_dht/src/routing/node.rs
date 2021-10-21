@@ -35,7 +35,7 @@ pub enum NodeStatus {
 /// Node participating in the dht.
 #[derive(Clone)]
 pub struct Node {
-    key: NodeKey,
+    info: NodeInfo,
     last_request: Cell<Option<Instant>>,
     last_response: Cell<Option<Instant>>,
     refresh_requests: Cell<usize>,
@@ -45,7 +45,7 @@ impl Node {
     /// Create a new node that has recently responded to us but never requested from us.
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            key: NodeKey { id, addr },
+            info: NodeInfo { id, addr },
             last_response: Cell::new(Some(Instant::now())),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -58,7 +58,7 @@ impl Node {
         let last_response = Instant::now().checked_sub(last_response_offset).unwrap();
 
         Node {
-            key: NodeKey { id, addr },
+            info: NodeInfo { id, addr },
             last_response: Cell::new(Some(last_response)),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -68,7 +68,7 @@ impl Node {
     /// Create a new node that has never responded to us or requested from us.
     pub fn as_bad(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            key: NodeKey { id, addr },
+            info: NodeInfo { id, addr },
             last_response: Cell::new(None),
             last_request: Cell::new(None),
             refresh_requests: Cell::new(0),
@@ -98,41 +98,11 @@ impl Node {
     }
 
     pub fn id(&self) -> NodeId {
-        self.key.id
+        self.info.id
     }
 
     pub fn addr(&self) -> SocketAddr {
-        self.key.addr
-    }
-
-    pub fn encode(&self) -> [u8; 26] {
-        let mut encoded = [0u8; 26];
-
-        {
-            let mut encoded_iter = encoded.iter_mut();
-
-            // Copy the node id over
-            for (src, dst) in self.key.id.as_ref().iter().zip(encoded_iter.by_ref()) {
-                *dst = *src;
-            }
-
-            // Copy the ip address over
-            match self.key.addr {
-                SocketAddr::V4(v4) => {
-                    for (src, dst) in v4.ip().octets().iter().zip(encoded_iter.by_ref()) {
-                        *dst = *src;
-                    }
-                }
-                _ => panic!("bip_dht: Cannot encode a SocketAddrV6..."),
-            }
-        }
-
-        // Copy the port over
-        let port = self.key.addr.port();
-        encoded[24] = (port >> 8) as u8;
-        encoded[25] = port as u8;
-
-        encoded
+        self.info.addr
     }
 
     /// Current status of the node.
@@ -148,8 +118,8 @@ impl Node {
         recently_requested(self, curr_time)
     }
 
-    pub(crate) fn key(&self) -> &NodeKey {
-        &self.key
+    pub(crate) fn info(&self) -> &NodeInfo {
+        &self.info
     }
 }
 
@@ -157,7 +127,7 @@ impl Eq for Node {}
 
 impl PartialEq<Node> for Node {
     fn eq(&self, other: &Node) -> bool {
-        self.key == other.key
+        self.info == other.info
     }
 }
 
@@ -166,7 +136,7 @@ impl Hash for Node {
     where
         H: Hasher,
     {
-        self.key.hash(state);
+        self.info.hash(state);
     }
 }
 
@@ -175,8 +145,8 @@ impl Debug for Node {
         f.write_fmt(format_args!(
             "Node{{ id: {:?}, addr: {:?}, last_request: {:?}, \
                                   last_response: {:?}, refresh_requests: {:?} }}",
-            self.key.id,
-            self.key.addr,
+            self.info.id,
+            self.info.addr,
             self.last_request.get(),
             self.last_response.get(),
             self.refresh_requests.get()
@@ -184,17 +154,11 @@ impl Debug for Node {
     }
 }
 
-/// Key uniquely identifying a node in the network.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct NodeKey {
+/// Node id + its socket address.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+pub struct NodeInfo {
     pub id: NodeId,
     pub addr: SocketAddr,
-}
-
-impl NodeKey {
-    pub fn new(id: NodeId, addr: SocketAddr) -> Self {
-        Self { id, addr }
-    }
 }
 
 // TODO: Verify the two scenarios follow the specification as some cases seem questionable (pun intended), ie, a node
@@ -252,6 +216,7 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::time::{Duration, Instant};
 
+    use crate::compact::Compact;
     use crate::routing::node::{Node, NodeStatus};
     use crate::test;
 
@@ -268,7 +233,7 @@ mod tests {
 
         let node = Node::as_good(node_id.into(), sock_addr);
 
-        let encoded_node = node.encode();
+        let encoded_node = node.info().encode();
 
         let port_bytes = [(port >> 8) as u8, port as u8];
         for (expected, actual) in node_id

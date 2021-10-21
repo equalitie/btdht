@@ -5,10 +5,11 @@ use tokio::sync::mpsc;
 
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
-use crate::message::get_peers::{CompactInfoType, GetPeersRequest, GetPeersResponse};
+use crate::message::get_peers::GetPeersRequest;
+use crate::message2::GetPeersResponse;
 use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket;
-use crate::routing::node::{Node, NodeKey, NodeStatus};
+use crate::routing::node::{Node, NodeInfo, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::worker::handler::DhtHandler;
@@ -50,8 +51,8 @@ pub struct TableLookup {
     // interestingly enough (and super important), this distance may not be eqaul to the
     // requested node's distance
     active_lookups: HashMap<TransactionID, (DistanceToBeat, Timeout)>,
-    announce_tokens: HashMap<NodeKey, Vec<u8>>,
-    requested_nodes: HashSet<NodeKey>,
+    announce_tokens: HashMap<NodeInfo, Vec<u8>>,
+    requested_nodes: HashSet<NodeInfo>,
     // Storing whether or not it has ever been pinged so that we
     // can perform the brute force lookup if the lookup failed
     all_sorted_nodes: Vec<(Distance, Node, bool)>,
@@ -119,11 +120,11 @@ impl TableLookup {
         self.target_id
     }
 
-    pub fn recv_response<'a>(
+    pub fn recv_response(
         &mut self,
         node: Node,
         trans_id: &TransactionID,
-        msg: GetPeersResponse<'a>,
+        msg: GetPeersResponse,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
         event_loop: &mut EventLoop<DhtHandler>,
@@ -145,55 +146,42 @@ impl TableLookup {
         }
 
         // Add the announce token to our list of tokens
-        if let Some(token) = msg.token() {
-            self.announce_tokens.insert(*node.key(), token.to_vec());
-        }
+        self.announce_tokens.insert(*node.info(), msg.token);
 
-        // Pull out the contact information from the message
-        let (opt_values, opt_nodes) = match msg.info_type() {
-            CompactInfoType::Nodes(n) => (None, Some(n)),
-            CompactInfoType::Values(v) => {
-                self.recv_values = true;
-                (Some(v.into_iter().collect()), None)
-            }
-            CompactInfoType::Both(n, v) => (Some(v.into_iter().collect()), Some(n)),
-        };
+        let nodes = msg.nodes;
+        let values = msg.values;
 
         // Check if we beat the distance, get the next distance to beat
-        let (iterate_nodes, next_dist_to_beat) = if let Some(nodes) = opt_nodes {
+        let (iterate_nodes, next_dist_to_beat) = if !nodes.is_empty() {
             let requested_nodes = &self.requested_nodes;
 
-            // Filter for nodes that we have already requested from
-            let already_requested = |node_info: &(NodeId, SocketAddrV4)| {
-                let node_key = NodeKey::new(node_info.0, SocketAddr::V4(node_info.1));
-                !requested_nodes.contains(&node_key)
-            };
-
             // Get the closest distance (or the current distance)
-            let next_dist_to_beat = nodes.into_iter().filter(&already_requested).fold(
-                dist_to_beat,
-                |closest, (id, _)| {
-                    let distance = self.target_id ^ id;
+            let next_dist_to_beat = nodes
+                .iter()
+                .filter(|node| !requested_nodes.contains(node))
+                .fold(dist_to_beat, |closest, node| {
+                    let distance = self.target_id ^ node.id;
 
                     if distance < closest {
                         distance
                     } else {
                         closest
                     }
-                },
-            );
+                });
 
             // Check if we got closer (equal to is not enough)
             let iterate_nodes = if next_dist_to_beat < dist_to_beat {
                 let iterate_nodes = pick_iterate_nodes(
-                    nodes.into_iter().filter(&already_requested),
+                    nodes
+                        .iter()
+                        .filter(|node| !requested_nodes.contains(node))
+                        .copied(),
                     self.target_id,
                 );
 
                 // Push nodes into the all nodes list
-                for (id, v4_addr) in nodes {
-                    let addr = SocketAddr::V4(v4_addr);
-                    let node = Node::as_questionable(id, addr);
+                for node in nodes {
+                    let node = Node::as_questionable(node.id, node.addr);
                     let will_ping = iterate_nodes.iter().any(|(n, _)| n == &node);
 
                     insert_sorted_node(&mut self.all_sorted_nodes, self.target_id, node, will_ping);
@@ -202,10 +190,8 @@ impl TableLookup {
                 Some(iterate_nodes)
             } else {
                 // Push nodes into the all nodes list
-                for (id, v4_addr) in nodes {
-                    let addr = SocketAddr::V4(v4_addr);
-                    let node = Node::as_questionable(id, addr);
-
+                for node in nodes {
+                    let node = Node::as_questionable(node.id, node.addr);
                     insert_sorted_node(&mut self.all_sorted_nodes, self.target_id, node, false);
                 }
 
@@ -240,9 +226,10 @@ impl TableLookup {
             }
         }
 
-        match opt_values {
-            Some(values) => LookupStatus::Values(values),
-            None => self.current_lookup_status(),
+        if values.is_empty() {
+            self.current_lookup_status()
+        } else {
+            LookupStatus::Values(values)
         }
     }
 
@@ -289,11 +276,11 @@ impl TableLookup {
             for (_, node, _) in self
                 .all_sorted_nodes
                 .iter()
-                .filter(|(_, node, _)| announce_tokens.contains_key(node.key()))
+                .filter(|(_, node, _)| announce_tokens.contains_key(node.info()))
                 .take(ANNOUNCE_PICK_NUM)
             {
                 let trans_id = self.id_generator.generate();
-                let token = announce_tokens.get(node.key()).unwrap();
+                let token = announce_tokens.get(node.info()).unwrap();
                 let port = match announce_port {
                     Some(port) => ConnectPort::Explicit(port),
                     None => ConnectPort::Implied,
@@ -385,7 +372,7 @@ impl TableLookup {
             }
 
             // We requested from the node, mark it down
-            self.requested_nodes.insert(*node.key());
+            self.requested_nodes.insert(*node.info());
 
             // Update the node in the routing table
             if let Some(n) = table.find_node(node) {
@@ -495,7 +482,7 @@ fn pick_iterate_nodes<I>(
     target_id: InfoHash,
 ) -> [(Node, bool); ITERATIVE_PICK_NUM]
 where
-    I: Iterator<Item = (NodeId, SocketAddrV4)>,
+    I: Iterator<Item = NodeInfo>,
 {
     let dummy_id = [0u8; NODE_ID_LEN].into();
     let default = (
@@ -504,10 +491,8 @@ where
     );
 
     let mut pick_nodes = [default.clone(), default.clone(), default];
-    for (id, v4_addr) in unsorted_nodes {
-        let addr = SocketAddr::V4(v4_addr);
-        let node = Node::as_questionable(id, addr);
-
+    for node in unsorted_nodes {
+        let node = Node::as_questionable(node.id, node.addr);
         insert_closest_nodes(&mut pick_nodes, target_id, node);
     }
 

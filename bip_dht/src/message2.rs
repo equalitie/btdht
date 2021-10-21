@@ -1,6 +1,7 @@
 use crate::{
     compact,
     id::{InfoHash, NodeId},
+    routing::node::NodeInfo,
 };
 use serde::{
     de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
@@ -13,8 +14,22 @@ use thiserror::Error;
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(try_from = "RawMessage", into = "RawMessage")]
 pub struct Message {
-    transaction_id: Vec<u8>,
-    body: MessageBody,
+    pub transaction_id: Vec<u8>,
+    pub body: MessageBody,
+}
+
+impl Message {
+    /// Decode the message from bencode.
+    pub fn decode(input: &[u8]) -> Result<Self, serde_bencode::Error> {
+        serde_bencode::from_bytes(input)
+    }
+
+    /// Encode the message into bencode.
+    pub fn encode(&self) -> Vec<u8> {
+        // `expect` should be fine here as there should be no reason why a serialization into a
+        // `Vec` would fail unless we have a bug somewhere.
+        serde_bencode::to_bytes(self).expect("failed to serialize message")
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -186,16 +201,10 @@ pub struct GetPeersResponse {
     pub token: Vec<u8>,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct NodeInfo {
-    pub id: NodeId,
-    pub addr: SocketAddrV4,
-}
-
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Error {
-    code: u32,
-    message: String,
+    pub code: u8,
+    pub message: String,
 }
 
 // Using custom Serialize/Deserialize impls because the format is too weird.
@@ -494,7 +503,7 @@ mod tests {
                 id: NodeId::from(*b"0123456789abcdefghij"),
                 nodes: vec![NodeInfo {
                     id: NodeId::from(*b"mnopqrstuvwxyz123456"),
-                    addr: SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
+                    addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
                 }],
             })),
         };
@@ -533,11 +542,11 @@ mod tests {
                 nodes: vec![
                     NodeInfo {
                         id: NodeId::from(*b"mnopqrstuvwxyz123456"),
-                        addr: SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
+                        addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
                     },
                     NodeInfo {
                         id: NodeId::from(*b"789abcdefghijklmnopq"),
-                        addr: SocketAddrV4::new(Ipv4Addr::new(105, 100, 104, 116), 28269),
+                        addr: (Ipv4Addr::new(105, 100, 104, 116), 28269).into(),
                     },
                 ],
                 token: b"aoeusnth".to_vec(),

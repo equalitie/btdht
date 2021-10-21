@@ -2,7 +2,7 @@
 
 use crate::{
     id::{NodeId, NODE_ID_LEN},
-    message2::NodeInfo,
+    routing::node::NodeInfo,
 };
 use serde::{
     de::{Deserializer, Error},
@@ -12,7 +12,7 @@ use serde::{
 use serde_bytes::ByteBuf;
 use std::{
     convert::{TryFrom, TryInto},
-    net::{Ipv4Addr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
 const SOCKET_ADDR_LEN: usize = 6;
@@ -62,13 +62,21 @@ impl Compact for NodeInfo {
         let id = NodeId::decode(src.get(..NODE_ID_LEN)?)?;
         let addr = SocketAddrV4::decode(src.get(NODE_ID_LEN..NODE_ID_LEN + SOCKET_ADDR_LEN)?)?;
 
-        Some(Self { id, addr })
+        Some(Self {
+            id,
+            addr: SocketAddr::V4(addr),
+        })
     }
 
     fn encode(&self) -> Self::Buffer {
+        let addr = match &self.addr {
+            SocketAddr::V4(addr) => addr,
+            SocketAddr::V6(_) => panic!("bip_dht: Cannot encode a SocketAddrV6..."),
+        };
+
         let mut buffer = [0; NODE_INFO_LEN];
         buffer[..NODE_ID_LEN].copy_from_slice(self.id.encode().as_ref());
-        buffer[NODE_ID_LEN..].copy_from_slice(self.addr.encode().as_ref());
+        buffer[NODE_ID_LEN..].copy_from_slice(addr.encode().as_ref());
         buffer
     }
 }
@@ -191,7 +199,7 @@ mod tests {
     fn compact_node_info() {
         let orig = NodeInfo {
             id: NodeId::from(*b"0123456789abcdefghij"),
-            addr: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 6789),
+            addr: (Ipv4Addr::LOCALHOST, 6789).into(),
         };
 
         let encoded = orig.encode();
