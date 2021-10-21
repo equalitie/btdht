@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use tokio::sync::mpsc;
 
-use crate::message::find_node::FindNodeRequest;
+use crate::message2::{FindNodeRequest, Message, MessageBody, Request};
 use crate::mio::EventLoop;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
@@ -57,8 +57,15 @@ impl TableRefresh {
             let trans_id = self.id_generator.generate();
 
             // Construct the message
-            let find_node_req = FindNodeRequest::new(trans_id.as_ref(), table.node_id(), target_id);
-            let find_node_msg = find_node_req.encode();
+            let find_node_req = FindNodeRequest {
+                id: table.node_id(),
+                target: target_id,
+            };
+            let find_node_msg = Message {
+                transaction_id: trans_id.as_ref().to_vec(),
+                body: MessageBody::Request(Request::FindNode(find_node_req)),
+            };
+            let find_node_msg = find_node_msg.encode();
 
             // Send the message
             if out.blocking_send((find_node_msg, node.addr())).is_err() {

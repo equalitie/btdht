@@ -1,9 +1,6 @@
 //! Implementation of the Bittorrent Mainline Distributed Hash Table.
 
 #[macro_use]
-extern crate bip_bencode;
-
-#[macro_use]
 extern crate log;
 
 // Mainline DHT extensions supported on behalf of libtorrent:
@@ -22,10 +19,8 @@ extern crate log;
 
 mod builder;
 mod compact;
-mod error;
 mod id;
-pub mod message;
-mod message2; // TODO: rename to `message` when the old `message` module is gone.
+pub mod message2; // TODO: rename to `message` when the old `message` module is gone.
 mod mio;
 mod router;
 mod routing;

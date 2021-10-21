@@ -39,6 +39,8 @@ pub enum MessageBody {
     Error(Error),
 }
 
+// TODO: unrecognized requests which contain either an 'info_hash' or 'target' arguments should be
+// interpreted as 'find_node' as per Mainline DHT extensions.
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Request {
     Ping(PingRequest),
@@ -229,7 +231,7 @@ impl<'de> Deserialize<'de> for Error {
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                let code = seq
+                let code: u8 = seq
                     .next_element()?
                     .ok_or_else(|| A::Error::invalid_length(0, &self))?;
                 let message = seq
@@ -247,6 +249,13 @@ impl<'de> Deserialize<'de> for Error {
 
         d.deserialize_seq(ErrorVisitor)
     }
+}
+
+pub mod error_code {
+    pub const GENERIC_ERROR: u8 = 201;
+    pub const SERVER_ERROR: u8 = 202;
+    pub const PROTOCOL_ERROR: u8 = 203;
+    pub const METHOD_UNKNOWN: u8 = 204;
 }
 
 // Intermediate format to help serializing/deserializing. This shouldn't be necessary because we
@@ -562,7 +571,7 @@ mod tests {
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Error(Error {
-                code: 201,
+                code: error_code::GENERIC_ERROR,
                 message: "A Generic Error Ocurred".to_owned(),
             }),
         };

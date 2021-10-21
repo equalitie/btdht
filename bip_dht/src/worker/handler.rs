@@ -6,12 +6,9 @@ use std::net::SocketAddr;
 use tokio::{sync::mpsc, task};
 
 use crate::id::InfoHash;
-
-// TODO: remove these
-use crate::message::error::ErrorCode;
-
 use crate::message2::{
-    AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody, Request, Response,
+    error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
+    Request, Response,
 };
 use crate::mio::{self, EventLoop, Handler};
 use crate::router::Router;
@@ -514,7 +511,7 @@ fn handle_incoming(
                 Message {
                     transaction_id: message.transaction_id,
                     body: MessageBody::Error(Error {
-                        code: ErrorCode::ProtocolError.into(),
+                        code: error_code::PROTOCOL_ERROR,
                         message: "received an invalid token".to_owned(),
                     }),
                 }
@@ -539,7 +536,7 @@ fn handle_incoming(
                 Message {
                     transaction_id: message.transaction_id,
                     body: MessageBody::Error(Error {
-                        code: ErrorCode::ServerError.into(),
+                        code: error_code::SERVER_ERROR,
                         message: "announce storage is full".to_owned(),
                     }),
                 }

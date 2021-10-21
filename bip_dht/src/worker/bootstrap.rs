@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
 use crate::id::NodeId;
-use crate::message::find_node::FindNodeRequest;
+use crate::message2::{FindNodeRequest, Message, MessageBody, Request};
 use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};
@@ -91,8 +91,15 @@ impl TableBootstrap {
         // Insert the timeout into the active bootstraps just so we can check if a response was valid (and begin the bucket bootstraps)
         self.active_messages.insert(trans_id, timeout);
 
-        let find_node_msg =
-            FindNodeRequest::new(trans_id.as_ref(), self.table_id, self.table_id).encode();
+        let find_node_msg = Message {
+            transaction_id: trans_id.as_ref().to_vec(),
+            body: MessageBody::Request(Request::FindNode(FindNodeRequest {
+                id: self.table_id,
+                target: self.table_id,
+            })),
+        }
+        .encode();
+
         // Ping all initial routers and nodes
         for addr in self
             .starting_routers
@@ -255,8 +262,14 @@ impl TableBootstrap {
         for node in nodes.take(BOOTSTRAP_PINGS_PER_BUCKET) {
             // Generate a transaction id
             let trans_id = self.id_generator.generate();
-            let find_node_msg =
-                FindNodeRequest::new(trans_id.as_ref(), self.table_id, target_id).encode();
+            let find_node_msg = Message {
+                transaction_id: trans_id.as_ref().to_vec(),
+                body: MessageBody::Request(Request::FindNode(FindNodeRequest {
+                    id: self.table_id,
+                    target: target_id,
+                })),
+            }
+            .encode();
 
             // Add a timeout for the node
             let res_timeout = event_loop.timeout_ms(

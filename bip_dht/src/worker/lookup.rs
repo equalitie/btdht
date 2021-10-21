@@ -4,9 +4,9 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::sync::mpsc;
 
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
-use crate::message::announce_peer::{AnnouncePeerRequest, ConnectPort};
-use crate::message::get_peers::GetPeersRequest;
-use crate::message2::GetPeersResponse;
+use crate::message2::{
+    AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
+};
 use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeInfo, NodeStatus};
@@ -262,7 +262,7 @@ impl TableLookup {
 
     pub fn recv_finished(
         &mut self,
-        announce_port: Option<u16>,
+        port: Option<u16>,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
     ) -> LookupStatus {
@@ -281,19 +281,18 @@ impl TableLookup {
             {
                 let trans_id = self.id_generator.generate();
                 let token = announce_tokens.get(node.info()).unwrap();
-                let port = match announce_port {
-                    Some(port) => ConnectPort::Explicit(port),
-                    None => ConnectPort::Implied,
-                };
 
-                let announce_peer_req = AnnouncePeerRequest::new(
-                    trans_id.as_ref(),
-                    self.table_id,
-                    self.target_id,
-                    token.as_ref(),
+                let announce_peer_req = AnnouncePeerRequest {
+                    id: self.table_id,
+                    info_hash: self.target_id,
+                    token: token.clone(),
                     port,
-                );
-                let announce_peer_msg = announce_peer_req.encode();
+                };
+                let announce_peer_msg = Message {
+                    transaction_id: trans_id.as_ref().to_vec(),
+                    body: MessageBody::Request(Request::AnnouncePeer(announce_peer_req)),
+                };
+                let announce_peer_msg = announce_peer_msg.encode();
 
                 if out.blocking_send((announce_peer_msg, node.addr())).is_err() {
                     error!(
@@ -364,8 +363,15 @@ impl TableLookup {
                 .insert(trans_id, (dist_to_beat, timeout));
 
             // Send the message to the node
-            let get_peers_msg =
-                GetPeersRequest::new(trans_id.as_ref(), self.table_id, self.target_id).encode();
+            let get_peers_msg = Message {
+                transaction_id: trans_id.as_ref().to_vec(),
+                body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
+                    id: self.table_id,
+                    info_hash: self.target_id,
+                })),
+            }
+            .encode();
+
             if out.blocking_send((get_peers_msg, node.addr())).is_err() {
                 error!("bip_dht: Could not send a lookup message through the channel...");
                 return LookupStatus::Failed;
@@ -432,8 +438,15 @@ impl TableLookup {
                 self.active_lookups.insert(trans_id, (*node_dist, timeout));
 
                 // Send the message to the node
-                let get_peers_msg =
-                    GetPeersRequest::new(trans_id.as_ref(), self.table_id, self.target_id).encode();
+                let get_peers_msg = Message {
+                    transaction_id: trans_id.as_ref().to_vec(),
+                    body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
+                        id: self.table_id,
+                        info_hash: self.target_id,
+                    })),
+                }
+                .encode();
+
                 if out.blocking_send((get_peers_msg, node.addr())).is_err() {
                     error!("bip_dht: Could not send an endgame message through the channel...");
                     return LookupStatus::Failed;
