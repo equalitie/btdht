@@ -1,9 +1,8 @@
-use std::{io, net::SocketAddr};
+use std::{collections::HashSet, io, net::SocketAddr};
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 use crate::id::InfoHash;
 use crate::mio;
-use crate::router::Router;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
 
@@ -21,7 +20,7 @@ pub enum OneshotTask {
     /// Register a sender to send DhtEvents to.
     RegisterSender(mpsc::UnboundedSender<DhtEvent>),
     /// Load a new bootstrap operation into worker storage.
-    StartBootstrap(Vec<Router>, Vec<SocketAddr>),
+    StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
     /// Start a lookup for the given InfoHash.
     StartLookup(InfoHash, bool),
     /// Gracefully shutdown the DHT and associated workers.

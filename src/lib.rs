@@ -17,12 +17,13 @@ extern crate log;
 // two dhts using the different protocols on their own.
 // const VUZE_DHT: (&'static str, u16) = ("dht.aelitis.com", 6881);
 
+pub mod message;
+pub mod router;
+
 mod builder;
 mod compact;
 mod id;
-pub mod message; // TODO: rename to `message` when the old `message` module is gone.
 mod mio;
-mod router;
 mod routing;
 mod storage;
 #[cfg(test)]
@@ -33,5 +34,4 @@ mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
 pub use crate::id::{InfoHash, INFO_HASH_LEN};
-pub use crate::router::Router;
 pub use crate::worker::{DhtEvent, ShutdownCause};

@@ -6,7 +6,6 @@ use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::id::InfoHash;
 use crate::mio::Sender;
-use crate::router::Router;
 use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 
 /// Maintains a Distributed Hash (Routing) Table.
@@ -19,11 +18,8 @@ impl MainlineDht {
     fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> io::Result<Self> {
         let send = worker::start_mainline_dht(socket, builder.read_only, builder.announce_port)?;
 
-        let nodes: Vec<SocketAddr> = builder.nodes.into_iter().collect();
-        let routers: Vec<Router> = builder.routers.into_iter().collect();
-
         if send
-            .send(OneshotTask::StartBootstrap(routers, nodes))
+            .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
             .is_err()
         {
             warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
@@ -89,7 +85,7 @@ impl Drop for MainlineDht {
 #[derive(Clone, Debug)]
 pub struct DhtBuilder {
     nodes: HashSet<SocketAddr>,
-    routers: HashSet<Router>,
+    routers: HashSet<SocketAddr>,
     read_only: bool,
     announce_port: Option<u16>,
 }
@@ -120,25 +116,44 @@ impl DhtBuilder {
     ///
     /// Difference between a node and a router is that a router is never put in
     /// our routing table.
-    pub fn with_router(router: Router) -> DhtBuilder {
+    pub fn with_router(router: SocketAddr) -> DhtBuilder {
         let dht = DhtBuilder::new();
-
         dht.add_router(router)
+    }
+
+    /// Creates a DhtBuilder with an initial routers.
+    ///
+    /// See [Self::with_router] for difference between a router and a node.
+    pub fn with_routers<I>(routers: I) -> DhtBuilder
+    where
+        I: IntoIterator<Item = SocketAddr>,
+    {
+        let dht = DhtBuilder::new();
+        dht.add_routers(routers)
     }
 
     /// Add nodes which will be distributed within our routing table.
     pub fn add_node(mut self, node_addr: SocketAddr) -> DhtBuilder {
         self.nodes.insert(node_addr);
-
         self
     }
 
     /// Add a router which will let us gather nodes if our routing table is ever empty.
     ///
-    /// See DhtBuilder::with_router for difference between a router and a node.
-    pub fn add_router(mut self, router: Router) -> DhtBuilder {
+    /// See [Self::with_router] for difference between a router and a node.
+    pub fn add_router(mut self, router: SocketAddr) -> DhtBuilder {
         self.routers.insert(router);
+        self
+    }
 
+    /// Add a routers
+    ///
+    /// See [Self::with_router] for difference between a router and a node.
+    pub fn add_routers<I>(mut self, routers: I) -> DhtBuilder
+    where
+        I: IntoIterator<Item = SocketAddr>,
+    {
+        self.routers.extend(routers);
         self
     }
 

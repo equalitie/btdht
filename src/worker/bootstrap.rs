@@ -33,29 +33,24 @@ pub enum BootstrapStatus {
 pub struct TableBootstrap {
     table_id: NodeId,
     id_generator: MIDGenerator,
-    starting_nodes: Vec<SocketAddr>,
+    starting_nodes: HashSet<SocketAddr>,
     active_messages: HashMap<TransactionID, Timeout>,
     starting_routers: HashSet<SocketAddr>,
     curr_bootstrap_bucket: usize,
 }
 
 impl TableBootstrap {
-    pub fn new<I>(
+    pub fn new(
         table_id: NodeId,
         id_generator: MIDGenerator,
-        nodes: Vec<SocketAddr>,
-        routers: I,
-    ) -> TableBootstrap
-    where
-        I: Iterator<Item = SocketAddr>,
-    {
-        let router_filter: HashSet<SocketAddr> = routers.collect();
-
+        nodes: HashSet<SocketAddr>,
+        routers: HashSet<SocketAddr>,
+    ) -> TableBootstrap {
         TableBootstrap {
             table_id,
             id_generator,
             starting_nodes: nodes,
-            starting_routers: router_filter,
+            starting_routers: routers,
             active_messages: HashMap::new(),
             curr_bootstrap_bucket: 0,
         }

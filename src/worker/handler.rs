@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::io;
 use std::net::SocketAddr;
@@ -11,7 +11,6 @@ use crate::message::{
     Request, Response,
 };
 use crate::mio::{self, EventLoop, Handler};
-use crate::router::Router;
 use crate::routing::node::Node;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::BucketContents;
@@ -729,14 +728,10 @@ fn handle_register_sender(handler: &mut DhtHandler, sender: mpsc::UnboundedSende
 fn handle_start_bootstrap(
     handler: &mut DhtHandler,
     event_loop: &mut EventLoop<DhtHandler>,
-    routers: Vec<Router>,
-    nodes: Vec<SocketAddr>,
+    routers: HashSet<SocketAddr>,
+    nodes: HashSet<SocketAddr>,
 ) {
     let (work_storage, table_actions) = (&mut handler.detached, &mut handler.table_actions);
-
-    let router_iter = routers
-        .into_iter()
-        .filter_map(|r| r.ipv4_addr().ok().map(SocketAddr::V4));
 
     let mid_generator = work_storage.aid_generator.generate();
     let action_id = mid_generator.action_id();
@@ -744,7 +739,7 @@ fn handle_start_bootstrap(
         work_storage.routing_table.node_id(),
         mid_generator,
         nodes,
-        router_iter,
+        routers,
     );
 
     // Begin the bootstrap operation
