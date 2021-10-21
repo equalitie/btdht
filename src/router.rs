@@ -57,14 +57,6 @@ impl Router {
             .ok_or_else(|| Error::new(ErrorKind::Other, "No IPv6 Addresses Found For Host"))
     }
 
-    pub fn socket_addr(&self) -> io::Result<SocketAddr> {
-        let mut addrs = self.socket_addrs()?;
-
-        addrs
-            .next()
-            .ok_or_else(|| Error::new(ErrorKind::Other, "No SocketAddresses Found For Host"))
-    }
-
     fn socket_addrs(&self) -> io::Result<IntoIter<SocketAddr>> {
         match self {
             Router::uTorrent => UTORRENT_DHT.to_socket_addrs(),
