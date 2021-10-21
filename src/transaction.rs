@@ -191,39 +191,35 @@ fn generate_mids(next_alloc: u64) -> (u64, [u64; MESSAGE_ID_PREALLOC_LEN]) {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TransactionID {
-    trans_id: u64,
-    trans_id_bytes: [u8; TRANSACTION_ID_BYTES],
+    bytes: [u8; TRANSACTION_ID_BYTES],
 }
 
 impl TransactionID {
     fn new(trans_id: u64) -> TransactionID {
-        let trans_id_bytes = trans_id.to_be_bytes();
+        let bytes = trans_id.to_be_bytes();
 
-        TransactionID {
-            trans_id,
-            trans_id_bytes,
-        }
+        TransactionID { bytes }
     }
 
     /// Construct a transaction id from a series of bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Option<TransactionID> {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let bytes = bytes.try_into().ok()?;
-        Some(TransactionID::new(u64::from_be_bytes(bytes)))
+        Some(Self { bytes })
     }
 
     pub fn action_id(&self) -> ActionID {
-        ActionID::from_transaction_id(self.trans_id)
+        ActionID::from_transaction_id(u64::from_be_bytes(self.bytes))
     }
 
     #[allow(unused)]
     pub fn message_id(&self) -> MessageID {
-        MessageID::from_transaction_id(self.trans_id)
+        MessageID::from_transaction_id(u64::from_be_bytes(self.bytes))
     }
 }
 
 impl AsRef<[u8]> for TransactionID {
     fn as_ref(&self) -> &[u8] {
-        &self.trans_id_bytes
+        &self.bytes
     }
 }
 
