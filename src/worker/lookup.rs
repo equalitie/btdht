@@ -348,13 +348,8 @@ impl TableLookup {
             let trans_id = self.id_generator.generate();
 
             // Try to start a timeout for the node
-            let timeout = event_loop.timeout(
-                (
-                    Duration::from_millis(0),
-                    ScheduledTaskCheck::LookupTimeout(trans_id),
-                ),
-                LOOKUP_TIMEOUT,
-            );
+            let timeout =
+                event_loop.timeout(ScheduledTaskCheck::LookupTimeout(trans_id), LOOKUP_TIMEOUT);
 
             // Associate the transaction id with the distance the returned nodes must beat and the timeout token
             self.active_lookups
@@ -405,10 +400,7 @@ impl TableLookup {
 
         // Try to start a global message timeout for the endgame
         let timeout = event_loop.timeout(
-            (
-                Duration::from_millis(0),
-                ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
-            ),
+            ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
             ENDGAME_TIMEOUT,
         );
 

@@ -85,10 +85,7 @@ impl TableRefresh {
 
         // Start a timer for the next refresh
         event_loop.timeout(
-            (
-                Duration::from_millis(0),
-                ScheduledTaskCheck::TableRefresh(trans_id),
-            ),
+            ScheduledTaskCheck::TableRefresh(trans_id),
             REFRESH_INTERVAL_TIMEOUT,
         );
 

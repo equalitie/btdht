@@ -71,10 +71,7 @@ impl TableBootstrap {
 
         // Set a timer to begin the actual bootstrap
         let timeout = event_loop.timeout(
-            (
-                BOOTSTRAP_INITIAL_TIMEOUT,
-                ScheduledTaskCheck::BootstrapTimeout(trans_id),
-            ),
+            ScheduledTaskCheck::BootstrapTimeout(trans_id),
             BOOTSTRAP_INITIAL_TIMEOUT,
         );
 
@@ -263,10 +260,7 @@ impl TableBootstrap {
 
             // Add a timeout for the node
             let timeout = event_loop.timeout(
-                (
-                    BOOTSTRAP_NODE_TIMEOUT,
-                    ScheduledTaskCheck::BootstrapTimeout(trans_id),
-                ),
+                ScheduledTaskCheck::BootstrapTimeout(trans_id),
                 BOOTSTRAP_NODE_TIMEOUT,
             );
 

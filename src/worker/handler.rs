@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::io;
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 
 use tokio::{sync::mpsc, task};
 
@@ -133,8 +133,7 @@ impl DhtHandler {
 }
 
 impl Handler for DhtHandler {
-    // TODO: remove the duration
-    type Timeout = (Duration, ScheduledTaskCheck);
+    type Timeout = ScheduledTaskCheck;
     type Message = OneshotTask;
 
     fn notify(&mut self, event_loop: &mut EventLoop<DhtHandler>, task: OneshotTask) {
@@ -163,9 +162,7 @@ impl Handler for DhtHandler {
         }
     }
 
-    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler>, data: Self::Timeout) {
-        let (_, task) = data;
-
+    fn timeout(&mut self, event_loop: &mut EventLoop<DhtHandler>, task: Self::Timeout) {
         match task {
             ScheduledTaskCheck::TableRefresh(trans_id) => {
                 handle_check_table_refresh(
