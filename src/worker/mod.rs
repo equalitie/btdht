@@ -6,15 +6,15 @@ use crate::mio;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
 
-pub mod bootstrap;
-pub mod handler;
-pub mod lookup;
-pub mod messenger;
-pub mod refresh;
+pub(crate) mod bootstrap;
+pub(crate) mod handler;
+pub(crate) mod lookup;
+pub(crate) mod messenger;
+pub(crate) mod refresh;
 
 /// Task that our DHT will execute immediately.
 #[derive(Clone)]
-pub enum OneshotTask {
+pub(crate) enum OneshotTask {
     /// Process an incoming message from a remote node.
     Incoming(Vec<u8>, SocketAddr),
     /// Register a sender to send DhtEvents to.
@@ -29,7 +29,7 @@ pub enum OneshotTask {
 
 /// Task that our DHT will execute some time later.
 #[derive(Copy, Clone, Debug)]
-pub enum ScheduledTaskCheck {
+pub(crate) enum ScheduledTaskCheck {
     /// Check the progress of the bucket refresh.
     TableRefresh(TransactionID),
     /// Check the progress of the current bootstrap.
@@ -68,7 +68,7 @@ const OUTGOING_MESSAGE_CAPACITY: usize = 4096;
 
 /// Spawns the necessary workers that make up our local DHT node and connects them via channels
 /// so that they can send and receive DHT messages.
-pub fn start_mainline_dht(
+pub(crate) fn start_mainline_dht(
     socket: UdpSocket,
     read_only: bool,
     announce_port: Option<u16>,

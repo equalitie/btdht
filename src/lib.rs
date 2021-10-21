@@ -17,12 +17,12 @@ extern crate log;
 // two dhts using the different protocols on their own.
 // const VUZE_DHT: (&'static str, u16) = ("dht.aelitis.com", 6881);
 
-pub mod message;
 pub mod router;
 
 mod builder;
 mod compact;
 mod id;
+mod message;
 mod mio;
 mod routing;
 mod storage;

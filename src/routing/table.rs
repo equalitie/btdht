@@ -2,8 +2,6 @@ use std::cmp::Ordering;
 use std::iter::Filter;
 use std::slice::Iter;
 
-use rand;
-
 use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
 use crate::routing::bucket::{self, Bucket};
 use crate::routing::node::{Node, NodeStatus};

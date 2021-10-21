@@ -29,7 +29,7 @@ const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
 /// Spawns a DHT handler that maintains our routing table and executes our actions on the DHT.
-pub fn create_dht_handler(
+pub(crate) fn create_dht_handler(
     table: RoutingTable,
     out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
@@ -75,7 +75,7 @@ enum PostBootstrapAction {
 }
 
 /// Storage for our EventLoop to invoke actions upon.
-pub struct DhtHandler {
+pub(crate) struct DhtHandler {
     detached: DetachedDhtHandler,
     table_actions: HashMap<ActionID, TableAction>,
 }

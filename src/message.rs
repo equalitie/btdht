@@ -13,7 +13,7 @@ use thiserror::Error;
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(try_from = "RawMessage", into = "RawMessage")]
-pub struct Message {
+pub(crate) struct Message {
     pub transaction_id: Vec<u8>,
     pub body: MessageBody,
 }
@@ -33,7 +33,7 @@ impl Message {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum MessageBody {
+pub(crate) enum MessageBody {
     Request(Request),
     Response(Response),
     Error(Error),
@@ -42,7 +42,7 @@ pub enum MessageBody {
 // TODO: unrecognized requests which contain either an 'info_hash' or 'target' arguments should be
 // interpreted as 'find_node' as per Mainline DHT extensions.
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub enum Request {
+pub(crate) enum Request {
     Ping(PingRequest),
     FindNode(FindNodeRequest),
     GetPeers(GetPeersRequest),
@@ -138,24 +138,24 @@ impl Request {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct PingRequest {
+pub(crate) struct PingRequest {
     pub id: NodeId,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct FindNodeRequest {
+pub(crate) struct FindNodeRequest {
     pub id: NodeId,
     pub target: NodeId,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct GetPeersRequest {
+pub(crate) struct GetPeersRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct AnnouncePeerRequest {
+pub(crate) struct AnnouncePeerRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
     pub port: Option<u16>,
@@ -164,7 +164,7 @@ pub struct AnnouncePeerRequest {
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum Response {
+pub(crate) enum Response {
     // NOTE: the order these variants are listen in is important to make sure they deserialize
     // properly because we use `untagged` enum for this.
     GetPeers(GetPeersResponse),
@@ -177,12 +177,12 @@ pub enum Response {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub struct AckResponse {
+pub(crate) struct AckResponse {
     pub id: NodeId,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub struct FindNodeResponse {
+pub(crate) struct FindNodeResponse {
     pub id: NodeId,
 
     #[serde(with = "compact")]
@@ -190,7 +190,7 @@ pub struct FindNodeResponse {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub struct GetPeersResponse {
+pub(crate) struct GetPeersResponse {
     pub id: NodeId,
 
     #[serde(with = "compact::vec", default, skip_serializing_if = "Vec::is_empty")]
@@ -204,7 +204,7 @@ pub struct GetPeersResponse {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub struct Error {
+pub(crate) struct Error {
     pub code: u8,
     pub message: String,
 }
@@ -252,6 +252,9 @@ impl<'de> Deserialize<'de> for Error {
 }
 
 pub mod error_code {
+    // some of these codes are not used in this crate but we still list them here for completeness.
+    #![allow(unused)]
+
     pub const GENERIC_ERROR: u8 = 201;
     pub const SERVER_ERROR: u8 = 202;
     pub const PROTOCOL_ERROR: u8 = 203;

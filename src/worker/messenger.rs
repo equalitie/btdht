@@ -8,7 +8,7 @@ use tokio::{net::UdpSocket, sync::mpsc};
 use crate::mio::Sender;
 use crate::worker::OneshotTask;
 
-pub async fn create(
+pub(crate) async fn create(
     socket: UdpSocket,
     incoming_tx: Sender<OneshotTask>,
     outgoing_rx: mpsc::Receiver<(Vec<u8>, SocketAddr)>,

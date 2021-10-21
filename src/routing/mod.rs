@@ -1,3 +1,3 @@
-pub mod bucket;
-pub mod node;
-pub mod table;
+pub(crate) mod bucket;
+pub(crate) mod node;
+pub(crate) mod table;

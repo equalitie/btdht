@@ -12,14 +12,14 @@ use crate::worker::ScheduledTaskCheck;
 
 const REFRESH_INTERVAL_TIMEOUT: u64 = 6000;
 
-pub enum RefreshStatus {
+pub(crate) enum RefreshStatus {
     /// Refresh is in progress.
     Refreshing,
     /// Refresh failed in a fatal way.
     Failed,
 }
 
-pub struct TableRefresh {
+pub(crate) struct TableRefresh {
     id_generator: MIDGenerator,
     curr_refresh_bucket: usize,
 }

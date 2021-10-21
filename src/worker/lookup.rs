@@ -32,14 +32,14 @@ type Distance = ShaHash;
 type DistanceToBeat = ShaHash;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum LookupStatus {
+pub(crate) enum LookupStatus {
     Searching,
     Values(Vec<SocketAddrV4>),
     Completed,
     Failed,
 }
 
-pub struct TableLookup {
+pub(crate) struct TableLookup {
     table_id: NodeId,
     target_id: InfoHash,
     in_endgame: bool,

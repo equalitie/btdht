@@ -19,7 +19,7 @@ const BOOTSTRAP_NODE_TIMEOUT: u64 = 500;
 const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum BootstrapStatus {
+pub(crate) enum BootstrapStatus {
     /// Bootstrap has been finished.
     Idle,
     /// Bootstrap is in progress.
@@ -30,7 +30,7 @@ pub enum BootstrapStatus {
     Failed,
 }
 
-pub struct TableBootstrap {
+pub(crate) struct TableBootstrap {
     table_id: NodeId,
     id_generator: MIDGenerator,
     starting_nodes: HashSet<SocketAddr>,
