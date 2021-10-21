@@ -41,11 +41,8 @@ pub(crate) fn create_dht_handler(
     let loop_channel = event_loop.channel();
 
     task::spawn(async move {
-        if event_loop.run(&mut handler).await.is_ok() {
-            info!("bip_dht: DhtHandler gracefully shut down, exiting thread...");
-        } else {
-            error!("bip_dht: EventLoop shut down with an error...");
-        }
+        event_loop.run(&mut handler).await;
+        info!("bip_dht: DhtHandler gracefully shut down, exiting thread...");
     });
 
     Ok(loop_channel)

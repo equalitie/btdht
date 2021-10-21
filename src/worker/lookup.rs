@@ -347,16 +347,10 @@ impl TableLookup {
             let trans_id = self.id_generator.generate();
 
             // Try to start a timeout for the node
-            let res_timeout = event_loop.timeout_ms(
+            let timeout = event_loop.timeout_ms(
                 (0, ScheduledTaskCheck::LookupTimeout(trans_id)),
                 LOOKUP_TIMEOUT_MS,
             );
-            let timeout = if let Ok(t) = res_timeout {
-                t
-            } else {
-                error!("bip_dht: Failed to set a timeout for a table lookup...");
-                return LookupStatus::Failed;
-            };
 
             // Associate the transaction id with the distance the returned nodes must beat and the timeout token
             self.active_lookups
@@ -406,19 +400,13 @@ impl TableLookup {
         self.in_endgame = true;
 
         // Try to start a global message timeout for the endgame
-        let res_timeout = event_loop.timeout_ms(
+        let timeout = event_loop.timeout_ms(
             (
                 0,
                 ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
             ),
             ENDGAME_TIMEOUT_MS,
         );
-        let timeout = if let Ok(t) = res_timeout {
-            t
-        } else {
-            error!("bip_dht: Failed to set a timeout for table lookup endgame...");
-            return LookupStatus::Failed;
-        };
 
         // Request all unpinged nodes if we didnt receive any values
         if !self.recv_values {

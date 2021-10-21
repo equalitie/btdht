@@ -41,10 +41,9 @@ impl<H: Handler> EventLoop<H> {
         self.notify_tx.clone()
     }
 
-    pub fn timeout_ms(&mut self, token: H::Timeout, delay: u64) -> Result<Timeout, TimerError> {
-        Ok(self
-            .timer
-            .schedule(Instant::now() + Duration::from_millis(delay), token))
+    pub fn timeout_ms(&mut self, token: H::Timeout, delay: u64) -> Timeout {
+        self.timer
+            .schedule(Instant::now() + Duration::from_millis(delay), token)
     }
 
     pub fn clear_timeout(&mut self, timeout: Timeout) -> bool {
@@ -55,17 +54,15 @@ impl<H: Handler> EventLoop<H> {
         self.running = false;
     }
 
-    pub async fn run(&mut self, handler: &mut H) -> io::Result<()> {
+    pub async fn run(&mut self, handler: &mut H) {
         self.running = true;
 
         while self.running {
-            self.run_once(handler).await?
+            self.run_once(handler).await
         }
-
-        Ok(())
     }
 
-    async fn run_once(&mut self, handler: &mut H) -> io::Result<()> {
+    async fn run_once(&mut self, handler: &mut H) {
         let event = {
             let notify = self.notify_rx.recv();
             pin_mut!(notify);
@@ -76,7 +73,7 @@ impl<H: Handler> EventLoop<H> {
             match future::select(notify, timeout).await {
                 Either::Left((Some(message), _)) => Either::Left(message),
                 Either::Right((Some(token), _)) => Either::Right(token),
-                Either::Left((None, _)) | Either::Right((None, _)) => return Ok(()),
+                Either::Left((None, _)) | Either::Right((None, _)) => return,
             }
         };
 
@@ -84,8 +81,6 @@ impl<H: Handler> EventLoop<H> {
             Either::Left(message) => task::block_in_place(|| handler.notify(self, message)),
             Either::Right(token) => task::block_in_place(|| handler.timeout(self, token)),
         }
-
-        Ok(())
     }
 }
 
@@ -106,9 +101,6 @@ pub struct Timeout {
     deadline: Instant,
     id: u64,
 }
-
-#[derive(Debug)]
-pub struct TimerError;
 
 struct Timer<T> {
     next_id: u64,

@@ -69,19 +69,13 @@ impl TableBootstrap {
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
-        let res_timeout = event_loop.timeout_ms(
+        let timeout = event_loop.timeout_ms(
             (
                 BOOTSTRAP_INITIAL_TIMEOUT,
                 ScheduledTaskCheck::BootstrapTimeout(trans_id),
             ),
             BOOTSTRAP_INITIAL_TIMEOUT,
         );
-        let timeout = if let Ok(t) = res_timeout {
-            t
-        } else {
-            error!("bip_dht: Failed to set a timeout for the start of a table bootstrap...");
-            return BootstrapStatus::Failed;
-        };
 
         // Insert the timeout into the active bootstraps just so we can check if a response was valid (and begin the bucket bootstraps)
         self.active_messages.insert(trans_id, timeout);
@@ -267,19 +261,13 @@ impl TableBootstrap {
             .encode();
 
             // Add a timeout for the node
-            let res_timeout = event_loop.timeout_ms(
+            let timeout = event_loop.timeout_ms(
                 (
                     BOOTSTRAP_NODE_TIMEOUT,
                     ScheduledTaskCheck::BootstrapTimeout(trans_id),
                 ),
                 BOOTSTRAP_NODE_TIMEOUT,
             );
-            let timeout = if let Ok(t) = res_timeout {
-                t
-            } else {
-                error!("bip_dht: Failed to set a timeout for the start of a table bootstrap...");
-                return BootstrapStatus::Failed;
-            };
 
             // Send the message to the node
             if out.blocking_send((find_node_msg, node.addr())).is_err() {

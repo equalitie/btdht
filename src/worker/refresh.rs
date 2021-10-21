@@ -84,16 +84,10 @@ impl TableRefresh {
         let trans_id = self.id_generator.generate();
 
         // Start a timer for the next refresh
-        if event_loop
-            .timeout_ms(
-                (0, ScheduledTaskCheck::TableRefresh(trans_id)),
-                REFRESH_INTERVAL_TIMEOUT,
-            )
-            .is_err()
-        {
-            error!("bip_dht: TableRefresh failed to set a timeout for the next refresh...");
-            return RefreshStatus::Failed;
-        }
+        event_loop.timeout_ms(
+            (0, ScheduledTaskCheck::TableRefresh(trans_id)),
+            REFRESH_INTERVAL_TIMEOUT,
+        );
 
         self.curr_refresh_bucket += 1;
 
