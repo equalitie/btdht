@@ -33,5 +33,5 @@ mod transaction;
 mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
-pub use crate::id::{InfoHash, INFO_HASH_LEN};
+pub use crate::id::{InfoHash, LengthError, INFO_HASH_LEN};
 pub use crate::worker::{DhtEvent, ShutdownCause};
