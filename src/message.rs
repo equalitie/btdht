@@ -8,13 +8,13 @@ use serde::{
     ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
 };
-use std::{convert::TryFrom, fmt, net::SocketAddrV4};
-use thiserror::Error;
+use std::{fmt, net::SocketAddrV4};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(try_from = "RawMessage", into = "RawMessage")]
 pub(crate) struct Message {
+    #[serde(rename = "t", with = "serde_bytes")]
     pub transaction_id: Vec<u8>,
+    #[serde(flatten)]
     pub body: MessageBody,
 }
 
@@ -32,16 +32,56 @@ impl Message {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(tag = "y")]
 pub(crate) enum MessageBody {
+    #[serde(rename = "q")]
     Request(Request),
+    #[serde(rename = "r", with = "unflatten::response")]
     Response(Response),
+    #[serde(rename = "e", with = "unflatten::error")]
     Error(Error),
+}
+
+// Opposite of `serde(flatten)` - artificially add one level of nesting to a field.
+mod unflatten {
+    macro_rules! impl_unflatten {
+        ($mod:ident, $field:literal) => {
+            pub(crate) mod $mod {
+                use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+                #[derive(Serialize, Deserialize)]
+                struct Wrapper<T> {
+                    #[serde(rename = $field)]
+                    field: T,
+                }
+
+                pub(crate) fn serialize<T: Serialize, S: Serializer>(
+                    value: &T,
+                    s: S,
+                ) -> Result<S::Ok, S::Error> {
+                    Wrapper { field: value }.serialize(s)
+                }
+
+                pub(crate) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+                    d: D,
+                ) -> Result<T, D::Error> {
+                    let wrapper = Wrapper::deserialize(d)?;
+                    Ok(wrapper.field)
+                }
+            }
+        };
+    }
+
+    impl_unflatten!(response, "r");
+    impl_unflatten!(error, "e");
 }
 
 // TODO: unrecognized requests which contain either an 'info_hash' or 'target' arguments should be
 // interpreted as 'find_node' as per Mainline DHT extensions.
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(tag = "q", content = "a")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum Request {
     Ping(PingRequest),
     FindNode(FindNodeRequest),
@@ -49,123 +89,83 @@ pub(crate) enum Request {
     AnnouncePeer(AnnouncePeerRequest),
 }
 
-impl Request {
-    fn into_raw(self) -> (RequestType, RawRequest) {
-        match self {
-            Request::Ping(request) => (
-                RequestType::Ping,
-                RawRequest {
-                    id: request.id,
-                    target: None,
-                    info_hash: None,
-                    implied_port: false,
-                    port: None,
-                    token: None,
-                },
-            ),
-            Request::FindNode(request) => (
-                RequestType::FindNode,
-                RawRequest {
-                    id: request.id,
-                    target: Some(request.target),
-                    info_hash: None,
-                    implied_port: false,
-                    port: None,
-                    token: None,
-                },
-            ),
-            Request::GetPeers(request) => (
-                RequestType::GetPeers,
-                RawRequest {
-                    id: request.id,
-                    target: None,
-                    info_hash: Some(request.info_hash),
-                    implied_port: false,
-                    port: None,
-                    token: None,
-                },
-            ),
-            Request::AnnouncePeer(request) => (
-                RequestType::AnnouncePeer,
-                RawRequest {
-                    id: request.id,
-                    target: None,
-                    info_hash: Some(request.info_hash),
-                    implied_port: request.port.is_none(),
-                    port: request.port,
-                    token: Some(request.token),
-                },
-            ),
-        }
-    }
-
-    fn from_raw(request_type: RequestType, raw: RawRequest) -> Result<Self, DecodeError> {
-        let id = raw.id;
-
-        match request_type {
-            RequestType::Ping => Ok(Self::Ping(PingRequest { id })),
-            RequestType::FindNode => {
-                let target = raw.target.ok_or(DecodeError::MissingField("target"))?;
-                Ok(Self::FindNode(FindNodeRequest { id, target }))
-            }
-            RequestType::GetPeers => {
-                let info_hash = raw
-                    .info_hash
-                    .ok_or(DecodeError::MissingField("info_hash"))?;
-                Ok(Self::GetPeers(GetPeersRequest { id, info_hash }))
-            }
-            RequestType::AnnouncePeer => {
-                let info_hash = raw
-                    .info_hash
-                    .ok_or(DecodeError::MissingField("info_hash"))?;
-                let implied_port = raw.implied_port;
-                let port = if implied_port {
-                    None
-                } else {
-                    Some(raw.port.ok_or(DecodeError::MissingField("port"))?)
-                };
-                let token = raw.token.ok_or(DecodeError::MissingField("token"))?;
-
-                Ok(Self::AnnouncePeer(AnnouncePeerRequest {
-                    id,
-                    info_hash,
-                    port,
-                    token,
-                }))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct PingRequest {
     pub id: NodeId,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct FindNodeRequest {
     pub id: NodeId,
     pub target: NodeId,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct GetPeersRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct AnnouncePeerRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
+    #[serde(with = "port", flatten)]
     pub port: Option<u16>,
+    #[serde(with = "serde_bytes")]
     pub token: Vec<u8>,
+}
+
+mod port {
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Serialize, Deserialize)]
+    struct Wrapper {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<u16>,
+
+        #[serde(
+            default,
+            skip_serializing_if = "is_false",
+            deserialize_with = "deserialize_bool"
+        )]
+        implied_port: bool,
+    }
+
+    pub(crate) fn serialize<S: Serializer>(port: &Option<u16>, s: S) -> Result<S::Ok, S::Error> {
+        Wrapper {
+            implied_port: port.is_none(),
+            port: *port,
+        }
+        .serialize(s)
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u16>, D::Error> {
+        let wrapper = Wrapper::deserialize(d)?;
+
+        if wrapper.implied_port {
+            Ok(None)
+        } else if wrapper.port.is_some() {
+            Ok(wrapper.port)
+        } else {
+            Err(D::Error::missing_field("port"))
+        }
+    }
+
+    fn is_false(b: &bool) -> bool {
+        !*b
+    }
+
+    fn deserialize_bool<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+        let num = u8::deserialize(d)?;
+        Ok(num > 0)
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum Response {
-    // NOTE: the order these variants are listen in is important to make sure they deserialize
+    // NOTE: the order these variants are listed in is important to make sure they deserialize
     // properly because we use `untagged` enum for this.
     GetPeers(GetPeersResponse),
     FindNode(FindNodeResponse),
@@ -259,159 +259,6 @@ pub mod error_code {
     pub const SERVER_ERROR: u8 = 202;
     pub const PROTOCOL_ERROR: u8 = 203;
     pub const METHOD_UNKNOWN: u8 = 204;
-}
-
-// Intermediate format to help serializing/deserializing. This shouldn't be necessary because we
-// should be able to achieve what we need via a combination of `flatten` and `tag` serde attributes,
-// but it seems the `serde_bencode` crate doesn't handle those too well.
-// TODO: fix the issues upstream, then do this properly.
-#[derive(Debug, Serialize, Deserialize)]
-struct RawMessage {
-    #[serde(rename = "t", with = "serde_bytes")]
-    transaction_id: Vec<u8>,
-
-    #[serde(rename = "y")]
-    message_type: MessageType,
-
-    #[serde(rename = "q", default, skip_serializing_if = "Option::is_none")]
-    request_type: Option<RequestType>,
-
-    #[serde(rename = "a", default, skip_serializing_if = "Option::is_none")]
-    request: Option<RawRequest>,
-
-    #[serde(rename = "r", default, skip_serializing_if = "Option::is_none")]
-    response: Option<Response>,
-
-    #[serde(rename = "e", default, skip_serializing_if = "Option::is_none")]
-    error: Option<Error>,
-}
-
-impl From<Message> for RawMessage {
-    fn from(msg: Message) -> Self {
-        match msg.body {
-            MessageBody::Request(request) => {
-                let (request_type, request) = request.into_raw();
-
-                Self {
-                    transaction_id: msg.transaction_id,
-                    message_type: MessageType::Request,
-                    request_type: Some(request_type),
-                    request: Some(request),
-                    response: None,
-                    error: None,
-                }
-            }
-            MessageBody::Response(response) => Self {
-                transaction_id: msg.transaction_id,
-                message_type: MessageType::Response,
-                request_type: None,
-                request: None,
-                response: Some(response),
-                error: None,
-            },
-            MessageBody::Error(error) => Self {
-                transaction_id: msg.transaction_id,
-                message_type: MessageType::Error,
-                request_type: None,
-                request: None,
-                response: None,
-                error: Some(error),
-            },
-        }
-    }
-}
-
-impl TryFrom<RawMessage> for Message {
-    type Error = DecodeError;
-
-    fn try_from(raw: RawMessage) -> Result<Self, Self::Error> {
-        match raw.message_type {
-            MessageType::Request => {
-                let request_type = raw.request_type.ok_or(DecodeError::MissingField("q"))?;
-                let request = raw.request.ok_or(DecodeError::MissingField("a"))?;
-                let request = Request::from_raw(request_type, request)?;
-
-                Ok(Self {
-                    transaction_id: raw.transaction_id,
-                    body: MessageBody::Request(request),
-                })
-            }
-            MessageType::Response => {
-                let response = raw.response.ok_or(DecodeError::MissingField("r"))?;
-
-                Ok(Self {
-                    transaction_id: raw.transaction_id,
-                    body: MessageBody::Response(response),
-                })
-            }
-            MessageType::Error => {
-                let error = raw.error.ok_or(DecodeError::MissingField("e"))?;
-
-                Ok(Self {
-                    transaction_id: raw.transaction_id,
-                    body: MessageBody::Error(error),
-                })
-            }
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-enum MessageType {
-    #[serde(rename = "q")]
-    Request,
-    #[serde(rename = "r")]
-    Response,
-    #[serde(rename = "e")]
-    Error,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum RequestType {
-    Ping,
-    FindNode,
-    GetPeers,
-    AnnouncePeer,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RawRequest {
-    id: NodeId,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    target: Option<NodeId>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    info_hash: Option<InfoHash>,
-
-    #[serde(
-        default,
-        skip_serializing_if = "is_false",
-        deserialize_with = "deserialize_bool"
-    )]
-    implied_port: bool,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    port: Option<u16>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_bytes")]
-    token: Option<Vec<u8>>,
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
-fn deserialize_bool<'de, D: Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
-    let num = u8::deserialize(d)?;
-    Ok(num > 0)
-}
-
-#[derive(Debug, Error)]
-enum DecodeError {
-    #[error("field `{0}` is missing")]
-    MissingField(&'static str),
 }
 
 #[cfg(test)]
