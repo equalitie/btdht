@@ -82,6 +82,14 @@ async fn handle_command(
             println!("    s <INFO_HASH>   search for the specified info hash");
             println!("    a <INFO_HASH>   announce the specified info hash");
             println!("    q               quit");
+            println!();
+            println!(
+                "Note: <INFO_HASH> can be specified either as a 40-character hexadecimal string or \
+                 an arbitrary string prefixed with '#'. In the first case it is interpreted \
+                 directly as the info hash, in the second the info hash is obtained by computing a \
+                 SHA-1 digest of the string excluding the leading '#' and trimming any leading or \
+                 trailing whitespace."
+            );
         }
         Ok(Command::Search {
             info_hash,
