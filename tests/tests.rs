@@ -1,4 +1,4 @@
-use btdht::{DhtBuilder, DhtEvent, InfoHash};
+use btdht::{DhtEvent, InfoHash, MainlineDht};
 use std::net::Ipv4Addr;
 use tokio::net::UdpSocket;
 
@@ -10,15 +10,17 @@ async fn basic() {
     let b_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let b_addr = b_socket.local_addr().unwrap();
 
-    let node_a = DhtBuilder::with_node(b_addr)
+    let node_a = MainlineDht::builder()
+        .add_node(b_addr)
         .set_read_only(false)
-        .start_mainline(a_socket)
+        .start(a_socket)
         .unwrap();
     let mut events_a = node_a.events();
 
-    let node_b = DhtBuilder::with_node(a_addr)
+    let node_b = MainlineDht::builder()
+        .add_node(a_addr)
         .set_read_only(false)
-        .start_mainline(b_socket)
+        .start(b_socket)
         .unwrap();
     let mut events_b = node_b.events();
 

@@ -1,4 +1,4 @@
-use btdht::{router, DhtBuilder, DhtEvent, InfoHash, LengthError, MainlineDht};
+use btdht::{router, DhtEvent, InfoHash, LengthError, MainlineDht};
 use std::{
     collections::HashSet,
     convert::TryFrom,
@@ -19,9 +19,11 @@ async fn main() {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
-    let dht = DhtBuilder::with_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
+    let dht = MainlineDht::builder()
+        .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
+        .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
-        .start_mainline(socket)
+        .start(socket)
         .unwrap();
     let mut events = dht.events();
 
@@ -40,7 +42,7 @@ async fn main() {
                 break;
             }
             DhtEvent::ShuttingDown(cause) => {
-                println!("bootstrap failed, shutting down (cause: {:?})", cause);
+                println!("unexpected shutdown (cause: {:?})", cause);
                 return;
             }
             DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..) => {

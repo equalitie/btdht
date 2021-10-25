@@ -14,6 +14,16 @@ pub struct MainlineDht {
 }
 
 impl MainlineDht {
+    /// Create a new DhtBuilder.
+    pub fn builder() -> DhtBuilder {
+        DhtBuilder {
+            nodes: HashSet::new(),
+            routers: HashSet::new(),
+            read_only: true,
+            announce_port: None,
+        }
+    }
+
     /// Start the MainlineDht with the given DhtBuilder.
     fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> io::Result<Self> {
         let send = worker::start_mainline_dht(socket, builder.read_only, builder.announce_port)?;
@@ -91,47 +101,6 @@ pub struct DhtBuilder {
 }
 
 impl DhtBuilder {
-    /// Create a new DhtBuilder.
-    ///
-    /// This should not be used directly, force the user to supply builder with
-    /// some initial bootstrap method.
-    fn new() -> DhtBuilder {
-        DhtBuilder {
-            nodes: HashSet::new(),
-            routers: HashSet::new(),
-            read_only: true,
-            announce_port: None,
-        }
-    }
-
-    /// Creates a DhtBuilder with an initial node for our routing table.
-    pub fn with_node(node_addr: SocketAddr) -> DhtBuilder {
-        let dht = DhtBuilder::new();
-
-        dht.add_node(node_addr)
-    }
-
-    /// Creates a DhtBuilder with an initial router which will let us gather nodes
-    /// if our routing table is ever empty.
-    ///
-    /// Difference between a node and a router is that a router is never put in
-    /// our routing table.
-    pub fn with_router(router: SocketAddr) -> DhtBuilder {
-        let dht = DhtBuilder::new();
-        dht.add_router(router)
-    }
-
-    /// Creates a DhtBuilder with an initial routers.
-    ///
-    /// See [Self::with_router] for difference between a router and a node.
-    pub fn with_routers<I>(routers: I) -> DhtBuilder
-    where
-        I: IntoIterator<Item = SocketAddr>,
-    {
-        let dht = DhtBuilder::new();
-        dht.add_routers(routers)
-    }
-
     /// Add nodes which will be distributed within our routing table.
     pub fn add_node(mut self, node_addr: SocketAddr) -> DhtBuilder {
         self.nodes.insert(node_addr);
@@ -146,7 +115,7 @@ impl DhtBuilder {
         self
     }
 
-    /// Add a routers
+    /// Add routers
     ///
     /// See [Self::with_router] for difference between a router and a node.
     pub fn add_routers<I>(mut self, routers: I) -> DhtBuilder
@@ -177,7 +146,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start_mainline(self, socket: UdpSocket) -> io::Result<MainlineDht> {
+    pub fn start(self, socket: UdpSocket) -> io::Result<MainlineDht> {
         MainlineDht::with_builder(self, socket)
     }
 }
