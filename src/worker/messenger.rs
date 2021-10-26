@@ -1,3 +1,4 @@
+use crate::worker::OneshotTask;
 use futures_util::{
     future::{self, Either},
     pin_mut,
@@ -5,12 +6,9 @@ use futures_util::{
 use std::net::SocketAddr;
 use tokio::{net::UdpSocket, sync::mpsc};
 
-use crate::mio::Sender;
-use crate::worker::OneshotTask;
-
 pub(crate) async fn create(
     socket: UdpSocket,
-    incoming_tx: Sender<OneshotTask>,
+    incoming_tx: mpsc::UnboundedSender<OneshotTask>,
     outgoing_rx: mpsc::Receiver<(Vec<u8>, SocketAddr)>,
 ) {
     let incoming = handle_incoming_messages(&socket, incoming_tx);
@@ -22,7 +20,10 @@ pub(crate) async fn create(
     future::select(incoming, outgoing).await;
 }
 
-async fn handle_incoming_messages(socket: &UdpSocket, incoming_tx: Sender<OneshotTask>) {
+async fn handle_incoming_messages(
+    socket: &UdpSocket,
+    incoming_tx: mpsc::UnboundedSender<OneshotTask>,
+) {
     let mut channel_is_open = true;
 
     while channel_is_open {
@@ -58,7 +59,11 @@ async fn handle_incoming_messages(socket: &UdpSocket, incoming_tx: Sender<Onesho
     info!("bip_dht: Incoming messenger received a channel hangup, exiting thread...");
 }
 
-fn send_message(send: &Sender<OneshotTask>, bytes: Vec<u8>, addr: SocketAddr) -> bool {
+fn send_message(
+    send: &mpsc::UnboundedSender<OneshotTask>,
+    bytes: Vec<u8>,
+    addr: SocketAddr,
+) -> bool {
     send.send(OneshotTask::Incoming(bytes, addr)).is_ok()
 }
 

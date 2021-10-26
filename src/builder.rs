@@ -5,12 +5,11 @@ use std::net::SocketAddr;
 use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::id::InfoHash;
-use crate::mio::Sender;
 use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {
-    send: Sender<OneshotTask>,
+    send: mpsc::UnboundedSender<OneshotTask>,
 }
 
 impl MainlineDht {

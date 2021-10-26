@@ -2,7 +2,6 @@ use std::{collections::HashSet, io, net::SocketAddr};
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 use crate::id::InfoHash;
-use crate::mio;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
 
@@ -73,7 +72,7 @@ pub(crate) fn start_mainline_dht(
     read_only: bool,
     announce_port: Option<u16>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-) -> io::Result<mio::Sender<OneshotTask>> {
+) -> io::Result<mpsc::UnboundedSender<OneshotTask>> {
     let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_MESSAGE_CAPACITY);
 
     // TODO: Utilize the security extension.

@@ -32,7 +32,7 @@ impl<H: Handler> EventLoop<H> {
         })
     }
 
-    pub fn channel(&self) -> Sender<H::Message> {
+    pub fn channel(&self) -> mpsc::UnboundedSender<H::Message> {
         self.notify_tx.clone()
     }
 
@@ -87,5 +87,3 @@ pub(crate) trait Handler: Sized {
 
     // NOTE: we don't need the other methods that the original mio `Handler` has.
 }
-
-pub type Sender<T> = mpsc::UnboundedSender<T>;

@@ -10,7 +10,7 @@ use crate::message::{
     error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
     Request, Response,
 };
-use crate::mio::{self, EventLoop, Handler};
+use crate::mio::{EventLoop, Handler};
 use crate::routing::node::Node;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::BucketContents;
@@ -33,7 +33,7 @@ pub(crate) fn create_dht_handler(
     read_only: bool,
     announce_port: Option<u16>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-) -> io::Result<mio::Sender<OneshotTask>> {
+) -> io::Result<mpsc::UnboundedSender<OneshotTask>> {
     let mut handler = DhtHandler::new(table, out, read_only, announce_port, event_tx);
     let mut event_loop = EventLoop::new()?;
 
