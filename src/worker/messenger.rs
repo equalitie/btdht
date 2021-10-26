@@ -1,23 +1,16 @@
 use crate::worker::OneshotTask;
-use futures_util::{
-    future::{self, Either},
-    pin_mut,
-};
 use std::net::SocketAddr;
-use tokio::{net::UdpSocket, sync::mpsc};
+use tokio::{net::UdpSocket, select, sync::mpsc};
 
 pub(crate) async fn create(
     socket: UdpSocket,
     incoming_tx: mpsc::UnboundedSender<OneshotTask>,
     outgoing_rx: mpsc::Receiver<(Vec<u8>, SocketAddr)>,
 ) {
-    let incoming = handle_incoming_messages(&socket, incoming_tx);
-    pin_mut!(incoming);
-
-    let outgoing = handle_outgoing_messages(&socket, outgoing_rx);
-    pin_mut!(outgoing);
-
-    future::select(incoming, outgoing).await;
+    select! {
+        _ = handle_incoming_messages(&socket, incoming_tx) => (),
+        _ = handle_outgoing_messages(&socket, outgoing_rx) => (),
+    }
 }
 
 async fn handle_incoming_messages(
@@ -29,28 +22,18 @@ async fn handle_incoming_messages(
     while channel_is_open {
         let mut buffer = vec![0u8; 1500];
 
-        let result = {
-            let recv = socket.recv_from(&mut buffer);
-            pin_mut!(recv);
-
-            let closed = incoming_tx.closed();
-            pin_mut!(closed);
-
-            match future::select(recv, closed).await {
-                Either::Left((result, _)) => Some(result),
-                Either::Right(_) => None,
+        select! {
+            result = socket.recv_from(&mut buffer) => {
+                match result {
+                    Ok((size, addr)) => {
+                        buffer.truncate(size);
+                        channel_is_open = send_message(&incoming_tx, buffer, addr);
+                    }
+                    Err(_) =>
+                        warn!("bip_dht: Incoming messenger failed to receive bytes..."),
+                }
             }
-        };
-
-        match result {
-            Some(Ok((size, addr))) => {
-                buffer.truncate(size);
-                channel_is_open = send_message(&incoming_tx, buffer, addr);
-            }
-            Some(Err(_)) => {
-                warn!("bip_dht: Incoming messenger failed to receive bytes...")
-            }
-            None => {
+            _ = incoming_tx.closed() => {
                 channel_is_open = false;
             }
         }

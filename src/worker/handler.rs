@@ -15,15 +15,12 @@ use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
 use crate::transaction::{AIDGenerator, ActionID, TransactionID};
-use futures_util::{
-    future::{self, Either},
-    pin_mut, StreamExt,
-};
+use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::io;
 use std::net::SocketAddr;
-use tokio::{sync::mpsc, task};
+use tokio::{select, sync::mpsc, task};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
@@ -127,33 +124,22 @@ impl DhtHandler {
     }
 
     async fn run_once(&mut self) {
-        let event = {
-            if self.timer.is_empty() {
-                Either::Left(self.command_rx.recv().await)
-            } else {
-                let command = self.command_rx.recv();
-                pin_mut!(command);
-
-                let timeout = self.timer.next();
-                pin_mut!(timeout);
-
-                match future::select(command, timeout).await {
-                    Either::Left((command, _)) => Either::Left(command),
-                    Either::Right((Some(token), _)) => Either::Right(token),
-                    Either::Right((None, _)) => {
-                        // We checked the timer is non-empty, so it should never return `None`.
-                        unreachable!()
-                    }
+        select! {
+            token = self.timer.next(), if !self.timer.is_empty() => {
+                // `unwrap` is OK because we checked the timer is non-empty, so it should never
+                // return `None`.
+                let token = token.unwrap();
+                // TODO: make `handle_timeout` async and remove the `block_in_place`.
+                task::block_in_place(|| self.handle_timeout(token))
+            }
+            command = self.command_rx.recv() => {
+                if let Some(command) = command {
+                    // TODO: make `handle_command` async and remove the `block_in_place`.
+                    task::block_in_place(|| self.handle_command(command))
+                } else {
+                    self.shutdown(ShutdownCause::ClientInitiated)
                 }
             }
-        };
-
-        // TODO: change the `handle_command` and `handle_timeout` functions to `async` and remove
-        //       the `block_in_place`.
-        match event {
-            Either::Left(Some(command)) => task::block_in_place(|| self.handle_command(command)),
-            Either::Left(None) => self.shutdown(ShutdownCause::ClientInitiated),
-            Either::Right(token) => task::block_in_place(|| self.handle_timeout(token)),
         }
     }
 
