@@ -1,10 +1,9 @@
+use crate::id::InfoHash;
+use crate::routing::table::{self, RoutingTable};
+use crate::worker::{DhtEvent, DhtHandler, OneshotTask};
 use std::collections::HashSet;
 use std::net::SocketAddr;
-
-use tokio::{net::UdpSocket, sync::mpsc};
-
-use crate::id::InfoHash;
-use crate::worker::{self, DhtEvent, OneshotTask};
+use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {
@@ -30,7 +29,10 @@ impl MainlineDht {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        worker::start_mainline_dht(
+        // TODO: Utilize the security extension.
+        let routing_table = RoutingTable::new(table::random_node_id());
+        let handler = DhtHandler::new(
+            routing_table,
             socket,
             builder.read_only,
             builder.announce_port,
@@ -42,8 +44,12 @@ impl MainlineDht {
             .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
             .is_err()
         {
-            warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
+            // `unreachable` is OK here because the corresponding receiver definitely exists at
+            // this point inside `handler`.
+            unreachable!()
         }
+
+        task::spawn(handler.run());
 
         (Self { send: command_tx }, event_rx)
     }
@@ -62,7 +68,7 @@ impl MainlineDht {
             .send(OneshotTask::StartLookup(hash, announce))
             .is_err()
         {
-            warn!("bip_dht: MainlineDht failed to send a start lookup message...");
+            error!("failed to start search - DhtHandler has shut down");
         }
     }
 }

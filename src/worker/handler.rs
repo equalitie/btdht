@@ -89,7 +89,7 @@ impl DhtHandler {
         )];
 
         Self {
-            running: false,
+            running: true,
             command_rx,
             timer: Timer::new(),
             read_only,
@@ -106,9 +106,7 @@ impl DhtHandler {
         }
     }
 
-    pub async fn run(&mut self) {
-        self.running = true;
-
+    pub async fn run(mut self) {
         while self.running {
             self.run_once().await
         }

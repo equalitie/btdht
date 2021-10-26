@@ -1,9 +1,7 @@
-use self::handler::DhtHandler;
+pub(crate) use self::handler::DhtHandler;
 use crate::id::InfoHash;
-use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
 use std::{collections::HashSet, net::SocketAddr};
-use tokio::{net::UdpSocket, sync::mpsc, task};
 
 mod bootstrap;
 mod handler;
@@ -45,27 +43,4 @@ pub enum DhtEvent {
     PeerFound(InfoHash, SocketAddr),
     /// Lookup operation for the given InfoHash completed.
     LookupCompleted(InfoHash),
-}
-
-/// Spawns the necessary workers that make up our local DHT node and connects them via channels
-/// so that they can send and receive DHT messages.
-pub(crate) fn start_mainline_dht(
-    socket: UdpSocket,
-    read_only: bool,
-    announce_port: Option<u16>,
-    command_rx: mpsc::UnboundedReceiver<OneshotTask>,
-    event_tx: mpsc::UnboundedSender<DhtEvent>,
-) {
-    // TODO: Utilize the security extension.
-    let routing_table = RoutingTable::new(table::random_node_id());
-    let mut handler = DhtHandler::new(
-        routing_table,
-        socket,
-        read_only,
-        announce_port,
-        command_rx,
-        event_tx,
-    );
-
-    task::spawn(async move { handler.run().await });
 }
