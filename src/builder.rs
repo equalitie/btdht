@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::id::InfoHash;
-use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
+use crate::worker::{self, DhtEvent, OneshotTask};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {
@@ -57,21 +57,6 @@ impl MainlineDht {
             .is_err()
         {
             warn!("bip_dht: MainlineDht failed to send a start lookup message...");
-        }
-    }
-}
-
-impl Drop for MainlineDht {
-    fn drop(&mut self) {
-        if self
-            .send
-            .send(OneshotTask::Shutdown(ShutdownCause::ClientInitiated))
-            .is_err()
-        {
-            warn!(
-                "bip_dht: MainlineDht failed to send a shutdown message (may have already been \
-                   shutdown)..."
-            );
         }
     }
 }

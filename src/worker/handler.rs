@@ -128,23 +128,31 @@ impl DhtHandler {
 
     async fn run_once(&mut self) {
         let event = {
-            let command = self.command_rx.recv();
-            pin_mut!(command);
+            if self.timer.is_empty() {
+                Either::Left(self.command_rx.recv().await)
+            } else {
+                let command = self.command_rx.recv();
+                pin_mut!(command);
 
-            let timeout = self.timer.next();
-            pin_mut!(timeout);
+                let timeout = self.timer.next();
+                pin_mut!(timeout);
 
-            match future::select(command, timeout).await {
-                Either::Left((Some(message), _)) => Either::Left(message),
-                Either::Right((Some(token), _)) => Either::Right(token),
-                Either::Left((None, _)) | Either::Right((None, _)) => return,
+                match future::select(command, timeout).await {
+                    Either::Left((command, _)) => Either::Left(command),
+                    Either::Right((Some(token), _)) => Either::Right(token),
+                    Either::Right((None, _)) => {
+                        // We checked the timer is non-empty, so it should never return `None`.
+                        unreachable!()
+                    }
+                }
             }
         };
 
         // TODO: change the `handle_command` and `handle_timeout` functions to `async` and remove
         //       the `block_in_place`.
         match event {
-            Either::Left(message) => task::block_in_place(|| self.handle_command(message)),
+            Either::Left(Some(command)) => task::block_in_place(|| self.handle_command(command)),
+            Either::Left(None) => self.shutdown(ShutdownCause::ClientInitiated),
             Either::Right(token) => task::block_in_place(|| self.handle_timeout(token)),
         }
     }
@@ -159,9 +167,6 @@ impl DhtHandler {
             }
             OneshotTask::StartLookup(info_hash, should_announce) => {
                 self.handle_start_lookup(info_hash, should_announce);
-            }
-            OneshotTask::Shutdown(cause) => {
-                self.shutdown(cause);
             }
         }
     }

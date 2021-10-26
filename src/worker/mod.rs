@@ -21,8 +21,6 @@ pub(crate) enum OneshotTask {
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
     /// Start a lookup for the given InfoHash.
     StartLookup(InfoHash, bool),
-    /// Gracefully shutdown the DHT and associated workers.
-    Shutdown(ShutdownCause),
 }
 
 /// Task that our DHT will execute some time later.

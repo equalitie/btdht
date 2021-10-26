@@ -29,6 +29,11 @@ impl<T> Timer<T> {
         }
     }
 
+    /// Has the timer no scheduled timeouts?
+    pub fn is_empty(&self) -> bool {
+        self.current.is_none() && self.queue.is_empty()
+    }
+
     pub fn schedule_in(&mut self, deadline: Duration, value: T) -> Timeout {
         self.schedule_at(Instant::now() + deadline, value)
     }
