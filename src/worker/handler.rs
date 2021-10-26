@@ -74,13 +74,6 @@ enum PostBootstrapAction {
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
-    detached: DetachedDhtHandler,
-    table_actions: HashMap<ActionID, TableAction>,
-}
-
-/// Storage separate from the table actions allowing us to hold mutable references
-/// to table actions while still being able to pass around the bulky parameters.
-struct DetachedDhtHandler {
     read_only: bool,
     announce_port: Option<u16>,
     out_channel: mpsc::Sender<(Vec<u8>, SocketAddr)>,
@@ -93,6 +86,7 @@ struct DetachedDhtHandler {
     // since we will always spin up a table refresh action after bootstrapping.
     future_actions: Vec<PostBootstrapAction>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
+    table_actions: HashMap<ActionID, TableAction>,
 }
 
 impl DhtHandler {
@@ -114,7 +108,7 @@ impl DhtHandler {
             refresh_trans_id,
         )];
 
-        let detached = DetachedDhtHandler {
+        Self {
             read_only,
             announce_port,
             out_channel: out,
@@ -125,10 +119,6 @@ impl DhtHandler {
             active_stores: AnnounceStorage::new(),
             future_actions,
             event_tx,
-        };
-
-        Self {
-            detached,
             table_actions: HashMap::new(),
         }
     }
@@ -174,7 +164,7 @@ impl DhtHandler {
         // TODO: Add read only flags to messages we send it we are read only!
         // Also, check for read only flags on responses we get before adding nodes
         // to our RoutingTable.
-        if self.detached.read_only {
+        if self.read_only {
             if let MessageBody::Request(_) = message.body {
                 return;
             }
@@ -187,12 +177,12 @@ impl DhtHandler {
                 let node = Node::as_good(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.detached.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node(&node) {
                     n.remote_request()
                 }
 
                 let ping_rsp = AckResponse {
-                    id: self.detached.routing_table.node_id(),
+                    id: self.routing_table.node_id(),
                 };
                 let ping_msg = Message {
                     transaction_id: message.transaction_id,
@@ -200,12 +190,7 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if self
-                    .detached
-                    .out_channel
-                    .blocking_send((ping_msg, addr))
-                    .is_err()
-                {
+                if self.out_channel.blocking_send((ping_msg, addr)).is_err() {
                     error!("bip_dht: Failed to send a ping response on the out channel...");
                     shutdown_event_loop(event_loop, ShutdownCause::Unspecified);
                 }
@@ -215,13 +200,12 @@ impl DhtHandler {
                 let node = Node::as_good(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.detached.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node(&node) {
                     n.remote_request()
                 }
 
                 // Grab the closest nodes
                 let closest_nodes = self
-                    .detached
                     .routing_table
                     .closest_nodes(f.target)
                     .take(8)
@@ -229,7 +213,7 @@ impl DhtHandler {
                     .collect();
 
                 let find_node_rsp = FindNodeResponse {
-                    id: self.detached.routing_table.node_id(),
+                    id: self.routing_table.node_id(),
                     nodes: closest_nodes,
                 };
                 let find_node_msg = Message {
@@ -239,7 +223,6 @@ impl DhtHandler {
                 let find_node_msg = find_node_msg.encode();
 
                 if self
-                    .detached
                     .out_channel
                     .blocking_send((find_node_msg, addr))
                     .is_err()
@@ -253,15 +236,14 @@ impl DhtHandler {
                 let node = Node::as_good(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.detached.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node(&node) {
                     n.remote_request()
                 }
 
                 // TODO: Check what the maximum number of values we can give without overflowing a udp packet
                 // Also, if we arent going to give all of the contacts, we may want to shuffle which ones we give
                 let mut values = Vec::new();
-                self.detached
-                    .active_stores
+                self.active_stores
                     .find_items(&g.info_hash, |addr| match addr {
                         SocketAddr::V4(v4_addr) => {
                             values.push(v4_addr);
@@ -273,17 +255,16 @@ impl DhtHandler {
 
                 // Grab the closest nodes
                 let nodes = self
-                    .detached
                     .routing_table
                     .closest_nodes(g.info_hash)
                     .take(8)
                     .map(|node| *node.info())
                     .collect();
 
-                let token = self.detached.token_store.checkout(addr.ip());
+                let token = self.token_store.checkout(addr.ip());
 
                 let get_peers_rsp = GetPeersResponse {
-                    id: self.detached.routing_table.node_id(),
+                    id: self.routing_table.node_id(),
                     values,
                     nodes,
                     token: token.as_ref().to_vec(),
@@ -295,7 +276,6 @@ impl DhtHandler {
                 let get_peers_msg = get_peers_msg.encode();
 
                 if self
-                    .detached
                     .out_channel
                     .blocking_send((get_peers_msg, addr))
                     .is_err()
@@ -309,13 +289,13 @@ impl DhtHandler {
                 let node = Node::as_good(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.detached.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node(&node) {
                     n.remote_request()
                 }
 
                 // Validate the token
                 let is_valid = match Token::new(&a.token) {
-                    Ok(t) => self.detached.token_store.checkin(addr.ip(), t),
+                    Ok(t) => self.token_store.checkin(addr.ip(), t),
                     Err(_) => false,
                 };
 
@@ -343,16 +323,12 @@ impl DhtHandler {
                         }),
                     }
                     .encode()
-                } else if self
-                    .detached
-                    .active_stores
-                    .add_item(a.info_hash, connect_addr)
-                {
+                } else if self.active_stores.add_item(a.info_hash, connect_addr) {
                     // Node successfully stored the value with us, send an announce response
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Response(Response::Ack(AckResponse {
-                            id: self.detached.routing_table.node_id(),
+                            id: self.routing_table.node_id(),
                         })),
                     }
                     .encode()
@@ -372,7 +348,6 @@ impl DhtHandler {
                 };
 
                 if self
-                    .detached
                     .out_channel
                     .blocking_send((response_msg, addr))
                     .is_err()
@@ -390,20 +365,19 @@ impl DhtHandler {
 
                 // Add the payload nodes as questionable
                 for node in f.nodes {
-                    self.detached
-                        .routing_table
+                    self.routing_table
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
 
                 let bootstrap_complete = {
                     let opt_bootstrap = match self.table_actions.get_mut(&trans_id.action_id()) {
                         Some(&mut TableAction::Refresh(_)) => {
-                            self.detached.routing_table.add_node(node);
+                            self.routing_table.add_node(node);
                             None
                         }
                         Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
                             if !bootstrap.is_router(&node.addr()) {
-                                self.detached.routing_table.add_node(node);
+                                self.routing_table.add_node(node);
                             }
                             Some((bootstrap, attempts))
                         }
@@ -425,8 +399,8 @@ impl DhtHandler {
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
                         match bootstrap.recv_response(
                             &trans_id,
-                            &self.detached.routing_table,
-                            &self.detached.out_channel,
+                            &self.routing_table,
+                            &self.out_channel,
                             event_loop,
                         ) {
                             BootstrapStatus::Idle => true,
@@ -436,12 +410,12 @@ impl DhtHandler {
                                 false
                             }
                             BootstrapStatus::Completed => {
-                                if should_rebootstrap(&self.detached.routing_table) {
+                                if should_rebootstrap(&self.routing_table) {
                                     attempt_rebootstrap(
                                         bootstrap,
                                         attempts,
-                                        &self.detached.routing_table,
-                                        &self.detached.out_channel,
+                                        &self.routing_table,
+                                        &self.out_channel,
                                         event_loop,
                                     ) == Some(false)
                                 } else {
@@ -461,7 +435,7 @@ impl DhtHandler {
                 if log_enabled!(log::Level::Info) {
                     let mut total = 0;
 
-                    for (index, bucket) in self.detached.routing_table.buckets().enumerate() {
+                    for (index, bucket) in self.routing_table.buckets().enumerate() {
                         let num_nodes = match bucket {
                             BucketContents::Empty => 0,
                             BucketContents::Sorted(b) => {
@@ -486,7 +460,7 @@ impl DhtHandler {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
                 let node = Node::as_good(g.id, addr);
 
-                self.detached.routing_table.add_node(node.clone());
+                self.routing_table.add_node(node.clone());
 
                 let opt_lookup = {
                     match self.table_actions.get_mut(&trans_id.action_id()) {
@@ -520,13 +494,12 @@ impl DhtHandler {
                         node,
                         &trans_id,
                         g,
-                        &self.detached.routing_table,
-                        &self.detached.out_channel,
+                        &self.routing_table,
+                        &self.out_channel,
                         event_loop,
                     ) {
                         LookupStatus::Searching => (),
                         LookupStatus::Completed => self
-                            .detached
                             .event_tx
                             .send(DhtEvent::LookupCompleted(lookup.info_hash()))
                             .unwrap_or(()),
@@ -536,8 +509,7 @@ impl DhtHandler {
                         LookupStatus::Values(values) => {
                             for v4_addr in values {
                                 let sock_addr = SocketAddr::V4(v4_addr);
-                                self.detached
-                                    .event_tx
+                                self.event_tx
                                     .send(DhtEvent::PeerFound(lookup.info_hash(), sock_addr))
                                     .unwrap_or(());
                             }
@@ -562,20 +534,15 @@ impl DhtHandler {
         routers: HashSet<SocketAddr>,
         nodes: HashSet<SocketAddr>,
     ) {
-        let mid_generator = self.detached.aid_generator.generate();
+        let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
-        let mut table_bootstrap = TableBootstrap::new(
-            self.detached.routing_table.node_id(),
-            mid_generator,
-            nodes,
-            routers,
-        );
+        let mut table_bootstrap =
+            TableBootstrap::new(self.routing_table.node_id(), mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
-        let bootstrap_status =
-            table_bootstrap.start_bootstrap(&self.detached.out_channel, event_loop);
+        let bootstrap_status = table_bootstrap.start_bootstrap(&self.out_channel, event_loop);
 
-        self.detached.bootstrapping = true;
+        self.bootstrapping = true;
         self.table_actions
             .insert(action_id, TableAction::Bootstrap(table_bootstrap, 0));
 
@@ -588,7 +555,7 @@ impl DhtHandler {
             }
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
-                if should_rebootstrap(&self.detached.routing_table) {
+                if should_rebootstrap(&self.routing_table) {
                     let (bootstrap, attempts) = match self.table_actions.get_mut(&action_id) {
                         Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
                             (bootstrap, attempts)
@@ -599,8 +566,8 @@ impl DhtHandler {
                     attempt_rebootstrap(
                         bootstrap,
                         attempts,
-                        &self.detached.routing_table,
-                        &self.detached.out_channel,
+                        &self.routing_table,
+                        &self.out_channel,
                         event_loop,
                     ) == Some(false)
                 } else {
@@ -624,8 +591,8 @@ impl DhtHandler {
                 Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => Some((
                     bootstrap.recv_timeout(
                         &trans_id,
-                        &self.detached.routing_table,
-                        &self.detached.out_channel,
+                        &self.routing_table,
+                        &self.out_channel,
                         event_loop,
                     ),
                     bootstrap,
@@ -664,12 +631,12 @@ impl DhtHandler {
                 }
                 Some((BootstrapStatus::Completed, bootstrap, attempts)) => {
                     // Check if our bootstrap was actually good
-                    if should_rebootstrap(&self.detached.routing_table) {
+                    if should_rebootstrap(&self.routing_table) {
                         attempt_rebootstrap(
                             bootstrap,
                             attempts,
-                            &self.detached.routing_table,
-                            &self.detached.out_channel,
+                            &self.routing_table,
+                            &self.out_channel,
                             event_loop,
                         ) == Some(false)
                     } else {
@@ -692,19 +659,18 @@ impl DhtHandler {
         event_loop: &mut EventLoop<DhtHandler>,
     ) {
         // Send notification that the bootstrap has completed.
-        self.detached
-            .event_tx
+        self.event_tx
             .send(DhtEvent::BootstrapCompleted)
             .unwrap_or(());
 
         // Indicates we are out of the bootstrapping phase
-        self.detached.bootstrapping = false;
+        self.bootstrapping = false;
 
         // Remove the bootstrap action from our table actions
         self.table_actions.remove(&action_id);
 
         // Start the post bootstrap actions.
-        let mut future_actions = self.detached.future_actions.split_off(0);
+        let mut future_actions = self.future_actions.split_off(0);
         for table_action in future_actions.drain(..) {
             match table_action {
                 PostBootstrapAction::Lookup(info_hash, should_announce) => {
@@ -726,23 +692,22 @@ impl DhtHandler {
         info_hash: InfoHash,
         should_announce: bool,
     ) {
-        let mid_generator = self.detached.aid_generator.generate();
+        let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
 
-        if self.detached.bootstrapping {
+        if self.bootstrapping {
             // Queue it up if we are currently bootstrapping
-            self.detached
-                .future_actions
+            self.future_actions
                 .push(PostBootstrapAction::Lookup(info_hash, should_announce));
         } else {
             // Start the lookup right now if not bootstrapping
             match TableLookup::new(
-                self.detached.routing_table.node_id(),
+                self.routing_table.node_id(),
                 info_hash,
                 mid_generator,
                 should_announce,
-                &self.detached.routing_table,
-                &self.detached.out_channel,
+                &self.routing_table,
+                &self.out_channel,
                 event_loop,
             ) {
                 Some(lookup) => {
@@ -763,8 +728,8 @@ impl DhtHandler {
             Some(&mut TableAction::Lookup(ref mut lookup)) => Some((
                 lookup.recv_timeout(
                     &trans_id,
-                    &self.detached.routing_table,
-                    &self.detached.out_channel,
+                    &self.routing_table,
+                    &self.out_channel,
                     event_loop,
                 ),
                 lookup.info_hash(),
@@ -796,7 +761,6 @@ impl DhtHandler {
             None => (),
             Some((LookupStatus::Searching, _)) => (),
             Some((LookupStatus::Completed, info_hash)) => self
-                .detached
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
@@ -807,8 +771,7 @@ impl DhtHandler {
                 // Add values to handshaker
                 for v4_addr in v {
                     let sock_addr = SocketAddr::V4(v4_addr);
-                    self.detached
-                        .event_tx
+                    self.event_tx
                         .send(DhtEvent::PeerFound(info_hash, sock_addr))
                         .unwrap_or(());
                 }
@@ -823,11 +786,7 @@ impl DhtHandler {
     ) {
         let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
             Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup.recv_finished(
-                    self.detached.announce_port,
-                    &self.detached.routing_table,
-                    &self.detached.out_channel,
-                ),
+                lookup.recv_finished(self.announce_port, &self.routing_table, &self.out_channel),
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -857,7 +816,6 @@ impl DhtHandler {
             None => (),
             Some((LookupStatus::Searching, _)) => (),
             Some((LookupStatus::Completed, info_hash)) => self
-                .detached
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
@@ -868,8 +826,7 @@ impl DhtHandler {
                 // Add values to handshaker
                 for v4_addr in v {
                     let sock_addr = SocketAddr::V4(v4_addr);
-                    self.detached
-                        .event_tx
+                    self.event_tx
                         .send(DhtEvent::PeerFound(info_hash, sock_addr))
                         .unwrap_or(());
                 }
@@ -883,11 +840,9 @@ impl DhtHandler {
         trans_id: TransactionID,
     ) {
         let opt_refresh_status = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(&mut TableAction::Refresh(ref mut refresh)) => Some(refresh.continue_refresh(
-                &self.detached.routing_table,
-                &self.detached.out_channel,
-                event_loop,
-            )),
+            Some(&mut TableAction::Refresh(ref mut refresh)) => {
+                Some(refresh.continue_refresh(&self.routing_table, &self.out_channel, event_loop))
+            }
             Some(&mut TableAction::Lookup(_)) => {
                 error!(
                     "bip_dht: Resolved a TransactionID to a check table refresh but TableLookup \
@@ -921,8 +876,7 @@ impl DhtHandler {
     }
 
     fn handle_shutdown(&self, event_loop: &mut EventLoop<DhtHandler>, cause: ShutdownCause) {
-        self.detached
-            .event_tx
+        self.event_tx
             .send(DhtEvent::ShuttingDown(cause))
             .unwrap_or(());
 
