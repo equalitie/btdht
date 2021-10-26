@@ -44,26 +44,39 @@ impl RoutingTable {
         self.buckets.iter()
     }
 
+    // /// Iterator over all buckets in the routing table that allows modifying the buckets.
+    // pub fn buckets_mut(&mut self) -> impl Iterator<Item = &mut Bucket> + ExactSizeIterator {
+    //     self.buckets.iter_mut()
+    // }
+
     /// Find an instance of the target node in the RoutingTable, if it exists.
     pub fn find_node(&self, node: &Node) -> Option<&Node> {
-        let bucket_index = leading_bit_count(self.node_id, node.id());
+        let bucket_index = self.bucket_index_for_node(node.id());
+        let bucket = self.buckets.get(bucket_index)?;
+        bucket.pingable_nodes().find(|n| n == &node)
+    }
+
+    /// Find a mutable reference to an instance of the target node in the RoutingTable, if it
+    /// exists.
+    pub fn find_node_mut<'a>(&'a mut self, node: &'_ Node) -> Option<&'a mut Node> {
+        let bucket_index = self.bucket_index_for_node(node.id());
+        let bucket = self.buckets.get_mut(bucket_index)?;
+        bucket.pingable_nodes_mut().find(|n| n == &node)
+    }
+
+    fn bucket_index_for_node(&self, node_id: NodeId) -> usize {
+        let bucket_index = leading_bit_count(self.node_id, node_id);
 
         // Check the sorted bucket
-        let bucket = if let Some(b) = self.buckets.get(bucket_index) {
+        if bucket_index < self.buckets.len() {
             // Got the sorted bucket
-            Some(b)
-        } else if self.buckets.len() < MAX_BUCKETS {
-            // Grab the assorted bucket (if it exists)
-            self.buckets.last()
+            bucket_index
         } else {
-            None
-        };
-
-        // Check for our target node in our results
-        if let Some(b) = bucket {
-            b.pingable_nodes().find(|n| n == &node)
-        } else {
-            None
+            // Grab the assorted bucket
+            self.buckets
+                .len()
+                .checked_sub(1)
+                .expect("routing table must have at least one bucket")
         }
     }
 

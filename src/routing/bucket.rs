@@ -42,8 +42,14 @@ impl Bucket {
     }
 
     /// Iterator over all good nodes and questionable nodes in the bucket.
-    pub fn pingable_nodes(&self) -> PingableNodes {
-        PingableNodes::new(&self.nodes)
+    pub fn pingable_nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.iter().filter(|node| node.is_pingable())
+    }
+
+    /// Iterator over all good nodes and questionable nodes in the bucket that allos modifying the
+    /// nodes.
+    pub fn pingable_nodes_mut(&mut self) -> impl Iterator<Item = &mut Node> {
+        self.nodes.iter_mut().filter(|node| node.is_pingable())
     }
 
     /// Iterator over each node within the bucket.
@@ -118,35 +124,6 @@ fn good_nodes_filter(node: &&Node) -> bool {
 }
 
 impl<'a> Iterator for GoodNodes<'a> {
-    type Item = &'a Node;
-
-    fn next(&mut self) -> Option<&'a Node> {
-        self.iter.next()
-    }
-}
-
-// ----------------------------------------------------------------------------//
-
-pub struct PingableNodes<'a> {
-    iter: Filter<Iter<'a, Node>, fn(&&Node) -> bool>,
-}
-
-impl<'a> PingableNodes<'a> {
-    fn new(nodes: &'a [Node]) -> PingableNodes<'a> {
-        PingableNodes {
-            iter: nodes.iter().filter(pingable_nodes_filter),
-        }
-    }
-}
-
-fn pingable_nodes_filter(node: &&Node) -> bool {
-    // Function is moderately expensive
-    let status = node.status();
-
-    status == NodeStatus::Good || status == NodeStatus::Questionable
-}
-
-impl<'a> Iterator for PingableNodes<'a> {
     type Item = &'a Node;
 
     fn next(&mut self) -> Option<&'a Node> {

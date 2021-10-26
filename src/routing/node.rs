@@ -118,6 +118,13 @@ impl Node {
         recently_requested(self, curr_time)
     }
 
+    /// Is node good or questionable?
+    pub fn is_pingable(&self) -> bool {
+        // Function is moderately expensive
+        let status = self.status();
+        status == NodeStatus::Good || status == NodeStatus::Questionable
+    }
+
     pub(crate) fn info(&self) -> &NodeInfo {
         &self.info
     }
