@@ -19,13 +19,12 @@ async fn main() {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
-    let dht = MainlineDht::builder()
+    let (dht, mut events) = MainlineDht::builder()
         .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
         .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
         .start(socket)
         .unwrap();
-    let mut events = dht.events();
 
     println!("bootstrapping...");
     let start = Instant::now();

@@ -25,8 +25,13 @@ impl MainlineDht {
     }
 
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> io::Result<Self> {
-        let send = worker::start_mainline_dht(socket, builder.read_only, builder.announce_port)?;
+    fn with_builder(
+        builder: DhtBuilder,
+        socket: UdpSocket,
+        event_tx: mpsc::UnboundedSender<DhtEvent>,
+    ) -> io::Result<Self> {
+        let send =
+            worker::start_mainline_dht(socket, builder.read_only, builder.announce_port, event_tx)?;
 
         if send
             .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
@@ -54,23 +59,6 @@ impl MainlineDht {
         {
             warn!("bip_dht: MainlineDht failed to send a start lookup message...");
         }
-    }
-
-    /// An event Receiver which will receive events occuring within the DHT.
-    ///
-    /// It is important to at least monitor the DHT for shutdown events as any calls
-    /// after that event occurs will not be processed but no indication will be given.
-    pub fn events(&self) -> mpsc::UnboundedReceiver<DhtEvent> {
-        let (send, recv) = mpsc::unbounded_channel();
-
-        if self.send.send(OneshotTask::RegisterSender(send)).is_err() {
-            warn!("bip_dht: MainlineDht failed to send a register sender message...");
-            // TODO: Should we push a Shutdown event through the sender here? We would need
-            // to know the cause or create a new cause for this specific scenario since the
-            // client could have been lazy and wasnt monitoring this until after it shutdown!
-        }
-
-        recv
     }
 }
 
@@ -146,7 +134,12 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(self, socket: UdpSocket) -> io::Result<MainlineDht> {
-        MainlineDht::with_builder(self, socket)
+    pub fn start(
+        self,
+        socket: UdpSocket,
+    ) -> io::Result<(MainlineDht, mpsc::UnboundedReceiver<DhtEvent>)> {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let dht = MainlineDht::with_builder(self, socket, event_tx)?;
+        Ok((dht, event_rx))
     }
 }

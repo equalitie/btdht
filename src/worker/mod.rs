@@ -17,8 +17,6 @@ pub(crate) mod refresh;
 pub(crate) enum OneshotTask {
     /// Process an incoming message from a remote node.
     Incoming(Vec<u8>, SocketAddr),
-    /// Register a sender to send DhtEvents to.
-    RegisterSender(mpsc::UnboundedSender<DhtEvent>),
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
     /// Start a lookup for the given InfoHash.
@@ -72,13 +70,19 @@ pub(crate) fn start_mainline_dht(
     socket: UdpSocket,
     read_only: bool,
     announce_port: Option<u16>,
+    event_tx: mpsc::UnboundedSender<DhtEvent>,
 ) -> io::Result<mio::Sender<OneshotTask>> {
     let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_MESSAGE_CAPACITY);
 
     // TODO: Utilize the security extension.
     let routing_table = RoutingTable::new(table::random_node_id());
-    let message_sender =
-        handler::create_dht_handler(routing_table, outgoing_tx, read_only, announce_port)?;
+    let message_sender = handler::create_dht_handler(
+        routing_table,
+        outgoing_tx,
+        read_only,
+        announce_port,
+        event_tx,
+    )?;
 
     task::spawn(messenger::create(
         socket,

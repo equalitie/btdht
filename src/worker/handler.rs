@@ -34,8 +34,9 @@ pub(crate) fn create_dht_handler(
     out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
     read_only: bool,
     announce_port: Option<u16>,
+    event_tx: mpsc::UnboundedSender<DhtEvent>,
 ) -> io::Result<mio::Sender<OneshotTask>> {
-    let mut handler = DhtHandler::new(table, out, read_only, announce_port);
+    let mut handler = DhtHandler::new(table, out, read_only, announce_port, event_tx);
     let mut event_loop = EventLoop::new()?;
 
     let loop_channel = event_loop.channel();
@@ -91,7 +92,7 @@ struct DetachedDhtHandler {
     // If future actions is not empty, that means we are still bootstrapping
     // since we will always spin up a table refresh action after bootstrapping.
     future_actions: Vec<PostBootstrapAction>,
-    event_notifiers: Vec<mpsc::UnboundedSender<DhtEvent>>,
+    event_tx: mpsc::UnboundedSender<DhtEvent>,
 }
 
 impl DhtHandler {
@@ -100,6 +101,7 @@ impl DhtHandler {
         out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
         read_only: bool,
         announce_port: Option<u16>,
+        event_tx: mpsc::UnboundedSender<DhtEvent>,
     ) -> Self {
         let mut aid_generator = AIDGenerator::new();
 
@@ -122,7 +124,7 @@ impl DhtHandler {
             routing_table: table,
             active_stores: AnnounceStorage::new(),
             future_actions,
-            event_notifiers: Vec::new(),
+            event_tx,
         };
 
         Self {
@@ -140,9 +142,6 @@ impl Handler for DhtHandler {
         match task {
             OneshotTask::Incoming(buffer, addr) => {
                 handle_incoming(self, event_loop, &buffer[..], addr);
-            }
-            OneshotTask::RegisterSender(send) => {
-                handle_register_sender(self, send);
             }
             OneshotTask::StartBootstrap(routers, nodes) => {
                 handle_start_bootstrap(self, event_loop, routers, nodes);
@@ -198,11 +197,6 @@ fn shutdown_event_loop(event_loop: &mut EventLoop<DhtHandler>, cause: ShutdownCa
     }
 }
 
-/// Broadcast the given event to all of the event nodifiers.
-fn broadcast_dht_event(notifiers: &mut Vec<mpsc::UnboundedSender<DhtEvent>>, event: DhtEvent) {
-    notifiers.retain(|send| send.send(event).is_ok());
-}
-
 /// Number of good nodes in the RoutingTable.
 fn num_good_nodes(table: &RoutingTable) -> usize {
     table
@@ -225,10 +219,10 @@ fn broadcast_bootstrap_completed(
     event_loop: &mut EventLoop<DhtHandler>,
 ) {
     // Send notification that the bootstrap has completed.
-    broadcast_dht_event(
-        &mut work_storage.event_notifiers,
-        DhtEvent::BootstrapCompleted,
-    );
+    work_storage
+        .event_tx
+        .send(DhtEvent::BootstrapCompleted)
+        .unwrap_or(());
 
     // Indicates we are out of the bootstrapping phase
     work_storage.bootstrapping = false;
@@ -686,20 +680,20 @@ fn handle_incoming(
                     event_loop,
                 ) {
                     LookupStatus::Searching => (),
-                    LookupStatus::Completed => broadcast_dht_event(
-                        &mut work_storage.event_notifiers,
-                        DhtEvent::LookupCompleted(lookup.info_hash()),
-                    ),
+                    LookupStatus::Completed => work_storage
+                        .event_tx
+                        .send(DhtEvent::LookupCompleted(lookup.info_hash()))
+                        .unwrap_or(()),
                     LookupStatus::Failed => {
                         shutdown_event_loop(event_loop, ShutdownCause::Unspecified)
                     }
                     LookupStatus::Values(values) => {
                         for v4_addr in values {
                             let sock_addr = SocketAddr::V4(v4_addr);
-                            broadcast_dht_event(
-                                &mut work_storage.event_notifiers,
-                                DhtEvent::PeerFound(lookup.info_hash(), sock_addr),
-                            );
+                            work_storage
+                                .event_tx
+                                .send(DhtEvent::PeerFound(lookup.info_hash(), sock_addr))
+                                .unwrap_or(());
                         }
                     }
                 }
@@ -714,10 +708,6 @@ fn handle_incoming(
             warn!("bip_dht: KRPC error message from {:?}: {:?}", addr, e);
         }
     }
-}
-
-fn handle_register_sender(handler: &mut DhtHandler, sender: mpsc::UnboundedSender<DhtEvent>) {
-    handler.detached.event_notifiers.push(sender);
 }
 
 fn handle_start_bootstrap(
@@ -813,10 +803,10 @@ fn handle_shutdown(
 ) {
     let (work_storage, _) = (&mut handler.detached, &mut handler.table_actions);
 
-    broadcast_dht_event(
-        &mut work_storage.event_notifiers,
-        DhtEvent::ShuttingDown(cause),
-    );
+    work_storage
+        .event_tx
+        .send(DhtEvent::ShuttingDown(cause))
+        .unwrap_or(());
 
     event_loop.shutdown();
 }
@@ -978,10 +968,10 @@ fn handle_check_lookup_timeout(
     match opt_lookup_info {
         None => (),
         Some((LookupStatus::Searching, _)) => (),
-        Some((LookupStatus::Completed, info_hash)) => broadcast_dht_event(
-            &mut work_storage.event_notifiers,
-            DhtEvent::LookupCompleted(info_hash),
-        ),
+        Some((LookupStatus::Completed, info_hash)) => work_storage
+            .event_tx
+            .send(DhtEvent::LookupCompleted(info_hash))
+            .unwrap_or(()),
         Some((LookupStatus::Failed, _)) => {
             shutdown_event_loop(event_loop, ShutdownCause::Unspecified)
         }
@@ -989,10 +979,10 @@ fn handle_check_lookup_timeout(
             // Add values to handshaker
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
-                broadcast_dht_event(
-                    &mut work_storage.event_notifiers,
-                    DhtEvent::PeerFound(info_hash, sock_addr),
-                )
+                work_storage
+                    .event_tx
+                    .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                    .unwrap_or(());
             }
         }
     }
@@ -1040,10 +1030,10 @@ fn handle_check_lookup_endgame(
     match opt_lookup_info {
         None => (),
         Some((LookupStatus::Searching, _)) => (),
-        Some((LookupStatus::Completed, info_hash)) => broadcast_dht_event(
-            &mut work_storage.event_notifiers,
-            DhtEvent::LookupCompleted(info_hash),
-        ),
+        Some((LookupStatus::Completed, info_hash)) => work_storage
+            .event_tx
+            .send(DhtEvent::LookupCompleted(info_hash))
+            .unwrap_or(()),
         Some((LookupStatus::Failed, _)) => {
             shutdown_event_loop(event_loop, ShutdownCause::Unspecified)
         }
@@ -1051,10 +1041,10 @@ fn handle_check_lookup_endgame(
             // Add values to handshaker
             for v4_addr in v {
                 let sock_addr = SocketAddr::V4(v4_addr);
-                broadcast_dht_event(
-                    &mut work_storage.event_notifiers,
-                    DhtEvent::PeerFound(info_hash, sock_addr),
-                )
+                work_storage
+                    .event_tx
+                    .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                    .unwrap_or(());
             }
         }
     }

@@ -10,19 +10,17 @@ async fn basic() {
     let b_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let b_addr = b_socket.local_addr().unwrap();
 
-    let node_a = MainlineDht::builder()
+    let (node_a, mut events_a) = MainlineDht::builder()
         .add_node(b_addr)
         .set_read_only(false)
         .start(a_socket)
         .unwrap();
-    let mut events_a = node_a.events();
 
-    let node_b = MainlineDht::builder()
+    let (node_b, mut events_b) = MainlineDht::builder()
         .add_node(a_addr)
         .set_read_only(false)
         .start(b_socket)
         .unwrap();
-    let mut events_b = node_b.events();
 
     let the_info_hash = InfoHash::from_bytes(b"foo");
 
