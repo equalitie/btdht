@@ -944,37 +944,37 @@ fn attempt_rebootstrap(
     out_channel: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
     timer: &mut Timer<ScheduledTaskCheck>,
 ) -> Result<bool, ShutdownCause> {
-    // Increment the bootstrap counter
-    *attempts += 1;
+    loop {
+        // Increment the bootstrap counter
+        *attempts += 1;
 
-    warn!(
-        "bip_dht: Bootstrap attempt {} failed, attempting a rebootstrap...",
-        *attempts
-    );
+        warn!(
+            "bip_dht: Bootstrap attempt {} failed, attempting a rebootstrap...",
+            *attempts
+        );
 
-    // Check if we reached the maximum bootstrap attempts
-    if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
-        if num_good_nodes(routing_table) == 0 {
-            // Failed to get any nodes in the rebootstrap attempts, shut down
-            Err(ShutdownCause::BootstrapFailed)
-        } else {
-            Ok(false)
-        }
-    } else {
-        let bootstrap_status = bootstrap.start_bootstrap(out_channel, timer);
-
-        match bootstrap_status {
-            BootstrapStatus::Idle => Ok(false),
-            BootstrapStatus::Bootstrapping => Ok(true),
-            BootstrapStatus::Failed => {
-                // TODO: should we use `BootstrapFailed` here?
-                Err(ShutdownCause::Unspecified)
+        // Check if we reached the maximum bootstrap attempts
+        if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
+            if num_good_nodes(routing_table) == 0 {
+                // Failed to get any nodes in the rebootstrap attempts, shut down
+                return Err(ShutdownCause::BootstrapFailed);
+            } else {
+                return Ok(false);
             }
-            BootstrapStatus::Completed => {
-                if should_rebootstrap(routing_table) {
-                    attempt_rebootstrap(bootstrap, attempts, routing_table, out_channel, timer)
-                } else {
-                    Ok(false)
+        } else {
+            let bootstrap_status = bootstrap.start_bootstrap(out_channel, timer);
+
+            match bootstrap_status {
+                BootstrapStatus::Idle => return Ok(false),
+                BootstrapStatus::Bootstrapping => return Ok(true),
+                BootstrapStatus::Failed => {
+                    // TODO: should we use `BootstrapFailed` here?
+                    return Err(ShutdownCause::Unspecified);
+                }
+                BootstrapStatus::Completed => {
+                    if !should_rebootstrap(routing_table) {
+                        return Ok(false);
+                    }
                 }
             }
         }
