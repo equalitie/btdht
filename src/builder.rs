@@ -1,16 +1,13 @@
-use std::collections::HashSet;
-use std::io;
-use std::net::SocketAddr;
-
-use tokio::{net::UdpSocket, sync::mpsc};
-
 use crate::id::InfoHash;
-use crate::mio::Sender;
-use crate::worker::{self, DhtEvent, OneshotTask, ShutdownCause};
+use crate::routing::table::{self, RoutingTable};
+use crate::worker::{DhtEvent, DhtHandler, OneshotTask};
+use std::collections::HashSet;
+use std::net::SocketAddr;
+use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
 pub struct MainlineDht {
-    send: Sender<OneshotTask>,
+    send: mpsc::UnboundedSender<OneshotTask>,
 }
 
 impl MainlineDht {
@@ -25,17 +22,36 @@ impl MainlineDht {
     }
 
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> io::Result<Self> {
-        let send = worker::start_mainline_dht(socket, builder.read_only, builder.announce_port)?;
+    fn with_builder(
+        builder: DhtBuilder,
+        socket: UdpSocket,
+    ) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        if send
+        // TODO: Utilize the security extension.
+        let routing_table = RoutingTable::new(table::random_node_id());
+        let handler = DhtHandler::new(
+            routing_table,
+            socket,
+            builder.read_only,
+            builder.announce_port,
+            command_rx,
+            event_tx,
+        );
+
+        if command_tx
             .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
             .is_err()
         {
-            warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
+            // `unreachable` is OK here because the corresponding receiver definitely exists at
+            // this point inside `handler`.
+            unreachable!()
         }
 
-        Ok(MainlineDht { send })
+        task::spawn(handler.run());
+
+        (Self { send: command_tx }, event_rx)
     }
 
     /// Perform a search for the given InfoHash with an optional announce on the closest nodes.
@@ -52,39 +68,7 @@ impl MainlineDht {
             .send(OneshotTask::StartLookup(hash, announce))
             .is_err()
         {
-            warn!("bip_dht: MainlineDht failed to send a start lookup message...");
-        }
-    }
-
-    /// An event Receiver which will receive events occuring within the DHT.
-    ///
-    /// It is important to at least monitor the DHT for shutdown events as any calls
-    /// after that event occurs will not be processed but no indication will be given.
-    pub fn events(&self) -> mpsc::UnboundedReceiver<DhtEvent> {
-        let (send, recv) = mpsc::unbounded_channel();
-
-        if self.send.send(OneshotTask::RegisterSender(send)).is_err() {
-            warn!("bip_dht: MainlineDht failed to send a register sender message...");
-            // TODO: Should we push a Shutdown event through the sender here? We would need
-            // to know the cause or create a new cause for this specific scenario since the
-            // client could have been lazy and wasnt monitoring this until after it shutdown!
-        }
-
-        recv
-    }
-}
-
-impl Drop for MainlineDht {
-    fn drop(&mut self) {
-        if self
-            .send
-            .send(OneshotTask::Shutdown(ShutdownCause::ClientInitiated))
-            .is_err()
-        {
-            warn!(
-                "bip_dht: MainlineDht failed to send a shutdown message (may have already been \
-                   shutdown)..."
-            );
+            error!("failed to start search - DhtHandler has shut down");
         }
     }
 }
@@ -146,7 +130,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(self, socket: UdpSocket) -> io::Result<MainlineDht> {
+    pub fn start(self, socket: UdpSocket) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
         MainlineDht::with_builder(self, socket)
     }
 }

@@ -1,114 +1,27 @@
-//! Shim for mio v0.5.0 that is backed by tokio. Useful to simplify porting this library to tokio.
-
-use futures_util::{
-    future::{self, Either},
-    pin_mut, Stream, StreamExt,
-};
+use futures_util::Stream;
 use std::{
     collections::BTreeMap,
     future::Future,
-    io,
     pin::Pin,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::{
-    sync::mpsc,
-    task,
-    time::{self, Sleep},
-};
-
-pub struct EventLoop<H: Handler> {
-    running: bool,
-    notify_tx: mpsc::UnboundedSender<H::Message>,
-    notify_rx: mpsc::UnboundedReceiver<H::Message>,
-    timer: Timer<H::Timeout>,
-}
-
-impl<H: Handler> EventLoop<H> {
-    pub fn new() -> io::Result<Self> {
-        let (notify_tx, notify_rx) = mpsc::unbounded_channel();
-
-        Ok(Self {
-            running: false,
-            notify_rx,
-            notify_tx,
-            timer: Timer::new(),
-        })
-    }
-
-    pub fn channel(&self) -> Sender<H::Message> {
-        self.notify_tx.clone()
-    }
-
-    pub fn timeout(&mut self, token: H::Timeout, delay: Duration) -> Timeout {
-        self.timer.schedule(Instant::now() + delay, token)
-    }
-
-    pub fn clear_timeout(&mut self, timeout: Timeout) -> bool {
-        self.timer.cancel(timeout)
-    }
-
-    pub fn shutdown(&mut self) {
-        self.running = false;
-    }
-
-    pub async fn run(&mut self, handler: &mut H) {
-        self.running = true;
-
-        while self.running {
-            self.run_once(handler).await
-        }
-    }
-
-    async fn run_once(&mut self, handler: &mut H) {
-        let event = {
-            let notify = self.notify_rx.recv();
-            pin_mut!(notify);
-
-            let timeout = self.timer.next();
-            pin_mut!(timeout);
-
-            match future::select(notify, timeout).await {
-                Either::Left((Some(message), _)) => Either::Left(message),
-                Either::Right((Some(token), _)) => Either::Right(token),
-                Either::Left((None, _)) | Either::Right((None, _)) => return,
-            }
-        };
-
-        match event {
-            Either::Left(message) => task::block_in_place(|| handler.notify(self, message)),
-            Either::Right(token) => task::block_in_place(|| handler.timeout(self, token)),
-        }
-    }
-}
-
-pub trait Handler: Sized {
-    type Timeout: Unpin;
-    type Message: Send;
-
-    fn notify(&mut self, event_loop: &mut EventLoop<Self>, message: Self::Message);
-    fn timeout(&mut self, event_loop: &mut EventLoop<Self>, timeout: Self::Timeout);
-
-    // NOTE: we don't need the other methods that the original mio `Handler` has.
-}
-
-pub type Sender<T> = mpsc::UnboundedSender<T>;
+use tokio::time::{self, Sleep};
 
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Timeout {
+pub(crate) struct Timeout {
     deadline: Instant,
     id: u64,
 }
 
-struct Timer<T> {
+pub(crate) struct Timer<T> {
     next_id: u64,
     current: Option<CurrentTimerEntry<T>>,
     queue: BTreeMap<Timeout, T>,
 }
 
 impl<T> Timer<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             next_id: 0,
             current: None,
@@ -116,7 +29,16 @@ impl<T> Timer<T> {
         }
     }
 
-    fn schedule(&mut self, deadline: Instant, value: T) -> Timeout {
+    /// Has the timer no scheduled timeouts?
+    pub fn is_empty(&self) -> bool {
+        self.current.is_none() && self.queue.is_empty()
+    }
+
+    pub fn schedule_in(&mut self, deadline: Duration, value: T) -> Timeout {
+        self.schedule_at(Instant::now() + deadline, value)
+    }
+
+    pub fn schedule_at(&mut self, deadline: Instant, value: T) -> Timeout {
         // If the current timeout is later than the new one, push it back into the queue.
         if let Some(current) = &self.current {
             let key = current.key();
@@ -134,7 +56,7 @@ impl<T> Timer<T> {
         key
     }
 
-    fn cancel(&mut self, timeout: Timeout) -> bool {
+    pub fn cancel(&mut self, timeout: Timeout) -> bool {
         if let Some(current) = &self.current {
             if current.key() == timeout {
                 self.current = None;

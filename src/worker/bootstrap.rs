@@ -1,18 +1,18 @@
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::time::Duration;
-
-use tokio::sync::mpsc;
-
+use super::{
+    socket,
+    timer::{Timeout, Timer},
+    ScheduledTaskCheck,
+};
 use crate::id::NodeId;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
-use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};
 use crate::routing::table::{self, BucketContents, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
-use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTaskCheck;
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -59,8 +59,8 @@ impl TableBootstrap {
 
     pub fn start_bootstrap(
         &mut self,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Reset the bootstrap state
         self.active_messages.clear();
@@ -70,9 +70,9 @@ impl TableBootstrap {
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
-        let timeout = event_loop.timeout(
-            ScheduledTaskCheck::BootstrapTimeout(trans_id),
+        let timeout = timer.schedule_in(
             BOOTSTRAP_INITIAL_TIMEOUT,
+            ScheduledTaskCheck::BootstrapTimeout(trans_id),
         );
 
         // Insert the timeout into the active bootstraps just so we can check if a response was valid (and begin the bucket bootstraps)
@@ -88,18 +88,26 @@ impl TableBootstrap {
         .encode();
 
         // Ping all initial routers and nodes
+        let mut successes = 0;
+
         for addr in self
             .starting_routers
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            if out.blocking_send((find_node_msg.clone(), *addr)).is_err() {
-                error!("bip_dht: Failed to send bootstrap message to router through channel...");
-                return BootstrapStatus::Failed;
+            match socket::blocking_send(socket, &find_node_msg, *addr) {
+                Ok(()) => {
+                    successes += 1;
+                }
+                Err(error) => error!("Failed to send bootstrap message to router: {}", error),
             }
         }
 
-        self.current_bootstrap_status()
+        if successes > 0 {
+            self.current_bootstrap_status()
+        } else {
+            BootstrapStatus::Failed
+        }
     }
 
     pub fn is_router(&self, addr: &SocketAddr) -> bool {
@@ -110,8 +118,8 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Process the message transaction id
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
@@ -129,7 +137,7 @@ impl TableBootstrap {
         if self.curr_bootstrap_bucket != 0 {
             // Message was not from the initial ping
             // Remove the timeout from the event loop
-            event_loop.clear_timeout(timeout);
+            timer.cancel(timeout);
 
             // Remove the token from the mapping
             self.active_messages.remove(trans_id);
@@ -137,7 +145,7 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, out, event_loop);
+            return self.bootstrap_next_bucket(table, socket, timer);
         }
 
         self.current_bootstrap_status()
@@ -147,8 +155,8 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
             warn!(
@@ -160,7 +168,7 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, out, event_loop);
+            return self.bootstrap_next_bucket(table, socket, timer);
         }
 
         self.current_bootstrap_status()
@@ -170,8 +178,8 @@ impl TableBootstrap {
     fn bootstrap_next_bucket(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
 
@@ -181,7 +189,7 @@ impl TableBootstrap {
                 .closest_nodes(target_id)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
-            self.send_bootstrap_requests(iter, target_id, table, out, event_loop)
+            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
         } else {
             let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
             let dummy_bucket = Bucket::new();
@@ -224,7 +232,7 @@ impl TableBootstrap {
                 .chain(percent_100_bucket)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
-            self.send_bootstrap_requests(iter, target_id, table, out, event_loop)
+            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
         }
     }
 
@@ -233,8 +241,8 @@ impl TableBootstrap {
         nodes: I,
         target_id: NodeId,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus
     where
         I: Iterator<Item = &'a Node>,
@@ -259,15 +267,15 @@ impl TableBootstrap {
             .encode();
 
             // Add a timeout for the node
-            let timeout = event_loop.timeout(
-                ScheduledTaskCheck::BootstrapTimeout(trans_id),
+            let timeout = timer.schedule_in(
                 BOOTSTRAP_NODE_TIMEOUT,
+                ScheduledTaskCheck::BootstrapTimeout(trans_id),
             );
 
             // Send the message to the node
-            if out.blocking_send((find_node_msg, node.addr())).is_err() {
-                error!("bip_dht: Could not send a bootstrap message through the channel...");
-                return BootstrapStatus::Failed;
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
+                error!("Could not send a bootstrap message: {}", error);
+                continue;
             }
 
             // Mark that we requested from the node
@@ -283,7 +291,7 @@ impl TableBootstrap {
         if self.curr_bootstrap_bucket == table::MAX_BUCKETS {
             BootstrapStatus::Completed
         } else if messages_sent == 0 {
-            self.bootstrap_next_bucket(table, out, event_loop)
+            self.bootstrap_next_bucket(table, socket, timer)
         } else {
             BootstrapStatus::Bootstrapping
         }

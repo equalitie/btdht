@@ -1,20 +1,20 @@
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::time::Duration;
-
-use tokio::sync::mpsc;
-
+use super::{
+    socket,
+    timer::{Timeout, Timer},
+    ScheduledTaskCheck,
+};
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
-use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeInfo, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
-use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTaskCheck;
+use std::collections::{HashMap, HashSet};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
 const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -37,7 +37,6 @@ pub(crate) enum LookupStatus {
     Searching,
     Values(Vec<SocketAddrV4>),
     Completed,
-    Failed,
 }
 
 pub(crate) struct TableLookup {
@@ -68,9 +67,9 @@ impl TableLookup {
         id_generator: MIDGenerator,
         will_announce: bool,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
-    ) -> Option<TableLookup> {
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
+    ) -> TableLookup {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
         let mut all_sorted_nodes = Vec::with_capacity(bucket::MAX_BUCKET_SIZE);
         for node in table
@@ -108,13 +107,8 @@ impl TableLookup {
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
-        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, out, event_loop)
-            != LookupStatus::Failed
-        {
-            Some(table_lookup)
-        } else {
-            None
-        }
+        table_lookup.start_request_round(initial_pick_nodes_filtered, table, socket, timer);
+        table_lookup
     }
 
     pub fn info_hash(&self) -> InfoHash {
@@ -127,8 +121,8 @@ impl TableLookup {
         trans_id: &TransactionID,
         msg: GetPeersResponse,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Process the message transaction id
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
@@ -143,7 +137,7 @@ impl TableLookup {
 
         // Cancel the timeout (if this is not an endgame response)
         if !self.in_endgame {
-            event_loop.clear_timeout(timeout);
+            timer.cancel(timeout);
         }
 
         // Add the announce token to our list of tokens
@@ -212,18 +206,12 @@ impl TableLookup {
                     .iter()
                     .filter(|&&(_, good)| good)
                     .map(|&(ref n, _)| (n, next_dist_to_beat));
-                if self.start_request_round(filtered_nodes, table, out, event_loop)
-                    == LookupStatus::Failed
-                {
-                    return LookupStatus::Failed;
-                }
+                self.start_request_round(filtered_nodes, table, socket, timer);
             }
 
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
-            {
-                return LookupStatus::Failed;
+            if self.active_lookups.is_empty() {
+                self.start_endgame_round(table, socket, timer);
             }
         }
 
@@ -238,8 +226,8 @@ impl TableLookup {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
             warn!(
@@ -251,10 +239,8 @@ impl TableLookup {
 
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
-            {
-                return LookupStatus::Failed;
+            if self.active_lookups.is_empty() {
+                self.start_endgame_round(table, socket, timer);
             }
         }
 
@@ -265,10 +251,8 @@ impl TableLookup {
         &mut self,
         port: Option<u16>,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
     ) -> LookupStatus {
-        let mut fatal_error = false;
-
         // Announce if we were told to
         if self.will_announce {
             // Partial borrow so the filter function doesnt capture all of self
@@ -295,19 +279,14 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                if out.blocking_send((announce_peer_msg, node.addr())).is_err() {
-                    error!(
-                        "bip_dht: TableLookup announce request failed to send through the out \
-                            channel..."
-                    );
-                    fatal_error = true;
-                }
-
-                if !fatal_error {
-                    // We requested from the node, marke it down if the node is in our routing table
-                    if let Some(n) = table.find_node(node) {
-                        n.local_request()
+                match socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
+                    Ok(()) => {
+                        // We requested from the node, marke it down if the node is in our routing table
+                        if let Some(n) = table.find_node(node) {
+                            n.local_request()
+                        }
                     }
+                    Err(error) => error!("TableLookup announce request failed to send: {}", error),
                 }
             }
         }
@@ -316,11 +295,7 @@ impl TableLookup {
         self.active_lookups.clear();
         self.in_endgame = false;
 
-        if fatal_error {
-            LookupStatus::Failed
-        } else {
-            self.current_lookup_status()
-        }
+        self.current_lookup_status()
     }
 
     fn current_lookup_status(&self) -> LookupStatus {
@@ -335,8 +310,8 @@ impl TableLookup {
         &mut self,
         nodes: I,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
         I: Iterator<Item = (&'a Node, DistanceToBeat)>,
@@ -349,7 +324,7 @@ impl TableLookup {
 
             // Try to start a timeout for the node
             let timeout =
-                event_loop.timeout(ScheduledTaskCheck::LookupTimeout(trans_id), LOOKUP_TIMEOUT);
+                timer.schedule_in(LOOKUP_TIMEOUT, ScheduledTaskCheck::LookupTimeout(trans_id));
 
             // Associate the transaction id with the distance the returned nodes must beat and the timeout token
             self.active_lookups
@@ -365,9 +340,9 @@ impl TableLookup {
             }
             .encode();
 
-            if out.blocking_send((get_peers_msg, node.addr())).is_err() {
-                error!("bip_dht: Could not send a lookup message through the channel...");
-                return LookupStatus::Failed;
+            if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
+                error!("Could not send a lookup message: {}", error);
+                continue;
             }
 
             // We requested from the node, mark it down
@@ -392,26 +367,22 @@ impl TableLookup {
     fn start_endgame_round(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Entering the endgame phase
         self.in_endgame = true;
 
         // Try to start a global message timeout for the endgame
-        let timeout = event_loop.timeout(
-            ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
+        let timeout = timer.schedule_in(
             ENDGAME_TIMEOUT,
+            ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
         );
 
         // Request all unpinged nodes if we didnt receive any values
         if !self.recv_values {
-            for node_info in self
-                .all_sorted_nodes
-                .iter_mut()
-                .filter(|&&mut (_, _, req)| !req)
-            {
-                let &mut (ref node_dist, ref node, ref mut req) = node_info;
+            for node_info in self.all_sorted_nodes.iter_mut().filter(|(_, _, req)| !req) {
+                let (node_dist, node, req) = node_info;
 
                 // Generate a transaction id for this message
                 let trans_id = self.id_generator.generate();
@@ -431,9 +402,9 @@ impl TableLookup {
                 }
                 .encode();
 
-                if out.blocking_send((get_peers_msg, node.addr())).is_err() {
-                    error!("bip_dht: Could not send an endgame message through the channel...");
-                    return LookupStatus::Failed;
+                if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
+                    error!("Could not send an endgame message: {}", error);
+                    continue;
                 }
 
                 // Mark that we requested from the node in the RoutingTable

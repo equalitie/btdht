@@ -23,7 +23,6 @@ mod builder;
 mod compact;
 mod id;
 mod message;
-mod mio;
 mod routing;
 mod storage;
 #[cfg(test)]
@@ -34,4 +33,4 @@ mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
 pub use crate::id::{InfoHash, LengthError, INFO_HASH_LEN};
-pub use crate::worker::{DhtEvent, ShutdownCause};
+pub use crate::worker::DhtEvent;

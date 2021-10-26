@@ -19,18 +19,17 @@ async fn main() {
     let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
-    let dht = MainlineDht::builder()
+    let (dht, mut events) = MainlineDht::builder()
         .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
         .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
-        .start(socket)
-        .unwrap();
-    let mut events = dht.events();
+        .start(socket);
 
     println!("bootstrapping...");
     let start = Instant::now();
 
-    while let Some(event) = events.recv().await {
+    loop {
+        let event = events.recv().await.unwrap();
         match event {
             DhtEvent::BootstrapCompleted => {
                 let elapsed = start.elapsed();
@@ -41,11 +40,16 @@ async fn main() {
                 );
                 break;
             }
-            DhtEvent::ShuttingDown(cause) => {
-                println!("unexpected shutdown (cause: {:?})", cause);
+            DhtEvent::BootstrapFailed => {
+                let elapsed = start.elapsed();
+                println!(
+                    "bootstrap failed in {}.{:03} seconds",
+                    elapsed.as_secs(),
+                    elapsed.subsec_millis()
+                );
                 return;
             }
-            DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..) => {
+            event @ (DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..)) => {
                 println!("unexpected event: {:?}", event);
             }
         }
@@ -90,6 +94,8 @@ async fn handle_command(
                  SHA-1 digest of the string excluding the leading '#' and trimming any leading or \
                  trailing whitespace."
             );
+
+            Ok(true)
         }
         Ok(Command::Search {
             info_hash,
@@ -120,23 +126,24 @@ async fn handle_command(
                             elapsed.as_secs(),
                             elapsed.subsec_millis()
                         );
-                        break;
+                        return Ok(true);
                     }
                     DhtEvent::BootstrapCompleted
+                    | DhtEvent::BootstrapFailed
                     | DhtEvent::PeerFound(..)
                     | DhtEvent::LookupCompleted(_) => println!("unexpected event: {:?}", event),
-                    DhtEvent::ShuttingDown(cause) => {
-                        println!("shutting down (cause: {:?})", cause);
-                        return Ok(false);
-                    }
                 }
             }
-        }
-        Ok(Command::Quit) => return Ok(false),
-        Err(_) => println!("invalid command (use 'h' for help)"),
-    }
 
-    Ok(true)
+            println!("unexpected shutdown");
+            Ok(false)
+        }
+        Ok(Command::Quit) => Ok(false),
+        Err(_) => {
+            println!("invalid command (use 'h' for help)");
+            Ok(true)
+        }
+    }
 }
 
 enum Command {

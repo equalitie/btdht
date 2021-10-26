@@ -1,23 +1,12 @@
-use std::{net::SocketAddr, time::Duration};
-
-use tokio::sync::mpsc;
-
+use super::{socket, timer::Timer, ScheduledTaskCheck};
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
-use crate::mio::EventLoop;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
-use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTaskCheck;
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
-
-pub(crate) enum RefreshStatus {
-    /// Refresh is in progress.
-    Refreshing,
-    /// Refresh failed in a fatal way.
-    Failed,
-}
 
 pub(crate) struct TableRefresh {
     id_generator: MIDGenerator,
@@ -35,9 +24,9 @@ impl TableRefresh {
     pub fn continue_refresh(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
-    ) -> RefreshStatus {
+        socket: &UdpSocket,
+        timer: &mut Timer<ScheduledTaskCheck>,
+    ) {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
         }
@@ -68,12 +57,8 @@ impl TableRefresh {
             let find_node_msg = find_node_msg.encode();
 
             // Send the message
-            if out.blocking_send((find_node_msg, node.addr())).is_err() {
-                error!(
-                    "bip_dht: TableRefresh failed to send a refresh message to the out \
-                        channel..."
-                );
-                return RefreshStatus::Failed;
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
+                error!("TableRefresh failed to send a refresh message: {}", error);
             }
 
             // Mark that we requested from the node
@@ -84,13 +69,11 @@ impl TableRefresh {
         let trans_id = self.id_generator.generate();
 
         // Start a timer for the next refresh
-        event_loop.timeout(
-            ScheduledTaskCheck::TableRefresh(trans_id),
+        timer.schedule_in(
             REFRESH_INTERVAL_TIMEOUT,
+            ScheduledTaskCheck::TableRefresh(trans_id),
         );
 
         self.curr_refresh_bucket += 1;
-
-        RefreshStatus::Refreshing
     }
 }
