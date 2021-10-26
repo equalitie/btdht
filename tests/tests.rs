@@ -38,7 +38,7 @@ async fn basic() {
                 lookup_completed = true;
                 break;
             }
-            event @ (DhtEvent::PeerFound(..) | DhtEvent::ShuttingDown(_)) => {
+            event @ (DhtEvent::BootstrapFailed | DhtEvent::PeerFound(..)) => {
                 panic!("unexpected event {:?}", event)
             }
         }
@@ -65,7 +65,9 @@ async fn basic() {
                 assert_eq!(addr, a_addr);
                 peer_found = true;
             }
-            event @ DhtEvent::ShuttingDown(_) => panic!("unexpected event {:?}", event),
+            event @ DhtEvent::BootstrapFailed => {
+                panic!("unexpected event {:?}", event)
+            }
         }
     }
 

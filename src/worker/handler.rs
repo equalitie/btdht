@@ -4,7 +4,7 @@ use super::{
     refresh::TableRefresh,
     socket,
     timer::Timer,
-    {DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause},
+    {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
 use crate::id::InfoHash;
 use crate::message::{
@@ -140,7 +140,7 @@ impl DhtHandler {
                     // TODO: make `handle_command` async and remove the `block_in_place`.
                     task::block_in_place(|| self.handle_command(command))
                 } else {
-                    self.shutdown(ShutdownCause::ClientInitiated)
+                    self.shutdown()
                 }
             }
             message = socket::recv(&self.socket) => {
@@ -446,7 +446,8 @@ impl DhtHandler {
                             BootstrapStatus::Idle => true,
                             BootstrapStatus::Bootstrapping => false,
                             BootstrapStatus::Failed => {
-                                self.shutdown(ShutdownCause::Unspecified);
+                                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
+                                self.shutdown();
                                 false
                             }
                             BootstrapStatus::Completed => {
@@ -458,9 +459,9 @@ impl DhtHandler {
                                         &self.socket,
                                         &mut self.timer,
                                     ) {
-                                        Ok(bootstrap_started) => !bootstrap_started,
-                                        Err(cause) => {
-                                            self.shutdown(cause);
+                                        Some(bootstrap_started) => !bootstrap_started,
+                                        None => {
+                                            self.shutdown();
                                             false
                                         }
                                     }
@@ -588,7 +589,8 @@ impl DhtHandler {
             BootstrapStatus::Idle => true,
             BootstrapStatus::Bootstrapping => false,
             BootstrapStatus::Failed => {
-                self.shutdown(ShutdownCause::Unspecified);
+                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
+                self.shutdown();
                 false
             }
             BootstrapStatus::Completed => {
@@ -608,9 +610,9 @@ impl DhtHandler {
                         &self.socket,
                         &mut self.timer,
                     ) {
-                        Ok(bootstrap_started) => !bootstrap_started,
-                        Err(cause) => {
-                            self.shutdown(cause);
+                        Some(bootstrap_started) => !bootstrap_started,
+                        None => {
+                            self.shutdown();
                             false
                         }
                     }
@@ -666,7 +668,8 @@ impl DhtHandler {
                 Some((BootstrapStatus::Idle, _, _)) => true,
                 Some((BootstrapStatus::Bootstrapping, _, _)) => false,
                 Some((BootstrapStatus::Failed, _, _)) => {
-                    self.shutdown(ShutdownCause::Unspecified);
+                    self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
+                    self.shutdown();
                     false
                 }
                 Some((BootstrapStatus::Completed, bootstrap, attempts)) => {
@@ -679,9 +682,9 @@ impl DhtHandler {
                             &self.socket,
                             &mut self.timer,
                         ) {
-                            Ok(bootstrap_started) => !bootstrap_started,
-                            Err(cause) => {
-                                self.shutdown(cause);
+                            Some(bootstrap_started) => !bootstrap_started,
+                            None => {
+                                self.shutdown();
                                 false
                             }
                         }
@@ -872,10 +875,7 @@ impl DhtHandler {
         };
     }
 
-    fn shutdown(&mut self, cause: ShutdownCause) {
-        self.event_tx
-            .send(DhtEvent::ShuttingDown(cause))
-            .unwrap_or(());
+    fn shutdown(&mut self) {
         self.running = false;
     }
 }
@@ -896,14 +896,15 @@ fn should_rebootstrap(table: &RoutingTable) -> bool {
 }
 
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
-/// Returns Err if the DHT is shutting down, Ok(true) if the rebootstrap process started, Ok(false) if a rebootstrap is not necessary.
+/// Returns None if the DHT is shutting down, Some(true) if the rebootstrap process started,
+/// Some(false) if a rebootstrap is not necessary.
 fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
     socket: &UdpSocket,
     timer: &mut Timer<ScheduledTaskCheck>,
-) -> Result<bool, ShutdownCause> {
+) -> Option<bool> {
     loop {
         // Increment the bootstrap counter
         *attempts += 1;
@@ -917,23 +918,22 @@ fn attempt_rebootstrap(
         if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
             if num_good_nodes(routing_table) == 0 {
                 // Failed to get any nodes in the rebootstrap attempts, shut down
-                return Err(ShutdownCause::BootstrapFailed);
+                return None;
             } else {
-                return Ok(false);
+                return Some(false);
             }
         } else {
             let bootstrap_status = bootstrap.start_bootstrap(socket, timer);
 
             match bootstrap_status {
-                BootstrapStatus::Idle => return Ok(false),
-                BootstrapStatus::Bootstrapping => return Ok(true),
+                BootstrapStatus::Idle => return Some(false),
+                BootstrapStatus::Bootstrapping => return Some(true),
                 BootstrapStatus::Failed => {
-                    // TODO: should we use `BootstrapFailed` here?
-                    return Err(ShutdownCause::Unspecified);
+                    return None;
                 }
                 BootstrapStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
-                        return Ok(false);
+                        return Some(false);
                     }
                 }
             }

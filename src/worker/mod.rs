@@ -39,23 +39,12 @@ pub(crate) enum ScheduledTaskCheck {
 pub enum DhtEvent {
     /// DHT completed the bootstrap.
     BootstrapCompleted,
+    /// The bootstrap failed.
+    BootstrapFailed,
     /// Lookup operation for the given InfoHash found a peer.
     PeerFound(InfoHash, SocketAddr),
     /// Lookup operation for the given InfoHash completed.
     LookupCompleted(InfoHash),
-    /// DHT is shutting down for some reason.
-    ShuttingDown(ShutdownCause),
-}
-
-/// Event that occured within the DHT which caused it to shutdown.
-#[derive(Copy, Clone, Debug)]
-pub enum ShutdownCause {
-    /// DHT failed to bootstrap more than once.
-    BootstrapFailed,
-    /// Client controlling the DHT intentionally shut it down.
-    ClientInitiated,
-    /// Cause of shutdown is not specified.
-    Unspecified,
 }
 
 /// Spawns the necessary workers that make up our local DHT node and connects them via channels
