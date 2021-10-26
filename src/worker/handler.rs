@@ -13,7 +13,6 @@ use crate::message::{
 };
 use crate::routing::node::Node;
 use crate::routing::node::NodeStatus;
-use crate::routing::table::BucketContents;
 use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
@@ -469,15 +468,10 @@ impl DhtHandler {
                     let mut total = 0;
 
                     for (index, bucket) in self.routing_table.buckets().enumerate() {
-                        let num_nodes = match bucket {
-                            BucketContents::Empty => 0,
-                            BucketContents::Sorted(b) => {
-                                b.iter().filter(|n| n.status() == NodeStatus::Good).count()
-                            }
-                            BucketContents::Assorted(b) => {
-                                b.iter().filter(|n| n.status() == NodeStatus::Good).count()
-                            }
-                        };
+                        let num_nodes = bucket
+                            .iter()
+                            .filter(|n| n.status() == NodeStatus::Good)
+                            .count();
                         total += num_nodes;
 
                         if num_nodes != 0 {

@@ -7,7 +7,7 @@ use crate::id::NodeId;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::{Node, NodeStatus};
-use crate::routing::table::{self, BucketContents, RoutingTable};
+use crate::routing::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -196,29 +196,17 @@ impl TableBootstrap {
 
             // Sloppy probabilities of our target node residing at the node
             let percent_25_bucket = if let Some(bucket) = buckets.next() {
-                match bucket {
-                    BucketContents::Empty => dummy_bucket.iter(),
-                    BucketContents::Sorted(b) => b.iter(),
-                    BucketContents::Assorted(b) => b.iter(),
-                }
+                bucket.iter()
             } else {
                 dummy_bucket.iter()
             };
             let percent_50_bucket = if let Some(bucket) = buckets.next() {
-                match bucket {
-                    BucketContents::Empty => dummy_bucket.iter(),
-                    BucketContents::Sorted(b) => b.iter(),
-                    BucketContents::Assorted(b) => b.iter(),
-                }
+                bucket.iter()
             } else {
                 dummy_bucket.iter()
             };
             let percent_100_bucket = if let Some(bucket) = buckets.next() {
-                match bucket {
-                    BucketContents::Empty => dummy_bucket.iter(),
-                    BucketContents::Sorted(b) => b.iter(),
-                    BucketContents::Assorted(b) => b.iter(),
-                }
+                bucket.iter()
             } else {
                 dummy_bucket.iter()
             };
