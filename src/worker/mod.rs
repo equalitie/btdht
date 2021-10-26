@@ -1,9 +1,9 @@
-use std::{collections::HashSet, io, net::SocketAddr};
-use tokio::{net::UdpSocket, sync::mpsc};
-
+use self::handler::DhtHandler;
 use crate::id::InfoHash;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
+use std::{collections::HashSet, net::SocketAddr};
+use tokio::{net::UdpSocket, sync::mpsc, task};
 
 mod bootstrap;
 mod handler;
@@ -53,12 +53,19 @@ pub(crate) fn start_mainline_dht(
     socket: UdpSocket,
     read_only: bool,
     announce_port: Option<u16>,
+    command_rx: mpsc::UnboundedReceiver<OneshotTask>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-) -> io::Result<mpsc::UnboundedSender<OneshotTask>> {
+) {
     // TODO: Utilize the security extension.
     let routing_table = RoutingTable::new(table::random_node_id());
-    let message_sender =
-        handler::create_dht_handler(routing_table, socket, read_only, announce_port, event_tx)?;
+    let mut handler = DhtHandler::new(
+        routing_table,
+        socket,
+        read_only,
+        announce_port,
+        command_rx,
+        event_tx,
+    );
 
-    Ok(message_sender)
+    task::spawn(async move { handler.run().await });
 }

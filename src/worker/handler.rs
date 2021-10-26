@@ -21,60 +21,11 @@ use crate::transaction::{AIDGenerator, ActionID, TransactionID};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
-use std::io;
 use std::net::SocketAddr;
 use tokio::{net::UdpSocket, select, sync::mpsc, task};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
-
-/// Spawns a DHT handler that maintains our routing table and executes our actions on the DHT.
-pub(crate) fn create_dht_handler(
-    table: RoutingTable,
-    socket: UdpSocket,
-    read_only: bool,
-    announce_port: Option<u16>,
-    event_tx: mpsc::UnboundedSender<DhtEvent>,
-) -> io::Result<mpsc::UnboundedSender<OneshotTask>> {
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-
-    let mut aid_generator = AIDGenerator::new();
-
-    // Insert the refresh task to execute after the bootstrap
-    let mut mid_generator = aid_generator.generate();
-    let refresh_trans_id = mid_generator.generate();
-    let table_refresh = TableRefresh::new(mid_generator);
-    let future_actions = vec![PostBootstrapAction::Refresh(
-        table_refresh,
-        refresh_trans_id,
-    )];
-
-    let mut handler = DhtHandler {
-        running: false,
-        command_rx,
-        timer: Timer::new(),
-        read_only,
-        announce_port,
-        socket,
-        token_store: TokenStore::new(),
-        aid_generator,
-        bootstrapping: false,
-        routing_table: table,
-        active_stores: AnnounceStorage::new(),
-        future_actions,
-        event_tx,
-        table_actions: HashMap::new(),
-    };
-
-    task::spawn(async move {
-        handler.run().await;
-        info!("bip_dht: DhtHandler gracefully shut down, exiting thread...");
-    });
-
-    Ok(command_tx)
-}
-
-// ----------------------------------------------------------------------------//
 
 /// Actions that we can perform on our RoutingTable.
 enum TableAction {
@@ -118,6 +69,43 @@ pub(crate) struct DhtHandler {
 }
 
 impl DhtHandler {
+    pub fn new(
+        table: RoutingTable,
+        socket: UdpSocket,
+        read_only: bool,
+        announce_port: Option<u16>,
+        command_rx: mpsc::UnboundedReceiver<OneshotTask>,
+        event_tx: mpsc::UnboundedSender<DhtEvent>,
+    ) -> Self {
+        let mut aid_generator = AIDGenerator::new();
+
+        // Insert the refresh task to execute after the bootstrap
+        let mut mid_generator = aid_generator.generate();
+        let refresh_trans_id = mid_generator.generate();
+        let table_refresh = TableRefresh::new(mid_generator);
+        let future_actions = vec![PostBootstrapAction::Refresh(
+            table_refresh,
+            refresh_trans_id,
+        )];
+
+        Self {
+            running: false,
+            command_rx,
+            timer: Timer::new(),
+            read_only,
+            announce_port,
+            socket,
+            token_store: TokenStore::new(),
+            aid_generator,
+            bootstrapping: false,
+            routing_table: table,
+            active_stores: AnnounceStorage::new(),
+            future_actions,
+            event_tx,
+            table_actions: HashMap::new(),
+        }
+    }
+
     pub async fn run(&mut self) {
         self.running = true;
 

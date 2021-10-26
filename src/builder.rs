@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::io;
 use std::net::SocketAddr;
 
 use tokio::{net::UdpSocket, sync::mpsc};
@@ -27,19 +26,26 @@ impl MainlineDht {
     fn with_builder(
         builder: DhtBuilder,
         socket: UdpSocket,
-        event_tx: mpsc::UnboundedSender<DhtEvent>,
-    ) -> io::Result<Self> {
-        let send =
-            worker::start_mainline_dht(socket, builder.read_only, builder.announce_port, event_tx)?;
+    ) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        if send
+        worker::start_mainline_dht(
+            socket,
+            builder.read_only,
+            builder.announce_port,
+            command_rx,
+            event_tx,
+        );
+
+        if command_tx
             .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
             .is_err()
         {
             warn!("bip_dt: MainlineDht failed to send a start bootstrap message...");
         }
 
-        Ok(MainlineDht { send })
+        (Self { send: command_tx }, event_rx)
     }
 
     /// Perform a search for the given InfoHash with an optional announce on the closest nodes.
@@ -118,12 +124,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(
-        self,
-        socket: UdpSocket,
-    ) -> io::Result<(MainlineDht, mpsc::UnboundedReceiver<DhtEvent>)> {
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
-        let dht = MainlineDht::with_builder(self, socket, event_tx)?;
-        Ok((dht, event_rx))
+    pub fn start(self, socket: UdpSocket) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
+        MainlineDht::with_builder(self, socket)
     }
 }
