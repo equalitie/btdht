@@ -117,7 +117,7 @@ impl TableBootstrap {
     pub fn recv_response(
         &mut self,
         trans_id: &TransactionID,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
@@ -154,7 +154,7 @@ impl TableBootstrap {
     pub fn recv_timeout(
         &mut self,
         trans_id: &TransactionID,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
@@ -177,7 +177,7 @@ impl TableBootstrap {
     // Returns true if there are more buckets to bootstrap, false otherwise
     fn bootstrap_next_bucket(
         &mut self,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
@@ -185,56 +185,61 @@ impl TableBootstrap {
 
         // Get the optimal iterator to bootstrap the current bucket
         if self.curr_bootstrap_bucket == 0 || self.curr_bootstrap_bucket == 1 {
-            let iter = table
+            let nodes: Vec<_> = table
                 .closest_nodes(target_id)
-                .filter(|n| n.status() == NodeStatus::Questionable);
+                .filter(|n| n.status() == NodeStatus::Questionable)
+                .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                .cloned()
+                .collect();
 
-            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
+            self.send_bootstrap_requests(&nodes, target_id, table, socket, timer)
         } else {
-            let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
-            let dummy_bucket = Bucket::new();
+            let nodes: Vec<_> = {
+                let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
+                let dummy_bucket = Bucket::new();
 
-            // Sloppy probabilities of our target node residing at the node
-            let percent_25_bucket = if let Some(bucket) = buckets.next() {
-                bucket.iter()
-            } else {
-                dummy_bucket.iter()
-            };
-            let percent_50_bucket = if let Some(bucket) = buckets.next() {
-                bucket.iter()
-            } else {
-                dummy_bucket.iter()
-            };
-            let percent_100_bucket = if let Some(bucket) = buckets.next() {
-                bucket.iter()
-            } else {
-                dummy_bucket.iter()
+                // Sloppy probabilities of our target node residing at the node
+                let percent_25_bucket = if let Some(bucket) = buckets.next() {
+                    bucket.iter()
+                } else {
+                    dummy_bucket.iter()
+                };
+                let percent_50_bucket = if let Some(bucket) = buckets.next() {
+                    bucket.iter()
+                } else {
+                    dummy_bucket.iter()
+                };
+                let percent_100_bucket = if let Some(bucket) = buckets.next() {
+                    bucket.iter()
+                } else {
+                    dummy_bucket.iter()
+                };
+
+                // TODO: Figure out why chaining them in reverse gives us more total nodes on average, perhaps it allows us to fill up the lower
+                // buckets faster at the cost of less nodes in the higher buckets (since lower buckets are very easy to fill)...Although it should
+                // even out since we are stagnating buckets, so doing it in reverse may make sense since on the 3rd iteration, it allows us to ping
+                // questionable nodes in our first buckets right off the bat.
+                percent_25_bucket
+                    .chain(percent_50_bucket)
+                    .chain(percent_100_bucket)
+                    .filter(|n| n.status() == NodeStatus::Questionable)
+                    .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                    .cloned()
+                    .collect()
             };
 
-            // TODO: Figure out why chaining them in reverse gives us more total nodes on average, perhaps it allows us to fill up the lower
-            // buckets faster at the cost of less nodes in the higher buckets (since lower buckets are very easy to fill)...Although it should
-            // even out since we are stagnating buckets, so doing it in reverse may make sense since on the 3rd iteration, it allows us to ping
-            // questionable nodes in our first buckets right off the bat.
-            let iter = percent_25_bucket
-                .chain(percent_50_bucket)
-                .chain(percent_100_bucket)
-                .filter(|n| n.status() == NodeStatus::Questionable);
-
-            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
+            self.send_bootstrap_requests(&nodes, target_id, table, socket, timer)
         }
     }
 
-    fn send_bootstrap_requests<'a, I>(
+    fn send_bootstrap_requests(
         &mut self,
-        nodes: I,
+        nodes: &[Node],
         target_id: NodeId,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus
-    where
-        I: Iterator<Item = &'a Node>,
-    {
+    ) -> BootstrapStatus {
         info!(
             "bip_dht: bootstrap::send_bootstrap_requests {}",
             self.curr_bootstrap_bucket
@@ -242,7 +247,7 @@ impl TableBootstrap {
 
         let mut messages_sent = 0;
 
-        for node in nodes.take(BOOTSTRAP_PINGS_PER_BUCKET) {
+        for node in nodes {
             // Generate a transaction id
             let trans_id = self.id_generator.generate();
             let find_node_msg = Message {
@@ -267,7 +272,9 @@ impl TableBootstrap {
             }
 
             // Mark that we requested from the node
-            node.local_request();
+            if let Some(node) = table.find_node_mut(node) {
+                node.local_request();
+            }
 
             // Create an entry for the timeout in the map
             self.active_messages.insert(trans_id, timeout);

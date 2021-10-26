@@ -1,10 +1,9 @@
+use super::bucket::{self, Bucket};
+use super::node::{Node, NodeStatus};
+use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
 use std::cmp::Ordering;
 use std::iter::Filter;
 use std::slice::Iter;
-
-use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
-use crate::routing::bucket::{self, Bucket};
-use crate::routing::node::{Node, NodeStatus};
 
 pub const MAX_BUCKETS: usize = SHA_HASH_LEN * 8;
 
@@ -44,12 +43,8 @@ impl RoutingTable {
         self.buckets.iter()
     }
 
-    // /// Iterator over all buckets in the routing table that allows modifying the buckets.
-    // pub fn buckets_mut(&mut self) -> impl Iterator<Item = &mut Bucket> + ExactSizeIterator {
-    //     self.buckets.iter_mut()
-    // }
-
     /// Find an instance of the target node in the RoutingTable, if it exists.
+    #[allow(unused)]
     pub fn find_node(&self, node: &Node) -> Option<&Node> {
         let bucket_index = self.bucket_index_for_node(node.id());
         let bucket = self.buckets.get(bucket_index)?;
@@ -76,7 +71,7 @@ impl RoutingTable {
             self.buckets
                 .len()
                 .checked_sub(1)
-                .expect("routing table must have at least one bucket")
+                .expect("no buckets present in RoutingTable - implementation error")
         }
     }
 
@@ -121,7 +116,7 @@ impl RoutingTable {
         // in the RoutingTable already.
         let split_bucket = match self.buckets.pop() {
             Some(bucket) => bucket,
-            None => panic!("No buckets present in RoutingTable, implementation error..."),
+            None => panic!("no buckets present in RoutingTable - implementation error"),
         };
 
         // Push two more buckets to distribute nodes between

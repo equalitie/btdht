@@ -1,4 +1,3 @@
-use std::iter::Filter;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
 
@@ -36,9 +35,11 @@ impl Bucket {
     }
 
     /// Iterator over all good nodes in the bucket.
-    #[allow(unused)]
-    pub fn good_nodes(&self) -> GoodNodes {
-        GoodNodes::new(&self.nodes)
+    #[cfg(test)]
+    pub fn good_nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes
+            .iter()
+            .filter(|node| node.status() == NodeStatus::Good)
     }
 
     /// Iterator over all good nodes and questionable nodes in the bucket.
@@ -102,32 +103,6 @@ impl Bucket {
         } else {
             false
         }
-    }
-}
-
-// ----------------------------------------------------------------------------//
-
-pub struct GoodNodes<'a> {
-    iter: Filter<Iter<'a, Node>, fn(&&Node) -> bool>,
-}
-
-impl<'a> GoodNodes<'a> {
-    fn new(nodes: &'a [Node]) -> GoodNodes<'a> {
-        GoodNodes {
-            iter: nodes.iter().filter(good_nodes_filter),
-        }
-    }
-}
-
-fn good_nodes_filter(node: &&Node) -> bool {
-    node.status() == NodeStatus::Good
-}
-
-impl<'a> Iterator for GoodNodes<'a> {
-    type Item = &'a Node;
-
-    fn next(&mut self) -> Option<&'a Node> {
-        self.iter.next()
     }
 }
 

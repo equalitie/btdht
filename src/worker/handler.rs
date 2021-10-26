@@ -217,7 +217,7 @@ impl DhtHandler {
                 let node = Node::as_good(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -239,7 +239,7 @@ impl DhtHandler {
                 let node = Node::as_good(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -270,7 +270,7 @@ impl DhtHandler {
                 let node = Node::as_good(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -318,7 +318,7 @@ impl DhtHandler {
                 let node = Node::as_good(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -424,7 +424,7 @@ impl DhtHandler {
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
                         match bootstrap.recv_response(
                             &trans_id,
-                            &self.routing_table,
+                            &mut self.routing_table,
                             &self.socket,
                             &mut self.timer,
                         ) {
@@ -521,7 +521,7 @@ impl DhtHandler {
                         node,
                         &trans_id,
                         g,
-                        &self.routing_table,
+                        &mut self.routing_table,
                         &self.socket,
                         &mut self.timer,
                     ) {
@@ -613,7 +613,7 @@ impl DhtHandler {
                 Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => Some((
                     bootstrap.recv_timeout(
                         &trans_id,
-                        &self.routing_table,
+                        &mut self.routing_table,
                         &self.socket,
                         &mut self.timer,
                     ),
@@ -726,7 +726,7 @@ impl DhtHandler {
                 info_hash,
                 mid_generator,
                 should_announce,
-                &self.routing_table,
+                &mut self.routing_table,
                 &self.socket,
                 &mut self.timer,
             );
@@ -740,7 +740,7 @@ impl DhtHandler {
             Some(TableAction::Lookup(lookup)) => Some((
                 lookup.recv_timeout(
                     &trans_id,
-                    &self.routing_table,
+                    &mut self.routing_table,
                     &self.socket,
                     &mut self.timer,
                 ),
@@ -791,7 +791,7 @@ impl DhtHandler {
     fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
             Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup.recv_finished(self.announce_port, &self.routing_table, &self.socket),
+                lookup.recv_finished(self.announce_port, &mut self.routing_table, &self.socket),
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -839,7 +839,7 @@ impl DhtHandler {
     fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
         match self.table_actions.get_mut(&trans_id.action_id()) {
             Some(TableAction::Refresh(refresh)) => {
-                refresh.continue_refresh(&self.routing_table, &self.socket, &mut self.timer)
+                refresh.continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             }
             Some(TableAction::Lookup(_)) => {
                 error!("Resolved a TransactionID to a check table refresh but TableLookup found");

@@ -23,7 +23,7 @@ impl TableRefresh {
 
     pub fn continue_refresh(
         &mut self,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) {
@@ -37,10 +37,10 @@ impl TableRefresh {
             self.curr_refresh_bucket
         );
         // Ping the closest questionable node
-        for node in table
+        if let Some(node) = table
             .closest_nodes(target_id)
-            .filter(|n| n.status() == NodeStatus::Questionable)
-            .take(1)
+            .find(|n| n.status() == NodeStatus::Questionable)
+            .cloned()
         {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();
@@ -62,7 +62,9 @@ impl TableRefresh {
             }
 
             // Mark that we requested from the node
-            node.local_request();
+            if let Some(node) = table.find_node_mut(&node) {
+                node.local_request();
+            }
         }
 
         // Generate a dummy transaction id (only the action id will be used)
