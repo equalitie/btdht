@@ -23,8 +23,6 @@ use crate::worker::lookup::{LookupStatus, TableLookup};
 use crate::worker::refresh::{RefreshStatus, TableRefresh};
 use crate::worker::{DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause};
 
-// TODO: Update modules to use find_node on the routing table to update the status of a given node.
-
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 

@@ -6,11 +6,13 @@ use crate::mio;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::TransactionID;
 
-pub(crate) mod bootstrap;
-pub(crate) mod handler;
-pub(crate) mod lookup;
-pub(crate) mod messenger;
-pub(crate) mod refresh;
+mod bootstrap;
+mod handler;
+mod lookup;
+mod messenger;
+mod refresh;
+// TODO: remove the pub
+pub(crate) mod timer;
 
 /// Task that our DHT will execute immediately.
 #[derive(Clone)]
