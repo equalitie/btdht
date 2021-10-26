@@ -10,8 +10,7 @@ mod handler;
 mod lookup;
 mod messenger;
 mod refresh;
-// TODO: remove the pub
-pub(crate) mod timer;
+mod timer;
 
 /// Task that our DHT will execute immediately.
 #[derive(Clone)]

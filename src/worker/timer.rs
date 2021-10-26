@@ -4,7 +4,7 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::time::{self, Sleep};
 
@@ -29,7 +29,11 @@ impl<T> Timer<T> {
         }
     }
 
-    pub fn schedule(&mut self, deadline: Instant, value: T) -> Timeout {
+    pub fn schedule_in(&mut self, deadline: Duration, value: T) -> Timeout {
+        self.schedule_at(Instant::now() + deadline, value)
+    }
+
+    pub fn schedule_at(&mut self, deadline: Instant, value: T) -> Timeout {
         // If the current timeout is later than the new one, push it back into the queue.
         if let Some(current) = &self.current {
             let key = current.key();

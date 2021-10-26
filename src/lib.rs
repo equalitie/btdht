@@ -23,7 +23,6 @@ mod builder;
 mod compact;
 mod id;
 mod message;
-mod mio;
 mod routing;
 mod storage;
 #[cfg(test)]

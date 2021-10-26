@@ -1,20 +1,17 @@
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::time::Duration;
-
-use tokio::sync::mpsc;
-
+use super::timer::{Timeout, Timer};
+use super::ScheduledTaskCheck;
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
-use crate::mio::{EventLoop, Timeout};
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeInfo, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
-use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTaskCheck;
+use std::collections::{HashMap, HashSet};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
 const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -69,7 +66,7 @@ impl TableLookup {
         will_announce: bool,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> Option<TableLookup> {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
         let mut all_sorted_nodes = Vec::with_capacity(bucket::MAX_BUCKET_SIZE);
@@ -108,7 +105,7 @@ impl TableLookup {
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
-        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, out, event_loop)
+        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, out, timer)
             != LookupStatus::Failed
         {
             Some(table_lookup)
@@ -128,7 +125,7 @@ impl TableLookup {
         msg: GetPeersResponse,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Process the message transaction id
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
@@ -143,7 +140,7 @@ impl TableLookup {
 
         // Cancel the timeout (if this is not an endgame response)
         if !self.in_endgame {
-            event_loop.clear_timeout(timeout);
+            timer.cancel(timeout);
         }
 
         // Add the announce token to our list of tokens
@@ -212,7 +209,7 @@ impl TableLookup {
                     .iter()
                     .filter(|&&(_, good)| good)
                     .map(|&(ref n, _)| (n, next_dist_to_beat));
-                if self.start_request_round(filtered_nodes, table, out, event_loop)
+                if self.start_request_round(filtered_nodes, table, out, timer)
                     == LookupStatus::Failed
                 {
                     return LookupStatus::Failed;
@@ -221,7 +218,7 @@ impl TableLookup {
 
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
+                && self.start_endgame_round(table, out, timer) == LookupStatus::Failed
             {
                 return LookupStatus::Failed;
             }
@@ -239,7 +236,7 @@ impl TableLookup {
         trans_id: &TransactionID,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
             warn!(
@@ -252,7 +249,7 @@ impl TableLookup {
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, event_loop) == LookupStatus::Failed
+                && self.start_endgame_round(table, out, timer) == LookupStatus::Failed
             {
                 return LookupStatus::Failed;
             }
@@ -336,7 +333,7 @@ impl TableLookup {
         nodes: I,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
         I: Iterator<Item = (&'a Node, DistanceToBeat)>,
@@ -349,7 +346,7 @@ impl TableLookup {
 
             // Try to start a timeout for the node
             let timeout =
-                event_loop.timeout(ScheduledTaskCheck::LookupTimeout(trans_id), LOOKUP_TIMEOUT);
+                timer.schedule_in(LOOKUP_TIMEOUT, ScheduledTaskCheck::LookupTimeout(trans_id));
 
             // Associate the transaction id with the distance the returned nodes must beat and the timeout token
             self.active_lookups
@@ -393,15 +390,15 @@ impl TableLookup {
         &mut self,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Entering the endgame phase
         self.in_endgame = true;
 
         // Try to start a global message timeout for the endgame
-        let timeout = event_loop.timeout(
-            ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
+        let timeout = timer.schedule_in(
             ENDGAME_TIMEOUT,
+            ScheduledTaskCheck::LookupEndGame(self.id_generator.generate()),
         );
 
         // Request all unpinged nodes if we didnt receive any values

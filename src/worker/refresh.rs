@@ -1,14 +1,11 @@
-use std::{net::SocketAddr, time::Duration};
-
-use tokio::sync::mpsc;
-
+use super::timer::Timer;
+use super::ScheduledTaskCheck;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
-use crate::mio::EventLoop;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
-use crate::worker::handler::DhtHandler;
-use crate::worker::ScheduledTaskCheck;
+use std::{net::SocketAddr, time::Duration};
+use tokio::sync::mpsc;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
 
@@ -36,7 +33,7 @@ impl TableRefresh {
         &mut self,
         table: &RoutingTable,
         out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
-        event_loop: &mut EventLoop<DhtHandler>,
+        timer: &mut Timer<ScheduledTaskCheck>,
     ) -> RefreshStatus {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
@@ -84,9 +81,9 @@ impl TableRefresh {
         let trans_id = self.id_generator.generate();
 
         // Start a timer for the next refresh
-        event_loop.timeout(
-            ScheduledTaskCheck::TableRefresh(trans_id),
+        timer.schedule_in(
             REFRESH_INTERVAL_TIMEOUT,
+            ScheduledTaskCheck::TableRefresh(trans_id),
         );
 
         self.curr_refresh_bucket += 1;
