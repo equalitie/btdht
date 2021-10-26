@@ -1,3 +1,5 @@
+//! Helpers to simplify work with UdpSocket.
+
 use std::{io, net::SocketAddr};
 use tokio::{net::UdpSocket, runtime::Handle};
 
@@ -20,6 +22,7 @@ pub(crate) async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> 
     Ok(())
 }
 
+/// This function is cancel safe: https://docs.rs/tokio/1.12.0/tokio/net/struct.UdpSocket.html#cancel-safety-6
 pub(crate) async fn recv(socket: &UdpSocket) -> io::Result<(Vec<u8>, SocketAddr)> {
     let mut buffer = vec![0u8; 1500];
     let (size, addr) = socket.recv_from(&mut buffer).await?;

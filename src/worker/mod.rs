@@ -8,8 +8,8 @@ use crate::transaction::TransactionID;
 mod bootstrap;
 mod handler;
 mod lookup;
-mod messenger;
 mod refresh;
+mod socket;
 mod timer;
 
 /// Task that our DHT will execute immediately.

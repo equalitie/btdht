@@ -1,5 +1,5 @@
 use super::{
-    messenger,
+    socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -93,7 +93,7 @@ impl TableBootstrap {
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, *addr) {
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, *addr) {
                 error!(
                     "bip_dht: Failed to send bootstrap message to router: {}",
                     error
@@ -268,7 +268,7 @@ impl TableBootstrap {
             );
 
             // Send the message to the node
-            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, node.addr()) {
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
                 error!("bip_dht: Could not send a bootstrap message: {}", error);
                 return BootstrapStatus::Failed;
             }

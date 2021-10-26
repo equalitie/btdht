@@ -1,4 +1,4 @@
-use super::{messenger, timer::Timer, ScheduledTaskCheck};
+use super::{socket, timer::Timer, ScheduledTaskCheck};
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
@@ -64,7 +64,7 @@ impl TableRefresh {
             let find_node_msg = find_node_msg.encode();
 
             // Send the message
-            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, node.addr()) {
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
                 error!(
                     "bip_dht: TableRefresh failed to send a refresh message: {}",
                     error

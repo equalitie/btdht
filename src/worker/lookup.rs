@@ -1,5 +1,5 @@
 use super::{
-    messenger,
+    socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -295,9 +295,7 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                if let Err(error) =
-                    messenger::blocking_send(socket, &announce_peer_msg, node.addr())
-                {
+                if let Err(error) = socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
                     error!(
                         "bip_dht: TableLookup announce request failed to send: {}",
                         error
@@ -367,7 +365,7 @@ impl TableLookup {
             }
             .encode();
 
-            if let Err(error) = messenger::blocking_send(socket, &get_peers_msg, node.addr()) {
+            if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
                 error!("bip_dht: Could not send a lookup message: {}", error);
                 return LookupStatus::Failed;
             }
@@ -429,7 +427,7 @@ impl TableLookup {
                 }
                 .encode();
 
-                if let Err(error) = messenger::blocking_send(socket, &get_peers_msg, node.addr()) {
+                if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
                     error!("bip_dht: Could not send an endgame message: {}", error);
                     return LookupStatus::Failed;
                 }

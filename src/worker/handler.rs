@@ -1,8 +1,8 @@
 use super::{
     bootstrap::{BootstrapStatus, TableBootstrap},
     lookup::{LookupStatus, TableLookup},
-    messenger,
     refresh::{RefreshStatus, TableRefresh},
+    socket,
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause},
 };
@@ -143,7 +143,7 @@ impl DhtHandler {
                     self.shutdown(ShutdownCause::ClientInitiated)
                 }
             }
-            message = messenger::recv(&self.socket) => {
+            message = socket::recv(&self.socket) => {
                 match message {
                     Ok((buffer, addr)) => {
                         // TODO: make `handle_incoming` async and remove the `block_in_place`.
@@ -245,7 +245,7 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if let Err(error) = messenger::blocking_send(&self.socket, &ping_msg, addr) {
+                if let Err(error) = socket::blocking_send(&self.socket, &ping_msg, addr) {
                     error!("bip_dht: Failed to send a ping response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
@@ -277,7 +277,7 @@ impl DhtHandler {
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if let Err(error) = messenger::blocking_send(&self.socket, &find_node_msg, addr) {
+                if let Err(error) = socket::blocking_send(&self.socket, &find_node_msg, addr) {
                     error!("bip_dht: Failed to send a find node response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
@@ -326,7 +326,7 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if let Err(error) = messenger::blocking_send(&self.socket, &get_peers_msg, addr) {
+                if let Err(error) = socket::blocking_send(&self.socket, &get_peers_msg, addr) {
                     error!("bip_dht: Failed to send a get peers response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
@@ -394,7 +394,7 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if let Err(error) = messenger::blocking_send(&self.socket, &response_msg, addr) {
+                if let Err(error) = socket::blocking_send(&self.socket, &response_msg, addr) {
                     error!(
                         "bip_dht: Failed to send an announce peer response: {}",
                         error
