@@ -1,8 +1,11 @@
-use super::bootstrap::{BootstrapStatus, TableBootstrap};
-use super::lookup::{LookupStatus, TableLookup};
-use super::refresh::{RefreshStatus, TableRefresh};
-use super::timer::Timer;
-use super::{DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause};
+use super::{
+    bootstrap::{BootstrapStatus, TableBootstrap},
+    lookup::{LookupStatus, TableLookup},
+    messenger,
+    refresh::{RefreshStatus, TableRefresh},
+    timer::Timer,
+    {DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause},
+};
 use crate::id::InfoHash;
 use crate::message::{
     error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
@@ -20,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::io;
 use std::net::SocketAddr;
-use tokio::{select, sync::mpsc, task};
+use tokio::{net::UdpSocket, select, sync::mpsc, task};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
@@ -28,7 +31,7 @@ const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 /// Spawns a DHT handler that maintains our routing table and executes our actions on the DHT.
 pub(crate) fn create_dht_handler(
     table: RoutingTable,
-    out: mpsc::Sender<(Vec<u8>, SocketAddr)>,
+    socket: UdpSocket,
     read_only: bool,
     announce_port: Option<u16>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
@@ -52,7 +55,7 @@ pub(crate) fn create_dht_handler(
         timer: Timer::new(),
         read_only,
         announce_port,
-        out_channel: out,
+        socket,
         token_store: TokenStore::new(),
         aid_generator,
         bootstrapping: false,
@@ -101,7 +104,7 @@ pub(crate) struct DhtHandler {
     timer: Timer<ScheduledTaskCheck>,
     read_only: bool,
     announce_port: Option<u16>,
-    out_channel: mpsc::Sender<(Vec<u8>, SocketAddr)>,
+    socket: UdpSocket,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
     bootstrapping: bool,
@@ -140,14 +143,20 @@ impl DhtHandler {
                     self.shutdown(ShutdownCause::ClientInitiated)
                 }
             }
+            message = messenger::recv(&self.socket) => {
+                match message {
+                    Ok((buffer, addr)) => {
+                        // TODO: make `handle_incoming` async and remove the `block_in_place`.
+                        task::block_in_place(|| self.handle_incoming(&buffer, addr))
+                    }
+                    Err(error) => warn!("Failed to receive incoming message: {}", error),
+                }
+            }
         }
     }
 
     fn handle_command(&mut self, task: OneshotTask) {
         match task {
-            OneshotTask::Incoming(buffer, addr) => {
-                self.handle_incoming(&buffer[..], addr);
-            }
             OneshotTask::StartBootstrap(routers, nodes) => {
                 self.handle_start_bootstrap(routers, nodes);
             }
@@ -236,8 +245,8 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if self.out_channel.blocking_send((ping_msg, addr)).is_err() {
-                    error!("bip_dht: Failed to send a ping response on the out channel...");
+                if let Err(error) = messenger::blocking_send(&self.socket, &ping_msg, addr) {
+                    error!("bip_dht: Failed to send a ping response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
             }
@@ -268,12 +277,8 @@ impl DhtHandler {
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if self
-                    .out_channel
-                    .blocking_send((find_node_msg, addr))
-                    .is_err()
-                {
-                    error!("bip_dht: Failed to send a find node response on the out channel...");
+                if let Err(error) = messenger::blocking_send(&self.socket, &find_node_msg, addr) {
+                    error!("bip_dht: Failed to send a find node response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
             }
@@ -321,12 +326,8 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if self
-                    .out_channel
-                    .blocking_send((get_peers_msg, addr))
-                    .is_err()
-                {
-                    error!("bip_dht: Failed to send a get peers response on the out channel...");
+                if let Err(error) = messenger::blocking_send(&self.socket, &get_peers_msg, addr) {
+                    error!("bip_dht: Failed to send a get peers response: {}", error);
                     self.shutdown(ShutdownCause::Unspecified);
                 }
             }
@@ -393,13 +394,10 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if self
-                    .out_channel
-                    .blocking_send((response_msg, addr))
-                    .is_err()
-                {
+                if let Err(error) = messenger::blocking_send(&self.socket, &response_msg, addr) {
                     error!(
-                        "bip_dht: Failed to send an announce peer response on the out channel..."
+                        "bip_dht: Failed to send an announce peer response: {}",
+                        error
                     );
                     self.shutdown(ShutdownCause::Unspecified);
                 }
@@ -446,7 +444,7 @@ impl DhtHandler {
                         match bootstrap.recv_response(
                             &trans_id,
                             &self.routing_table,
-                            &self.out_channel,
+                            &self.socket,
                             &mut self.timer,
                         ) {
                             BootstrapStatus::Idle => true,
@@ -461,7 +459,7 @@ impl DhtHandler {
                                         bootstrap,
                                         attempts,
                                         &self.routing_table,
-                                        &self.out_channel,
+                                        &self.socket,
                                         &mut self.timer,
                                     ) {
                                         Ok(bootstrap_started) => !bootstrap_started,
@@ -547,7 +545,7 @@ impl DhtHandler {
                         &trans_id,
                         g,
                         &self.routing_table,
-                        &self.out_channel,
+                        &self.socket,
                         &mut self.timer,
                     ) {
                         LookupStatus::Searching => (),
@@ -585,7 +583,7 @@ impl DhtHandler {
             TableBootstrap::new(self.routing_table.node_id(), mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
-        let bootstrap_status = table_bootstrap.start_bootstrap(&self.out_channel, &mut self.timer);
+        let bootstrap_status = table_bootstrap.start_bootstrap(&self.socket, &mut self.timer);
 
         self.bootstrapping = true;
         self.table_actions
@@ -612,7 +610,7 @@ impl DhtHandler {
                         bootstrap,
                         attempts,
                         &self.routing_table,
-                        &self.out_channel,
+                        &self.socket,
                         &mut self.timer,
                     ) {
                         Ok(bootstrap_started) => !bootstrap_started,
@@ -639,7 +637,7 @@ impl DhtHandler {
                     bootstrap.recv_timeout(
                         &trans_id,
                         &self.routing_table,
-                        &self.out_channel,
+                        &self.socket,
                         &mut self.timer,
                     ),
                     bootstrap,
@@ -683,7 +681,7 @@ impl DhtHandler {
                             bootstrap,
                             attempts,
                             &self.routing_table,
-                            &self.out_channel,
+                            &self.socket,
                             &mut self.timer,
                         ) {
                             Ok(bootstrap_started) => !bootstrap_started,
@@ -751,7 +749,7 @@ impl DhtHandler {
                 mid_generator,
                 should_announce,
                 &self.routing_table,
-                &self.out_channel,
+                &self.socket,
                 &mut self.timer,
             ) {
                 Some(lookup) => {
@@ -769,7 +767,7 @@ impl DhtHandler {
                 lookup.recv_timeout(
                     &trans_id,
                     &self.routing_table,
-                    &self.out_channel,
+                    &self.socket,
                     &mut self.timer,
                 ),
                 lookup.info_hash(),
@@ -820,7 +818,7 @@ impl DhtHandler {
     fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
             Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup.recv_finished(self.announce_port, &self.routing_table, &self.out_channel),
+                lookup.recv_finished(self.announce_port, &self.routing_table, &self.socket),
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -868,11 +866,9 @@ impl DhtHandler {
 
     fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
         let opt_refresh_status = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(&mut TableAction::Refresh(ref mut refresh)) => Some(refresh.continue_refresh(
-                &self.routing_table,
-                &self.out_channel,
-                &mut self.timer,
-            )),
+            Some(&mut TableAction::Refresh(ref mut refresh)) => {
+                Some(refresh.continue_refresh(&self.routing_table, &self.socket, &mut self.timer))
+            }
             Some(&mut TableAction::Lookup(_)) => {
                 error!(
                     "bip_dht: Resolved a TransactionID to a check table refresh but TableLookup \
@@ -932,7 +928,7 @@ fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
-    out_channel: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+    socket: &UdpSocket,
     timer: &mut Timer<ScheduledTaskCheck>,
 ) -> Result<bool, ShutdownCause> {
     loop {
@@ -953,7 +949,7 @@ fn attempt_rebootstrap(
                 return Ok(false);
             }
         } else {
-            let bootstrap_status = bootstrap.start_bootstrap(out_channel, timer);
+            let bootstrap_status = bootstrap.start_bootstrap(socket, timer);
 
             match bootstrap_status {
                 BootstrapStatus::Idle => return Ok(false),

@@ -1,4 +1,5 @@
 use super::{
+    messenger,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -11,7 +12,7 @@ use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::net::UdpSocket;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -58,7 +59,7 @@ impl TableBootstrap {
 
     pub fn start_bootstrap(
         &mut self,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Reset the bootstrap state
@@ -92,8 +93,11 @@ impl TableBootstrap {
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            if out.blocking_send((find_node_msg.clone(), *addr)).is_err() {
-                error!("bip_dht: Failed to send bootstrap message to router through channel...");
+            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, *addr) {
+                error!(
+                    "bip_dht: Failed to send bootstrap message to router: {}",
+                    error
+                );
                 return BootstrapStatus::Failed;
             }
         }
@@ -109,7 +113,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Process the message transaction id
@@ -136,7 +140,7 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, out, timer);
+            return self.bootstrap_next_bucket(table, socket, timer);
         }
 
         self.current_bootstrap_status()
@@ -146,7 +150,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
@@ -159,7 +163,7 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, out, timer);
+            return self.bootstrap_next_bucket(table, socket, timer);
         }
 
         self.current_bootstrap_status()
@@ -169,7 +173,7 @@ impl TableBootstrap {
     fn bootstrap_next_bucket(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
@@ -180,7 +184,7 @@ impl TableBootstrap {
                 .closest_nodes(target_id)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
-            self.send_bootstrap_requests(iter, target_id, table, out, timer)
+            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
         } else {
             let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
             let dummy_bucket = Bucket::new();
@@ -223,7 +227,7 @@ impl TableBootstrap {
                 .chain(percent_100_bucket)
                 .filter(|n| n.status() == NodeStatus::Questionable);
 
-            self.send_bootstrap_requests(iter, target_id, table, out, timer)
+            self.send_bootstrap_requests(iter, target_id, table, socket, timer)
         }
     }
 
@@ -232,7 +236,7 @@ impl TableBootstrap {
         nodes: I,
         target_id: NodeId,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus
     where
@@ -264,8 +268,8 @@ impl TableBootstrap {
             );
 
             // Send the message to the node
-            if out.blocking_send((find_node_msg, node.addr())).is_err() {
-                error!("bip_dht: Could not send a bootstrap message through the channel...");
+            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, node.addr()) {
+                error!("bip_dht: Could not send a bootstrap message: {}", error);
                 return BootstrapStatus::Failed;
             }
 
@@ -282,7 +286,7 @@ impl TableBootstrap {
         if self.curr_bootstrap_bucket == table::MAX_BUCKETS {
             BootstrapStatus::Completed
         } else if messages_sent == 0 {
-            self.bootstrap_next_bucket(table, out, timer)
+            self.bootstrap_next_bucket(table, socket, timer)
         } else {
             BootstrapStatus::Bootstrapping
         }

@@ -1,5 +1,5 @@
 use std::{collections::HashSet, io, net::SocketAddr};
-use tokio::{net::UdpSocket, sync::mpsc, task};
+use tokio::{net::UdpSocket, sync::mpsc};
 
 use crate::id::InfoHash;
 use crate::routing::table::{self, RoutingTable};
@@ -10,14 +10,11 @@ mod handler;
 mod lookup;
 mod messenger;
 mod refresh;
-mod socket;
 mod timer;
 
 /// Task that our DHT will execute immediately.
 #[derive(Clone)]
 pub(crate) enum OneshotTask {
-    /// Process an incoming message from a remote node.
-    Incoming(Vec<u8>, SocketAddr),
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
     /// Start a lookup for the given InfoHash.
@@ -61,8 +58,6 @@ pub enum ShutdownCause {
     Unspecified,
 }
 
-const OUTGOING_MESSAGE_CAPACITY: usize = 4096;
-
 /// Spawns the necessary workers that make up our local DHT node and connects them via channels
 /// so that they can send and receive DHT messages.
 pub(crate) fn start_mainline_dht(
@@ -71,23 +66,10 @@ pub(crate) fn start_mainline_dht(
     announce_port: Option<u16>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
 ) -> io::Result<mpsc::UnboundedSender<OneshotTask>> {
-    let (outgoing_tx, outgoing_rx) = mpsc::channel(OUTGOING_MESSAGE_CAPACITY);
-
     // TODO: Utilize the security extension.
     let routing_table = RoutingTable::new(table::random_node_id());
-    let message_sender = handler::create_dht_handler(
-        routing_table,
-        outgoing_tx,
-        read_only,
-        announce_port,
-        event_tx,
-    )?;
-
-    task::spawn(messenger::create(
-        socket,
-        message_sender.clone(),
-        outgoing_rx,
-    ));
+    let message_sender =
+        handler::create_dht_handler(routing_table, socket, read_only, announce_port, event_tx)?;
 
     Ok(message_sender)
 }

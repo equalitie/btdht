@@ -1,5 +1,8 @@
-use super::timer::{Timeout, Timer};
-use super::ScheduledTaskCheck;
+use super::{
+    messenger,
+    timer::{Timeout, Timer},
+    ScheduledTaskCheck,
+};
 use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
@@ -11,7 +14,7 @@ use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::net::UdpSocket;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
 const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -65,7 +68,7 @@ impl TableLookup {
         id_generator: MIDGenerator,
         will_announce: bool,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> Option<TableLookup> {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
@@ -105,7 +108,7 @@ impl TableLookup {
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
-        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, out, timer)
+        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, socket, timer)
             != LookupStatus::Failed
         {
             Some(table_lookup)
@@ -124,7 +127,7 @@ impl TableLookup {
         trans_id: &TransactionID,
         msg: GetPeersResponse,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Process the message transaction id
@@ -209,7 +212,7 @@ impl TableLookup {
                     .iter()
                     .filter(|&&(_, good)| good)
                     .map(|&(ref n, _)| (n, next_dist_to_beat));
-                if self.start_request_round(filtered_nodes, table, out, timer)
+                if self.start_request_round(filtered_nodes, table, socket, timer)
                     == LookupStatus::Failed
                 {
                     return LookupStatus::Failed;
@@ -218,7 +221,7 @@ impl TableLookup {
 
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, timer) == LookupStatus::Failed
+                && self.start_endgame_round(table, socket, timer) == LookupStatus::Failed
             {
                 return LookupStatus::Failed;
             }
@@ -235,7 +238,7 @@ impl TableLookup {
         &mut self,
         trans_id: &TransactionID,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
@@ -249,7 +252,7 @@ impl TableLookup {
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, out, timer) == LookupStatus::Failed
+                && self.start_endgame_round(table, socket, timer) == LookupStatus::Failed
             {
                 return LookupStatus::Failed;
             }
@@ -262,7 +265,7 @@ impl TableLookup {
         &mut self,
         port: Option<u16>,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
     ) -> LookupStatus {
         let mut fatal_error = false;
 
@@ -292,10 +295,12 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                if out.blocking_send((announce_peer_msg, node.addr())).is_err() {
+                if let Err(error) =
+                    messenger::blocking_send(socket, &announce_peer_msg, node.addr())
+                {
                     error!(
-                        "bip_dht: TableLookup announce request failed to send through the out \
-                            channel..."
+                        "bip_dht: TableLookup announce request failed to send: {}",
+                        error
                     );
                     fatal_error = true;
                 }
@@ -332,7 +337,7 @@ impl TableLookup {
         &mut self,
         nodes: I,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
@@ -362,8 +367,8 @@ impl TableLookup {
             }
             .encode();
 
-            if out.blocking_send((get_peers_msg, node.addr())).is_err() {
-                error!("bip_dht: Could not send a lookup message through the channel...");
+            if let Err(error) = messenger::blocking_send(socket, &get_peers_msg, node.addr()) {
+                error!("bip_dht: Could not send a lookup message: {}", error);
                 return LookupStatus::Failed;
             }
 
@@ -389,7 +394,7 @@ impl TableLookup {
     fn start_endgame_round(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Entering the endgame phase
@@ -403,11 +408,7 @@ impl TableLookup {
 
         // Request all unpinged nodes if we didnt receive any values
         if !self.recv_values {
-            for node_info in self
-                .all_sorted_nodes
-                .iter_mut()
-                .filter(|&&mut (_, _, req)| !req)
-            {
+            for node_info in self.all_sorted_nodes.iter_mut().filter(|(_, _, req)| !req) {
                 let &mut (ref node_dist, ref node, ref mut req) = node_info;
 
                 // Generate a transaction id for this message
@@ -428,8 +429,8 @@ impl TableLookup {
                 }
                 .encode();
 
-                if out.blocking_send((get_peers_msg, node.addr())).is_err() {
-                    error!("bip_dht: Could not send an endgame message through the channel...");
+                if let Err(error) = messenger::blocking_send(socket, &get_peers_msg, node.addr()) {
+                    error!("bip_dht: Could not send an endgame message: {}", error);
                     return LookupStatus::Failed;
                 }
 

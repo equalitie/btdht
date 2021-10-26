@@ -1,11 +1,10 @@
-use super::timer::Timer;
-use super::ScheduledTaskCheck;
+use super::{messenger, timer::Timer, ScheduledTaskCheck};
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
-use std::{net::SocketAddr, time::Duration};
-use tokio::sync::mpsc;
+use std::time::Duration;
+use tokio::net::UdpSocket;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
 
@@ -32,7 +31,7 @@ impl TableRefresh {
     pub fn continue_refresh(
         &mut self,
         table: &RoutingTable,
-        out: &mpsc::Sender<(Vec<u8>, SocketAddr)>,
+        socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> RefreshStatus {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
@@ -65,10 +64,10 @@ impl TableRefresh {
             let find_node_msg = find_node_msg.encode();
 
             // Send the message
-            if out.blocking_send((find_node_msg, node.addr())).is_err() {
+            if let Err(error) = messenger::blocking_send(socket, &find_node_msg, node.addr()) {
                 error!(
-                    "bip_dht: TableRefresh failed to send a refresh message to the out \
-                        channel..."
+                    "bip_dht: TableRefresh failed to send a refresh message: {}",
+                    error
                 );
                 return RefreshStatus::Failed;
             }
