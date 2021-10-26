@@ -37,7 +37,6 @@ pub(crate) enum LookupStatus {
     Searching,
     Values(Vec<SocketAddrV4>),
     Completed,
-    Failed,
 }
 
 pub(crate) struct TableLookup {
@@ -70,7 +69,7 @@ impl TableLookup {
         table: &RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> Option<TableLookup> {
+    ) -> TableLookup {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
         let mut all_sorted_nodes = Vec::with_capacity(bucket::MAX_BUCKET_SIZE);
         for node in table
@@ -108,13 +107,8 @@ impl TableLookup {
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
-        if table_lookup.start_request_round(initial_pick_nodes_filtered, table, socket, timer)
-            != LookupStatus::Failed
-        {
-            Some(table_lookup)
-        } else {
-            None
-        }
+        table_lookup.start_request_round(initial_pick_nodes_filtered, table, socket, timer);
+        table_lookup
     }
 
     pub fn info_hash(&self) -> InfoHash {
@@ -212,18 +206,12 @@ impl TableLookup {
                     .iter()
                     .filter(|&&(_, good)| good)
                     .map(|&(ref n, _)| (n, next_dist_to_beat));
-                if self.start_request_round(filtered_nodes, table, socket, timer)
-                    == LookupStatus::Failed
-                {
-                    return LookupStatus::Failed;
-                }
+                self.start_request_round(filtered_nodes, table, socket, timer);
             }
 
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, socket, timer) == LookupStatus::Failed
-            {
-                return LookupStatus::Failed;
+            if self.active_lookups.is_empty() {
+                self.start_endgame_round(table, socket, timer);
             }
         }
 
@@ -251,10 +239,8 @@ impl TableLookup {
 
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
-            if self.active_lookups.is_empty()
-                && self.start_endgame_round(table, socket, timer) == LookupStatus::Failed
-            {
-                return LookupStatus::Failed;
+            if self.active_lookups.is_empty() {
+                self.start_endgame_round(table, socket, timer);
             }
         }
 
@@ -267,8 +253,6 @@ impl TableLookup {
         table: &RoutingTable,
         socket: &UdpSocket,
     ) -> LookupStatus {
-        let mut fatal_error = false;
-
         // Announce if we were told to
         if self.will_announce {
             // Partial borrow so the filter function doesnt capture all of self
@@ -295,19 +279,14 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                if let Err(error) = socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
-                    error!(
-                        "bip_dht: TableLookup announce request failed to send: {}",
-                        error
-                    );
-                    fatal_error = true;
-                }
-
-                if !fatal_error {
-                    // We requested from the node, marke it down if the node is in our routing table
-                    if let Some(n) = table.find_node(node) {
-                        n.local_request()
+                match socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
+                    Ok(()) => {
+                        // We requested from the node, marke it down if the node is in our routing table
+                        if let Some(n) = table.find_node(node) {
+                            n.local_request()
+                        }
                     }
+                    Err(error) => error!("TableLookup announce request failed to send: {}", error),
                 }
             }
         }
@@ -316,11 +295,7 @@ impl TableLookup {
         self.active_lookups.clear();
         self.in_endgame = false;
 
-        if fatal_error {
-            LookupStatus::Failed
-        } else {
-            self.current_lookup_status()
-        }
+        self.current_lookup_status()
     }
 
     fn current_lookup_status(&self) -> LookupStatus {
@@ -366,8 +341,8 @@ impl TableLookup {
             .encode();
 
             if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
-                error!("bip_dht: Could not send a lookup message: {}", error);
-                return LookupStatus::Failed;
+                error!("Could not send a lookup message: {}", error);
+                continue;
             }
 
             // We requested from the node, mark it down
@@ -407,7 +382,7 @@ impl TableLookup {
         // Request all unpinged nodes if we didnt receive any values
         if !self.recv_values {
             for node_info in self.all_sorted_nodes.iter_mut().filter(|(_, _, req)| !req) {
-                let &mut (ref node_dist, ref node, ref mut req) = node_info;
+                let (node_dist, node, req) = node_info;
 
                 // Generate a transaction id for this message
                 let trans_id = self.id_generator.generate();
@@ -428,8 +403,8 @@ impl TableLookup {
                 .encode();
 
                 if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
-                    error!("bip_dht: Could not send an endgame message: {}", error);
-                    return LookupStatus::Failed;
+                    error!("Could not send an endgame message: {}", error);
+                    continue;
                 }
 
                 // Mark that we requested from the node in the RoutingTable

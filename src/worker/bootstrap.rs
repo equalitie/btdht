@@ -88,21 +88,26 @@ impl TableBootstrap {
         .encode();
 
         // Ping all initial routers and nodes
+        let mut successes = 0;
+
         for addr in self
             .starting_routers
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            if let Err(error) = socket::blocking_send(socket, &find_node_msg, *addr) {
-                error!(
-                    "bip_dht: Failed to send bootstrap message to router: {}",
-                    error
-                );
-                return BootstrapStatus::Failed;
+            match socket::blocking_send(socket, &find_node_msg, *addr) {
+                Ok(()) => {
+                    successes += 1;
+                }
+                Err(error) => error!("Failed to send bootstrap message to router: {}", error),
             }
         }
 
-        self.current_bootstrap_status()
+        if successes > 0 {
+            self.current_bootstrap_status()
+        } else {
+            BootstrapStatus::Failed
+        }
     }
 
     pub fn is_router(&self, addr: &SocketAddr) -> bool {
@@ -269,8 +274,8 @@ impl TableBootstrap {
 
             // Send the message to the node
             if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
-                error!("bip_dht: Could not send a bootstrap message: {}", error);
-                return BootstrapStatus::Failed;
+                error!("Could not send a bootstrap message: {}", error);
+                continue;
             }
 
             // Mark that we requested from the node

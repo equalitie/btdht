@@ -8,13 +8,6 @@ use tokio::net::UdpSocket;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
 
-pub(crate) enum RefreshStatus {
-    /// Refresh is in progress.
-    Refreshing,
-    /// Refresh failed in a fatal way.
-    Failed,
-}
-
 pub(crate) struct TableRefresh {
     id_generator: MIDGenerator,
     curr_refresh_bucket: usize,
@@ -33,7 +26,7 @@ impl TableRefresh {
         table: &RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> RefreshStatus {
+    ) {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
         }
@@ -65,11 +58,7 @@ impl TableRefresh {
 
             // Send the message
             if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
-                error!(
-                    "bip_dht: TableRefresh failed to send a refresh message: {}",
-                    error
-                );
-                return RefreshStatus::Failed;
+                error!("TableRefresh failed to send a refresh message: {}", error);
             }
 
             // Mark that we requested from the node
@@ -86,7 +75,5 @@ impl TableRefresh {
         );
 
         self.curr_refresh_bucket += 1;
-
-        RefreshStatus::Refreshing
     }
 }

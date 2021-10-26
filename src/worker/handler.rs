@@ -1,7 +1,7 @@
 use super::{
     bootstrap::{BootstrapStatus, TableBootstrap},
     lookup::{LookupStatus, TableLookup},
-    refresh::{RefreshStatus, TableRefresh},
+    refresh::TableRefresh,
     socket,
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck, ShutdownCause},
@@ -246,8 +246,7 @@ impl DhtHandler {
                 let ping_msg = ping_msg.encode();
 
                 if let Err(error) = socket::blocking_send(&self.socket, &ping_msg, addr) {
-                    error!("bip_dht: Failed to send a ping response: {}", error);
-                    self.shutdown(ShutdownCause::Unspecified);
+                    error!("Failed to send a ping response: {}", error);
                 }
             }
             MessageBody::Request(Request::FindNode(f)) => {
@@ -278,8 +277,7 @@ impl DhtHandler {
                 let find_node_msg = find_node_msg.encode();
 
                 if let Err(error) = socket::blocking_send(&self.socket, &find_node_msg, addr) {
-                    error!("bip_dht: Failed to send a find node response: {}", error);
-                    self.shutdown(ShutdownCause::Unspecified);
+                    error!("Failed to send a find node response: {}", error);
                 }
             }
             MessageBody::Request(Request::GetPeers(g)) => {
@@ -327,8 +325,7 @@ impl DhtHandler {
                 let get_peers_msg = get_peers_msg.encode();
 
                 if let Err(error) = socket::blocking_send(&self.socket, &get_peers_msg, addr) {
-                    error!("bip_dht: Failed to send a get peers response: {}", error);
-                    self.shutdown(ShutdownCause::Unspecified);
+                    error!("Failed to send a get peers response: {}", error);
                 }
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
@@ -399,7 +396,6 @@ impl DhtHandler {
                         "bip_dht: Failed to send an announce peer response: {}",
                         error
                     );
-                    self.shutdown(ShutdownCause::Unspecified);
                 }
             }
             MessageBody::Response(Response::FindNode(f)) => {
@@ -553,7 +549,6 @@ impl DhtHandler {
                             .event_tx
                             .send(DhtEvent::LookupCompleted(lookup.info_hash()))
                             .unwrap_or(()),
-                        LookupStatus::Failed => self.shutdown(ShutdownCause::Unspecified),
                         LookupStatus::Values(values) => {
                             for v4_addr in values {
                                 let sock_addr = SocketAddr::V4(v4_addr);
@@ -743,7 +738,7 @@ impl DhtHandler {
                 .push(PostBootstrapAction::Lookup(info_hash, should_announce));
         } else {
             // Start the lookup right now if not bootstrapping
-            match TableLookup::new(
+            let lookup = TableLookup::new(
                 self.routing_table.node_id(),
                 info_hash,
                 mid_generator,
@@ -751,19 +746,15 @@ impl DhtHandler {
                 &self.routing_table,
                 &self.socket,
                 &mut self.timer,
-            ) {
-                Some(lookup) => {
-                    self.table_actions
-                        .insert(action_id, TableAction::Lookup(lookup));
-                }
-                None => self.shutdown(ShutdownCause::Unspecified),
-            }
+            );
+            self.table_actions
+                .insert(action_id, TableAction::Lookup(lookup));
         }
     }
 
     fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(&mut TableAction::Lookup(ref mut lookup)) => Some((
+            Some(TableAction::Lookup(lookup)) => Some((
                 lookup.recv_timeout(
                     &trans_id,
                     &self.routing_table,
@@ -772,14 +763,14 @@ impl DhtHandler {
                 ),
                 lookup.info_hash(),
             )),
-            Some(&mut TableAction::Bootstrap(_, _)) => {
+            Some(TableAction::Bootstrap(_, _)) => {
                 error!(
                     "bip_dht: Resolved a TransactionID to a check table lookup but TableBootstrap \
                     found..."
                 );
                 None
             }
-            Some(&mut TableAction::Refresh(_)) => {
+            Some(TableAction::Refresh(_)) => {
                 error!(
                     "bip_dht: Resolved a TransactionID to a check table lookup but TableRefresh \
                     found..."
@@ -802,7 +793,6 @@ impl DhtHandler {
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Failed, _)) => self.shutdown(ShutdownCause::Unspecified),
             Some((LookupStatus::Values(v), info_hash)) => {
                 // Add values to handshaker
                 for v4_addr in v {
@@ -851,7 +841,6 @@ impl DhtHandler {
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Failed, _)) => self.shutdown(ShutdownCause::Unspecified),
             Some((LookupStatus::Values(v), info_hash)) => {
                 // Add values to handshaker
                 for v4_addr in v {
@@ -865,38 +854,22 @@ impl DhtHandler {
     }
 
     fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
-        let opt_refresh_status = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(&mut TableAction::Refresh(ref mut refresh)) => {
-                Some(refresh.continue_refresh(&self.routing_table, &self.socket, &mut self.timer))
+        match self.table_actions.get_mut(&trans_id.action_id()) {
+            Some(TableAction::Refresh(refresh)) => {
+                refresh.continue_refresh(&self.routing_table, &self.socket, &mut self.timer)
             }
-            Some(&mut TableAction::Lookup(_)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table refresh but TableLookup \
-                    found..."
-                );
-                None
+            Some(TableAction::Lookup(_)) => {
+                error!("Resolved a TransactionID to a check table refresh but TableLookup found");
             }
-            Some(&mut TableAction::Bootstrap(_, _)) => {
+            Some(TableAction::Bootstrap(_, _)) => {
                 error!(
-                    "bip_dht: Resolved a TransactionID to a check table refresh but \
-                    TableBootstrap found..."
+                    "Resolved a TransactionID to a check table refresh but TableBootstrap found"
                 );
-                None
             }
             None => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table refresh but no action \
-                    found..."
-                );
-                None
+                error!("Resolved a TransactionID to a check table refresh but no action found");
             }
         };
-
-        match opt_refresh_status {
-            None => (),
-            Some(RefreshStatus::Refreshing) => (),
-            Some(RefreshStatus::Failed) => self.shutdown(ShutdownCause::Unspecified),
-        }
     }
 
     fn shutdown(&mut self, cause: ShutdownCause) {
