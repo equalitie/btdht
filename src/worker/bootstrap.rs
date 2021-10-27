@@ -8,7 +8,7 @@ use crate::routing::bucket::Bucket;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
-use crate::{id::NodeId, routing::node::NodeInfo};
+use crate::{id::NodeId, routing::node::NodeHandle};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -199,7 +199,7 @@ impl TableBootstrap {
                         .closest_nodes(target_id)
                         .filter(|n| n.status() == NodeStatus::Questionable)
                         .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                        .map(|node| *node.info())
+                        .map(|node| *node.handle())
                         .collect()
                 } else {
                     let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
@@ -231,7 +231,7 @@ impl TableBootstrap {
                         .chain(percent_100_bucket)
                         .filter(|n| n.status() == NodeStatus::Questionable)
                         .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                        .map(|node| *node.info())
+                        .map(|node| *node.handle())
                         .collect()
                 };
 
@@ -251,7 +251,7 @@ impl TableBootstrap {
     // in that case.
     async fn send_bootstrap_requests(
         &mut self,
-        nodes: &[NodeInfo],
+        nodes: &[NodeHandle],
         target_id: NodeId,
         table: &mut RoutingTable,
         socket: &UdpSocket,

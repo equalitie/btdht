@@ -2,7 +2,7 @@
 
 use crate::{
     id::{NodeId, NODE_ID_LEN},
-    routing::node::NodeInfo,
+    routing::node::NodeHandle,
 };
 use serde::{
     de::{Deserializer, Error},
@@ -55,7 +55,7 @@ impl Compact for NodeId {
     }
 }
 
-impl Compact for NodeInfo {
+impl Compact for NodeHandle {
     type Buffer = [u8; NODE_INFO_LEN];
 
     fn decode(src: &[u8]) -> Option<Self> {
@@ -81,13 +81,13 @@ impl Compact for NodeInfo {
     }
 }
 
-impl Compact for Vec<NodeInfo> {
+impl Compact for Vec<NodeHandle> {
     type Buffer = Vec<u8>;
 
     fn decode(src: &[u8]) -> Option<Self> {
         let num = src.len() / NODE_INFO_LEN;
         let vec = (0..num)
-            .filter_map(|index| NodeInfo::decode(&src[index * NODE_INFO_LEN..]))
+            .filter_map(|index| NodeHandle::decode(&src[index * NODE_INFO_LEN..]))
             .collect();
 
         Some(vec)
@@ -197,7 +197,7 @@ mod tests {
 
     #[test]
     fn compact_node_info() {
-        let orig = NodeInfo {
+        let orig = NodeHandle {
             id: NodeId::from(*b"0123456789abcdefghij"),
             addr: (Ipv4Addr::LOCALHOST, 6789).into(),
         };
@@ -209,7 +209,7 @@ mod tests {
         ];
         assert_eq!(encoded, expected);
 
-        let decoded = NodeInfo::decode(&encoded).unwrap();
+        let decoded = NodeHandle::decode(&encoded).unwrap();
         assert_eq!(decoded, orig);
     }
 }

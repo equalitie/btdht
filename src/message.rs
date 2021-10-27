@@ -1,7 +1,7 @@
 use crate::{
     compact,
     id::{InfoHash, NodeId},
-    routing::node::NodeInfo,
+    routing::node::NodeHandle,
 };
 use serde::{
     de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
@@ -186,7 +186,7 @@ pub(crate) struct FindNodeResponse {
     pub id: NodeId,
 
     #[serde(with = "compact")]
-    pub nodes: Vec<NodeInfo>,
+    pub nodes: Vec<NodeHandle>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -197,7 +197,7 @@ pub(crate) struct GetPeersResponse {
     pub values: Vec<SocketAddrV4>,
 
     #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
-    pub nodes: Vec<NodeInfo>,
+    pub nodes: Vec<NodeHandle>,
 
     #[serde(with = "serde_bytes")]
     pub token: Vec<u8>,
@@ -360,7 +360,7 @@ mod tests {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response::FindNode(FindNodeResponse {
                 id: NodeId::from(*b"0123456789abcdefghij"),
-                nodes: vec![NodeInfo {
+                nodes: vec![NodeHandle {
                     id: NodeId::from(*b"mnopqrstuvwxyz123456"),
                     addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
                 }],
@@ -399,11 +399,11 @@ mod tests {
                 id: NodeId::from(*b"abcdefghij0123456789"),
                 values: vec![],
                 nodes: vec![
-                    NodeInfo {
+                    NodeHandle {
                         id: NodeId::from(*b"mnopqrstuvwxyz123456"),
                         addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
                     },
-                    NodeInfo {
+                    NodeHandle {
                         id: NodeId::from(*b"789abcdefghijklmnopq"),
                         addr: (Ipv4Addr::new(105, 100, 104, 116), 28269).into(),
                     },

@@ -8,7 +8,7 @@ use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
 use crate::routing::bucket;
-use crate::routing::node::{Node, NodeInfo, NodeStatus};
+use crate::routing::node::{Node, NodeHandle, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
@@ -50,11 +50,11 @@ pub(crate) struct TableLookup {
     // interestingly enough (and super important), this distance may not be eqaul to the
     // requested node's distance
     active_lookups: HashMap<TransactionID, (DistanceToBeat, Timeout)>,
-    announce_tokens: HashMap<NodeInfo, Vec<u8>>,
-    requested_nodes: HashSet<NodeInfo>,
+    announce_tokens: HashMap<NodeHandle, Vec<u8>>,
+    requested_nodes: HashSet<NodeHandle>,
     // Storing whether or not it has ever been pinged so that we
     // can perform the brute force lookup if the lookup failed
-    all_sorted_nodes: Vec<(Distance, NodeInfo, bool)>,
+    all_sorted_nodes: Vec<(Distance, NodeHandle, bool)>,
 }
 
 // Gather nodes
@@ -75,7 +75,7 @@ impl TableLookup {
             .filter(|n| n.status() == NodeStatus::Good)
             .take(bucket::MAX_BUCKET_SIZE)
         {
-            insert_sorted_node(&mut all_sorted_nodes, target_id, *node.info(), false);
+            insert_sorted_node(&mut all_sorted_nodes, target_id, *node.handle(), false);
         }
 
         // Call pick_initial_nodes with the all_sorted_nodes list as an iterator
@@ -140,7 +140,7 @@ impl TableLookup {
         }
 
         // Add the announce token to our list of tokens
-        self.announce_tokens.insert(*node.info(), msg.token);
+        self.announce_tokens.insert(*node.handle(), msg.token);
 
         let nodes = msg.nodes;
         let values = msg.values;
@@ -312,7 +312,7 @@ impl TableLookup {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
-        I: Iterator<Item = (&'a NodeInfo, DistanceToBeat)>,
+        I: Iterator<Item = (&'a NodeHandle, DistanceToBeat)>,
     {
         // Loop through the given nodes
         let mut messages_sent = 0;
@@ -420,13 +420,13 @@ impl TableLookup {
 }
 
 /// Picks a number of nodes from the sorted distance iterator to ping on the first round.
-fn pick_initial_nodes<'a, I>(sorted_nodes: I) -> [(NodeInfo, bool); INITIAL_PICK_NUM]
+fn pick_initial_nodes<'a, I>(sorted_nodes: I) -> [(NodeHandle, bool); INITIAL_PICK_NUM]
 where
-    I: Iterator<Item = &'a mut (Distance, NodeInfo, bool)>,
+    I: Iterator<Item = &'a mut (Distance, NodeHandle, bool)>,
 {
     let dummy_id = [0u8; NODE_ID_LEN].into();
     let default = (
-        NodeInfo::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+        NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,
     );
 
@@ -446,13 +446,13 @@ where
 fn pick_iterate_nodes<I>(
     unsorted_nodes: I,
     target_id: InfoHash,
-) -> [(NodeInfo, bool); ITERATIVE_PICK_NUM]
+) -> [(NodeHandle, bool); ITERATIVE_PICK_NUM]
 where
-    I: Iterator<Item = NodeInfo>,
+    I: Iterator<Item = NodeHandle>,
 {
     let dummy_id = [0u8; NODE_ID_LEN].into();
     let default = (
-        NodeInfo::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
+        NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,
     );
 
@@ -466,7 +466,11 @@ where
 
 /// Inserts the node into the slice if a slot in the slice is unused or a node
 /// in the slice is further from the target id than the node being inserted.
-fn insert_closest_nodes(nodes: &mut [(NodeInfo, bool)], target_id: InfoHash, new_node: NodeInfo) {
+fn insert_closest_nodes(
+    nodes: &mut [(NodeHandle, bool)],
+    target_id: InfoHash,
+    new_node: NodeHandle,
+) {
     let new_distance = target_id ^ new_node.id;
 
     for &mut (ref mut old_node, ref mut used) in nodes.iter_mut() {
@@ -491,9 +495,9 @@ fn insert_closest_nodes(nodes: &mut [(NodeInfo, bool)], target_id: InfoHash, new
 ///
 /// Nodes at the start of the list are closer to the target node than nodes at the end.
 fn insert_sorted_node(
-    nodes: &mut Vec<(Distance, NodeInfo, bool)>,
+    nodes: &mut Vec<(Distance, NodeHandle, bool)>,
     target: InfoHash,
-    node: NodeInfo,
+    node: NodeHandle,
     pinged: bool,
 ) {
     let node_id = node.id;

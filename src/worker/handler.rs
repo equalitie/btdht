@@ -16,7 +16,7 @@ use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
 use crate::transaction::{AIDGenerator, ActionID, TransactionID};
-use crate::{id::InfoHash, routing::node::NodeInfo};
+use crate::{id::InfoHash, routing::node::NodeHandle};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
@@ -209,7 +209,7 @@ impl DhtHandler {
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
                 info!("bip_dht: Received a PingRequest...");
-                let node = NodeInfo::new(p.id, addr);
+                let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -231,7 +231,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::FindNode(f)) => {
                 info!("bip_dht: Received a FindNodeRequest...");
-                let node = NodeInfo::new(f.id, addr);
+                let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -243,7 +243,7 @@ impl DhtHandler {
                     .routing_table
                     .closest_nodes(f.target)
                     .take(8)
-                    .map(|node| *node.info())
+                    .map(|node| *node.handle())
                     .collect();
 
                 let find_node_rsp = FindNodeResponse {
@@ -262,7 +262,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::GetPeers(g)) => {
                 info!("bip_dht: Received a GetPeersRequest...");
-                let node = NodeInfo::new(g.id, addr);
+                let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -287,7 +287,7 @@ impl DhtHandler {
                     .routing_table
                     .closest_nodes(g.info_hash)
                     .take(8)
-                    .map(|node| *node.info())
+                    .map(|node| *node.handle())
                     .collect();
 
                 let token = self.token_store.checkout(addr.ip());
@@ -310,7 +310,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
                 info!("bip_dht: Received an AnnouncePeerRequest...");
-                let node = NodeInfo::new(a.id, addr);
+                let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
