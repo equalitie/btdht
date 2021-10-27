@@ -561,12 +561,11 @@ impl DhtHandler {
     ) {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
-        let mut table_bootstrap =
-            TableBootstrap::new(self.routing_table.node_id(), mid_generator, nodes, routers);
+        let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
         let bootstrap_status = table_bootstrap
-            .start_bootstrap(&self.socket, &mut self.timer)
+            .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer)
             .await;
 
         self.bootstrapping = true;
@@ -737,7 +736,6 @@ impl DhtHandler {
         } else {
             // Start the lookup right now if not bootstrapping
             let lookup = TableLookup::new(
-                self.routing_table.node_id(),
                 info_hash,
                 mid_generator,
                 should_announce,
@@ -925,7 +923,9 @@ async fn attempt_rebootstrap(
                 return Some(false);
             }
         } else {
-            let bootstrap_status = bootstrap.start_bootstrap(socket, timer).await;
+            let bootstrap_status = bootstrap
+                .start_bootstrap(routing_table.node_id(), socket, timer)
+                .await;
 
             match bootstrap_status {
                 BootstrapStatus::Idle => return Some(false),

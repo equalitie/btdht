@@ -3,7 +3,7 @@ use super::{
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
-use crate::id::{InfoHash, NodeId, ShaHash, NODE_ID_LEN};
+use crate::id::{InfoHash, ShaHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
@@ -40,7 +40,6 @@ pub(crate) enum LookupStatus {
 }
 
 pub(crate) struct TableLookup {
-    table_id: NodeId,
     target_id: InfoHash,
     in_endgame: bool,
     // If we have received any values in the lookup.
@@ -62,7 +61,6 @@ pub(crate) struct TableLookup {
 
 impl TableLookup {
     pub async fn new(
-        table_id: NodeId,
         target_id: InfoHash,
         id_generator: MIDGenerator,
         will_announce: bool,
@@ -94,7 +92,6 @@ impl TableLookup {
 
         // Construct the lookup table structure
         let mut table_lookup = TableLookup {
-            table_id,
             target_id,
             in_endgame: false,
             recv_values: false,
@@ -271,7 +268,7 @@ impl TableLookup {
                 let token = announce_tokens.get(node.info()).unwrap();
 
                 let announce_peer_req = AnnouncePeerRequest {
-                    id: self.table_id,
+                    id: table.node_id(),
                     info_hash: self.target_id,
                     token: token.clone(),
                     port,
@@ -337,7 +334,7 @@ impl TableLookup {
             let get_peers_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),
                 body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
-                    id: self.table_id,
+                    id: table.node_id(),
                     info_hash: self.target_id,
                 })),
             }
@@ -399,7 +396,7 @@ impl TableLookup {
                 let get_peers_msg = Message {
                     transaction_id: trans_id.as_ref().to_vec(),
                     body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
-                        id: self.table_id,
+                        id: table.node_id(),
                         info_hash: self.target_id,
                     })),
                 }

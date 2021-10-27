@@ -32,7 +32,6 @@ pub(crate) enum BootstrapStatus {
 }
 
 pub(crate) struct TableBootstrap {
-    table_id: NodeId,
     id_generator: MIDGenerator,
     starting_nodes: HashSet<SocketAddr>,
     starting_routers: HashSet<SocketAddr>,
@@ -44,13 +43,11 @@ pub(crate) struct TableBootstrap {
 
 impl TableBootstrap {
     pub fn new(
-        table_id: NodeId,
         id_generator: MIDGenerator,
         nodes: HashSet<SocketAddr>,
         routers: HashSet<SocketAddr>,
     ) -> TableBootstrap {
         TableBootstrap {
-            table_id,
             id_generator,
             starting_nodes: nodes,
             starting_routers: routers,
@@ -63,6 +60,7 @@ impl TableBootstrap {
 
     pub async fn start_bootstrap(
         &mut self,
+        table_id: NodeId,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
@@ -89,8 +87,8 @@ impl TableBootstrap {
         let find_node_msg = Message {
             transaction_id: trans_id.as_ref().to_vec(),
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
-                id: self.table_id,
-                target: self.table_id,
+                id: table_id,
+                target: table_id,
             })),
         }
         .encode();
@@ -192,7 +190,7 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         loop {
-            let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
+            let target_id = table.node_id().flip_bit(self.curr_bootstrap_bucket);
 
             // Get the optimal iterator to bootstrap the current bucket
             let nodes: Vec<_> =
@@ -272,7 +270,7 @@ impl TableBootstrap {
             let find_node_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),
                 body: MessageBody::Request(Request::FindNode(FindNodeRequest {
-                    id: self.table_id,
+                    id: table.node_id(),
                     target: target_id,
                 })),
             }
