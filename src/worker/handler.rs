@@ -6,7 +6,6 @@ use super::{
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
-use crate::id::InfoHash;
 use crate::message::{
     error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
     Request, Response,
@@ -17,6 +16,7 @@ use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
 use crate::transaction::{AIDGenerator, ActionID, TransactionID};
+use crate::{id::InfoHash, routing::node::NodeInfo};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
@@ -214,7 +214,7 @@ impl DhtHandler {
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
                 info!("bip_dht: Received a PingRequest...");
-                let node = Node::as_good(p.id, addr);
+                let node = NodeInfo::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -236,7 +236,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::FindNode(f)) => {
                 info!("bip_dht: Received a FindNodeRequest...");
-                let node = Node::as_good(f.id, addr);
+                let node = NodeInfo::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -267,7 +267,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::GetPeers(g)) => {
                 info!("bip_dht: Received a GetPeersRequest...");
-                let node = Node::as_good(g.id, addr);
+                let node = NodeInfo::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -315,7 +315,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
                 info!("bip_dht: Received an AnnouncePeerRequest...");
-                let node = Node::as_good(a.id, addr);
+                let node = NodeInfo::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {

@@ -3,12 +3,12 @@ use super::{
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
-use crate::id::NodeId;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
-use crate::routing::node::{Node, NodeStatus};
+use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
+use crate::{id::NodeId, routing::node::NodeInfo};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -189,7 +189,7 @@ impl TableBootstrap {
                 .closest_nodes(target_id)
                 .filter(|n| n.status() == NodeStatus::Questionable)
                 .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                .cloned()
+                .map(|node| *node.info())
                 .collect();
 
             self.send_bootstrap_requests(&nodes, target_id, table, socket, timer)
@@ -224,7 +224,7 @@ impl TableBootstrap {
                     .chain(percent_100_bucket)
                     .filter(|n| n.status() == NodeStatus::Questionable)
                     .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                    .cloned()
+                    .map(|node| *node.info())
                     .collect()
             };
 
@@ -234,7 +234,7 @@ impl TableBootstrap {
 
     fn send_bootstrap_requests(
         &mut self,
-        nodes: &[Node],
+        nodes: &[NodeInfo],
         target_id: NodeId,
         table: &mut RoutingTable,
         socket: &UdpSocket,
@@ -266,7 +266,7 @@ impl TableBootstrap {
             );
 
             // Send the message to the node
-            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr) {
                 error!("Could not send a bootstrap message: {}", error);
                 continue;
             }

@@ -162,6 +162,12 @@ pub struct NodeInfo {
     pub addr: SocketAddr,
 }
 
+impl NodeInfo {
+    pub fn new(id: NodeId, addr: SocketAddr) -> Self {
+        Self { id, addr }
+    }
+}
+
 // TODO: Verify the two scenarios follow the specification as some cases seem questionable (pun intended), ie, a node
 // responds to us once, and then requests from us but never responds to us for the duration of the session. This means they
 // could stay marked as a good node even though they could ignore our requests and just sending us periodic requests

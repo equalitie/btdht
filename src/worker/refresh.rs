@@ -40,7 +40,7 @@ impl TableRefresh {
         if let Some(node) = table
             .closest_nodes(target_id)
             .find(|n| n.status() == NodeStatus::Questionable)
-            .cloned()
+            .map(|node| *node.info())
         {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();
@@ -57,7 +57,7 @@ impl TableRefresh {
             let find_node_msg = find_node_msg.encode();
 
             // Send the message
-            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr()) {
+            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr) {
                 error!("TableRefresh failed to send a refresh message: {}", error);
             }
 

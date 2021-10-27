@@ -282,7 +282,7 @@ impl TableLookup {
                 match socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
                     Ok(()) => {
                         // We requested from the node, marke it down if the node is in our routing table
-                        if let Some(n) = table.find_node_mut(node) {
+                        if let Some(n) = table.find_node_mut(node.info()) {
                             n.local_request()
                         }
                     }
@@ -349,7 +349,7 @@ impl TableLookup {
             self.requested_nodes.insert(*node.info());
 
             // Update the node in the routing table
-            if let Some(n) = table.find_node_mut(node) {
+            if let Some(n) = table.find_node_mut(node.info()) {
                 n.local_request()
             }
 
@@ -408,7 +408,7 @@ impl TableLookup {
                 }
 
                 // Mark that we requested from the node in the RoutingTable
-                if let Some(n) = table.find_node_mut(node) {
+                if let Some(n) = table.find_node_mut(node.info()) {
                     n.local_request()
                 }
 
