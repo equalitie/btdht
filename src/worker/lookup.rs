@@ -61,7 +61,7 @@ pub(crate) struct TableLookup {
 // Gather nodes
 
 impl TableLookup {
-    pub fn new(
+    pub async fn new(
         table_id: NodeId,
         target_id: InfoHash,
         id_generator: MIDGenerator,
@@ -107,7 +107,9 @@ impl TableLookup {
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
-        table_lookup.start_request_round(initial_pick_nodes_filtered, table, socket, timer);
+        table_lookup
+            .start_request_round(initial_pick_nodes_filtered, table, socket, timer)
+            .await;
         table_lookup
     }
 
@@ -115,7 +117,7 @@ impl TableLookup {
         self.target_id
     }
 
-    pub fn recv_response(
+    pub async fn recv_response(
         &mut self,
         node: Node,
         trans_id: &TransactionID,
@@ -206,12 +208,13 @@ impl TableLookup {
                     .iter()
                     .filter(|(_, good)| *good)
                     .map(|(n, _)| (n, next_dist_to_beat));
-                self.start_request_round(filtered_nodes, table, socket, timer);
+                self.start_request_round(filtered_nodes, table, socket, timer)
+                    .await;
             }
 
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty() {
-                self.start_endgame_round(table, socket, timer);
+                self.start_endgame_round(table, socket, timer).await;
             }
         }
 
@@ -222,7 +225,7 @@ impl TableLookup {
         }
     }
 
-    pub fn recv_timeout(
+    pub async fn recv_timeout(
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
@@ -240,14 +243,14 @@ impl TableLookup {
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty() {
-                self.start_endgame_round(table, socket, timer);
+                self.start_endgame_round(table, socket, timer).await;
             }
         }
 
         self.current_lookup_status()
     }
 
-    pub fn recv_finished(
+    pub async fn recv_finished(
         &mut self,
         port: Option<u16>,
         table: &mut RoutingTable,
@@ -279,7 +282,7 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                match socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
+                match socket::send(socket, &announce_peer_msg, node.addr()).await {
                     Ok(()) => {
                         // We requested from the node, marke it down if the node is in our routing table
                         if let Some(n) = table.find_node_mut(node.info()) {
@@ -306,7 +309,7 @@ impl TableLookup {
         }
     }
 
-    fn start_request_round<'a, I>(
+    async fn start_request_round<'a, I>(
         &mut self,
         nodes: I,
         table: &mut RoutingTable,
@@ -340,7 +343,7 @@ impl TableLookup {
             }
             .encode();
 
-            if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
+            if let Err(error) = socket::send(socket, &get_peers_msg, node.addr()).await {
                 error!("Could not send a lookup message: {}", error);
                 continue;
             }
@@ -364,7 +367,7 @@ impl TableLookup {
         }
     }
 
-    fn start_endgame_round(
+    async fn start_endgame_round(
         &mut self,
         table: &mut RoutingTable,
         socket: &UdpSocket,
@@ -402,7 +405,7 @@ impl TableLookup {
                 }
                 .encode();
 
-                if let Err(error) = socket::blocking_send(socket, &get_peers_msg, node.addr()) {
+                if let Err(error) = socket::send(socket, &get_peers_msg, node.addr()).await {
                     error!("Could not send an endgame message: {}", error);
                     continue;
                 }

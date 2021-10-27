@@ -1,15 +1,7 @@
 //! Helpers to simplify work with UdpSocket.
 
 use std::{io, net::SocketAddr};
-use tokio::{net::UdpSocket, runtime::Handle};
-
-pub(crate) fn blocking_send(
-    socket: &UdpSocket,
-    message: &[u8],
-    addr: SocketAddr,
-) -> io::Result<()> {
-    Handle::current().block_on(send(socket, message, addr))
-}
+use tokio::net::UdpSocket;
 
 pub(crate) async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
     let mut bytes_sent = 0;

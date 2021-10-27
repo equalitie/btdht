@@ -21,7 +21,7 @@ use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::net::SocketAddr;
-use tokio::{net::UdpSocket, select, sync::mpsc, task};
+use tokio::{net::UdpSocket, select, sync::mpsc};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
@@ -117,58 +117,53 @@ impl DhtHandler {
                 // `unwrap` is OK because we checked the timer is non-empty, so it should never
                 // return `None`.
                 let token = token.unwrap();
-                // TODO: make `handle_timeout` async and remove the `block_in_place`.
-                task::block_in_place(|| self.handle_timeout(token))
+                self.handle_timeout(token).await
             }
             command = self.command_rx.recv() => {
                 if let Some(command) = command {
-                    // TODO: make `handle_command` async and remove the `block_in_place`.
-                    task::block_in_place(|| self.handle_command(command))
+                    self.handle_command(command).await
                 } else {
                     self.shutdown()
                 }
             }
             message = socket::recv(&self.socket) => {
                 match message {
-                    Ok((buffer, addr)) => {
-                        // TODO: make `handle_incoming` async and remove the `block_in_place`.
-                        task::block_in_place(|| self.handle_incoming(&buffer, addr))
-                    }
+                    Ok((buffer, addr)) => self.handle_incoming(&buffer, addr).await,
                     Err(error) => warn!("Failed to receive incoming message: {}", error),
                 }
             }
         }
     }
 
-    fn handle_command(&mut self, task: OneshotTask) {
+    async fn handle_command(&mut self, task: OneshotTask) {
         match task {
             OneshotTask::StartBootstrap(routers, nodes) => {
-                self.handle_start_bootstrap(routers, nodes);
+                self.handle_start_bootstrap(routers, nodes).await;
             }
             OneshotTask::StartLookup(info_hash, should_announce) => {
-                self.handle_start_lookup(info_hash, should_announce);
+                self.handle_start_lookup(info_hash, should_announce).await;
             }
         }
     }
 
-    fn handle_timeout(&mut self, token: ScheduledTaskCheck) {
+    async fn handle_timeout(&mut self, token: ScheduledTaskCheck) {
         match token {
             ScheduledTaskCheck::TableRefresh(trans_id) => {
-                self.handle_check_table_refresh(trans_id);
+                self.handle_check_table_refresh(trans_id).await;
             }
             ScheduledTaskCheck::BootstrapTimeout(trans_id) => {
-                self.handle_check_bootstrap_timeout(trans_id);
+                self.handle_check_bootstrap_timeout(trans_id).await;
             }
             ScheduledTaskCheck::LookupTimeout(trans_id) => {
-                self.handle_check_lookup_timeout(trans_id);
+                self.handle_check_lookup_timeout(trans_id).await;
             }
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
-                self.handle_check_lookup_endgame(trans_id);
+                self.handle_check_lookup_endgame(trans_id).await;
             }
         }
     }
 
-    fn handle_incoming(&mut self, buffer: &[u8], addr: SocketAddr) {
+    async fn handle_incoming(&mut self, buffer: &[u8], addr: SocketAddr) {
         let message = match Message::decode(buffer) {
             Ok(message) => message,
             Err(error) => {
@@ -230,7 +225,7 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if let Err(error) = socket::blocking_send(&self.socket, &ping_msg, addr) {
+                if let Err(error) = socket::send(&self.socket, &ping_msg, addr).await {
                     error!("Failed to send a ping response: {}", error);
                 }
             }
@@ -261,7 +256,7 @@ impl DhtHandler {
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if let Err(error) = socket::blocking_send(&self.socket, &find_node_msg, addr) {
+                if let Err(error) = socket::send(&self.socket, &find_node_msg, addr).await {
                     error!("Failed to send a find node response: {}", error);
                 }
             }
@@ -309,7 +304,7 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if let Err(error) = socket::blocking_send(&self.socket, &get_peers_msg, addr) {
+                if let Err(error) = socket::send(&self.socket, &get_peers_msg, addr).await {
                     error!("Failed to send a get peers response: {}", error);
                 }
             }
@@ -376,7 +371,7 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if let Err(error) = socket::blocking_send(&self.socket, &response_msg, addr) {
+                if let Err(error) = socket::send(&self.socket, &response_msg, addr).await {
                     error!(
                         "bip_dht: Failed to send an announce peer response: {}",
                         error
@@ -422,12 +417,15 @@ impl DhtHandler {
                     };
 
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
-                        match bootstrap.recv_response(
-                            &trans_id,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        ) {
+                        match bootstrap
+                            .recv_response(
+                                &trans_id,
+                                &mut self.routing_table,
+                                &self.socket,
+                                &mut self.timer,
+                            )
+                            .await
+                        {
                             BootstrapStatus::Idle => true,
                             BootstrapStatus::Bootstrapping => false,
                             BootstrapStatus::Failed => {
@@ -443,7 +441,9 @@ impl DhtHandler {
                                         &self.routing_table,
                                         &self.socket,
                                         &mut self.timer,
-                                    ) {
+                                    )
+                                    .await
+                                    {
                                         Some(bootstrap_started) => !bootstrap_started,
                                         None => {
                                             self.shutdown();
@@ -461,7 +461,8 @@ impl DhtHandler {
                 };
 
                 if bootstrap_complete {
-                    self.broadcast_bootstrap_completed(trans_id.action_id());
+                    self.broadcast_bootstrap_completed(trans_id.action_id())
+                        .await;
                 }
 
                 if log_enabled!(log::Level::Info) {
@@ -517,14 +518,17 @@ impl DhtHandler {
                 };
 
                 if let Some(lookup) = opt_lookup {
-                    match lookup.recv_response(
-                        node,
-                        &trans_id,
-                        g,
-                        &mut self.routing_table,
-                        &self.socket,
-                        &mut self.timer,
-                    ) {
+                    match lookup
+                        .recv_response(
+                            node,
+                            &trans_id,
+                            g,
+                            &mut self.routing_table,
+                            &self.socket,
+                            &mut self.timer,
+                        )
+                        .await
+                    {
                         LookupStatus::Searching => (),
                         LookupStatus::Completed => self
                             .event_tx
@@ -552,14 +556,20 @@ impl DhtHandler {
         }
     }
 
-    fn handle_start_bootstrap(&mut self, routers: HashSet<SocketAddr>, nodes: HashSet<SocketAddr>) {
+    async fn handle_start_bootstrap(
+        &mut self,
+        routers: HashSet<SocketAddr>,
+        nodes: HashSet<SocketAddr>,
+    ) {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
         let mut table_bootstrap =
             TableBootstrap::new(self.routing_table.node_id(), mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
-        let bootstrap_status = table_bootstrap.start_bootstrap(&self.socket, &mut self.timer);
+        let bootstrap_status = table_bootstrap
+            .start_bootstrap(&self.socket, &mut self.timer)
+            .await;
 
         self.bootstrapping = true;
         self.table_actions
@@ -589,7 +599,9 @@ impl DhtHandler {
                         &self.routing_table,
                         &self.socket,
                         &mut self.timer,
-                    ) {
+                    )
+                    .await
+                    {
                         Some(bootstrap_started) => !bootstrap_started,
                         None => {
                             self.shutdown();
@@ -603,31 +615,33 @@ impl DhtHandler {
         };
 
         if bootstrap_complete {
-            self.broadcast_bootstrap_completed(action_id);
+            self.broadcast_bootstrap_completed(action_id).await;
         }
     }
 
-    fn handle_check_bootstrap_timeout(&mut self, trans_id: TransactionID) {
+    async fn handle_check_bootstrap_timeout(&mut self, trans_id: TransactionID) {
         let bootstrap_complete = {
             let opt_bootstrap_info = match self.table_actions.get_mut(&trans_id.action_id()) {
-                Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => Some((
-                    bootstrap.recv_timeout(
-                        &trans_id,
-                        &mut self.routing_table,
-                        &self.socket,
-                        &mut self.timer,
-                    ),
+                Some(TableAction::Bootstrap(bootstrap, attempts)) => Some((
+                    bootstrap
+                        .recv_timeout(
+                            &trans_id,
+                            &mut self.routing_table,
+                            &self.socket,
+                            &mut self.timer,
+                        )
+                        .await,
                     bootstrap,
                     attempts,
                 )),
-                Some(&mut TableAction::Lookup(_)) => {
+                Some(TableAction::Lookup(_)) => {
                     error!(
                         "bip_dht: Resolved a TransactionID to a check table bootstrap but \
                         TableLookup found..."
                     );
                     None
                 }
-                Some(&mut TableAction::Refresh(_)) => {
+                Some(TableAction::Refresh(_)) => {
                     error!(
                         "bip_dht: Resolved a TransactionID to a check table bootstrap but \
                         TableRefresh found..."
@@ -661,7 +675,9 @@ impl DhtHandler {
                             &self.routing_table,
                             &self.socket,
                             &mut self.timer,
-                        ) {
+                        )
+                        .await
+                        {
                             Some(bootstrap_started) => !bootstrap_started,
                             None => {
                                 self.shutdown();
@@ -676,13 +692,14 @@ impl DhtHandler {
         };
 
         if bootstrap_complete {
-            self.broadcast_bootstrap_completed(trans_id.action_id());
+            self.broadcast_bootstrap_completed(trans_id.action_id())
+                .await;
         }
     }
 
     /// Broadcast that the bootstrap has completed.
-    /// IMPORTANT: Should call this instead of broadcast_dht_event()!
-    fn broadcast_bootstrap_completed(&mut self, action_id: ActionID) {
+    /// IMPORTANT: Should call this instead of just sending the event!
+    async fn broadcast_bootstrap_completed(&mut self, action_id: ActionID) {
         // Send notification that the bootstrap has completed.
         self.event_tx
             .send(DhtEvent::BootstrapCompleted)
@@ -699,19 +716,19 @@ impl DhtHandler {
         for table_action in future_actions.drain(..) {
             match table_action {
                 PostBootstrapAction::Lookup(info_hash, should_announce) => {
-                    self.handle_start_lookup(info_hash, should_announce);
+                    self.handle_start_lookup(info_hash, should_announce).await;
                 }
                 PostBootstrapAction::Refresh(refresh, trans_id) => {
                     self.table_actions
                         .insert(trans_id.action_id(), TableAction::Refresh(refresh));
 
-                    self.handle_check_table_refresh(trans_id);
+                    self.handle_check_table_refresh(trans_id).await;
                 }
             }
         }
     }
 
-    fn handle_start_lookup(&mut self, info_hash: InfoHash, should_announce: bool) {
+    async fn handle_start_lookup(&mut self, info_hash: InfoHash, should_announce: bool) {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
 
@@ -729,21 +746,24 @@ impl DhtHandler {
                 &mut self.routing_table,
                 &self.socket,
                 &mut self.timer,
-            );
+            )
+            .await;
             self.table_actions
                 .insert(action_id, TableAction::Lookup(lookup));
         }
     }
 
-    fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {
+    async fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.get_mut(&trans_id.action_id()) {
             Some(TableAction::Lookup(lookup)) => Some((
-                lookup.recv_timeout(
-                    &trans_id,
-                    &mut self.routing_table,
-                    &self.socket,
-                    &mut self.timer,
-                ),
+                lookup
+                    .recv_timeout(
+                        &trans_id,
+                        &mut self.routing_table,
+                        &self.socket,
+                        &mut self.timer,
+                    )
+                    .await,
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -788,10 +808,12 @@ impl DhtHandler {
         }
     }
 
-    fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
+    async fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
             Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup.recv_finished(self.announce_port, &mut self.routing_table, &self.socket),
+                lookup
+                    .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+                    .await,
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -836,10 +858,12 @@ impl DhtHandler {
         }
     }
 
-    fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
+    async fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
         match self.table_actions.get_mut(&trans_id.action_id()) {
             Some(TableAction::Refresh(refresh)) => {
-                refresh.continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
+                refresh
+                    .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
+                    .await
             }
             Some(TableAction::Lookup(_)) => {
                 error!("Resolved a TransactionID to a check table refresh but TableLookup found");
@@ -878,7 +902,7 @@ fn should_rebootstrap(table: &RoutingTable) -> bool {
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
 /// Returns None if the DHT is shutting down, Some(true) if the rebootstrap process started,
 /// Some(false) if a rebootstrap is not necessary.
-fn attempt_rebootstrap(
+async fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
@@ -903,7 +927,7 @@ fn attempt_rebootstrap(
                 return Some(false);
             }
         } else {
-            let bootstrap_status = bootstrap.start_bootstrap(socket, timer);
+            let bootstrap_status = bootstrap.start_bootstrap(socket, timer).await;
 
             match bootstrap_status {
                 BootstrapStatus::Idle => return Some(false),

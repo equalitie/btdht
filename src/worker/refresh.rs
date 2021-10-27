@@ -21,7 +21,7 @@ impl TableRefresh {
         }
     }
 
-    pub fn continue_refresh(
+    pub async fn continue_refresh(
         &mut self,
         table: &mut RoutingTable,
         socket: &UdpSocket,
@@ -57,7 +57,7 @@ impl TableRefresh {
             let find_node_msg = find_node_msg.encode();
 
             // Send the message
-            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr) {
+            if let Err(error) = socket::send(socket, &find_node_msg, node.addr).await {
                 error!("TableRefresh failed to send a refresh message: {}", error);
             }
 

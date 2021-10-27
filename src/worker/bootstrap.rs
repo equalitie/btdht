@@ -57,7 +57,7 @@ impl TableBootstrap {
         }
     }
 
-    pub fn start_bootstrap(
+    pub async fn start_bootstrap(
         &mut self,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
@@ -95,7 +95,7 @@ impl TableBootstrap {
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            match socket::blocking_send(socket, &find_node_msg, *addr) {
+            match socket::send(socket, &find_node_msg, *addr).await {
                 Ok(()) => {
                     successes += 1;
                 }
@@ -114,7 +114,7 @@ impl TableBootstrap {
         self.starting_routers.contains(addr)
     }
 
-    pub fn recv_response(
+    pub async fn recv_response(
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
@@ -145,13 +145,13 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, socket, timer);
+            return self.bootstrap_next_bucket(table, socket, timer).await;
         }
 
         self.current_bootstrap_status()
     }
 
-    pub fn recv_timeout(
+    pub async fn recv_timeout(
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
@@ -168,71 +168,80 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, socket, timer);
+            return self.bootstrap_next_bucket(table, socket, timer).await;
         }
 
         self.current_bootstrap_status()
     }
 
     // Returns true if there are more buckets to bootstrap, false otherwise
-    fn bootstrap_next_bucket(
+    async fn bootstrap_next_bucket(
         &mut self,
         table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
-        let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
+        loop {
+            let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
 
-        // Get the optimal iterator to bootstrap the current bucket
-        if self.curr_bootstrap_bucket == 0 || self.curr_bootstrap_bucket == 1 {
-            let nodes: Vec<_> = table
-                .closest_nodes(target_id)
-                .filter(|n| n.status() == NodeStatus::Questionable)
-                .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                .map(|node| *node.info())
-                .collect();
-
-            self.send_bootstrap_requests(&nodes, target_id, table, socket, timer)
-        } else {
-            let nodes: Vec<_> = {
-                let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
-                let dummy_bucket = Bucket::new();
-
-                // Sloppy probabilities of our target node residing at the node
-                let percent_25_bucket = if let Some(bucket) = buckets.next() {
-                    bucket.iter()
+            // Get the optimal iterator to bootstrap the current bucket
+            let nodes: Vec<_> =
+                if self.curr_bootstrap_bucket == 0 || self.curr_bootstrap_bucket == 1 {
+                    table
+                        .closest_nodes(target_id)
+                        .filter(|n| n.status() == NodeStatus::Questionable)
+                        .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                        .map(|node| *node.info())
+                        .collect()
                 } else {
-                    dummy_bucket.iter()
-                };
-                let percent_50_bucket = if let Some(bucket) = buckets.next() {
-                    bucket.iter()
-                } else {
-                    dummy_bucket.iter()
-                };
-                let percent_100_bucket = if let Some(bucket) = buckets.next() {
-                    bucket.iter()
-                } else {
-                    dummy_bucket.iter()
+                    let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
+                    let dummy_bucket = Bucket::new();
+
+                    // Sloppy probabilities of our target node residing at the node
+                    let percent_25_bucket = if let Some(bucket) = buckets.next() {
+                        bucket.iter()
+                    } else {
+                        dummy_bucket.iter()
+                    };
+                    let percent_50_bucket = if let Some(bucket) = buckets.next() {
+                        bucket.iter()
+                    } else {
+                        dummy_bucket.iter()
+                    };
+                    let percent_100_bucket = if let Some(bucket) = buckets.next() {
+                        bucket.iter()
+                    } else {
+                        dummy_bucket.iter()
+                    };
+
+                    // TODO: Figure out why chaining them in reverse gives us more total nodes on average, perhaps it allows us to fill up the lower
+                    // buckets faster at the cost of less nodes in the higher buckets (since lower buckets are very easy to fill)...Although it should
+                    // even out since we are stagnating buckets, so doing it in reverse may make sense since on the 3rd iteration, it allows us to ping
+                    // questionable nodes in our first buckets right off the bat.
+                    percent_25_bucket
+                        .chain(percent_50_bucket)
+                        .chain(percent_100_bucket)
+                        .filter(|n| n.status() == NodeStatus::Questionable)
+                        .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                        .map(|node| *node.info())
+                        .collect()
                 };
 
-                // TODO: Figure out why chaining them in reverse gives us more total nodes on average, perhaps it allows us to fill up the lower
-                // buckets faster at the cost of less nodes in the higher buckets (since lower buckets are very easy to fill)...Although it should
-                // even out since we are stagnating buckets, so doing it in reverse may make sense since on the 3rd iteration, it allows us to ping
-                // questionable nodes in our first buckets right off the bat.
-                percent_25_bucket
-                    .chain(percent_50_bucket)
-                    .chain(percent_100_bucket)
-                    .filter(|n| n.status() == NodeStatus::Questionable)
-                    .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                    .map(|node| *node.info())
-                    .collect()
-            };
+            let status = self
+                .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
+                .await;
 
-            self.send_bootstrap_requests(&nodes, target_id, table, socket, timer)
+            // If `Failed`, proceed to the next bucket.
+            if status != BootstrapStatus::Failed {
+                return status;
+            }
         }
     }
 
-    fn send_bootstrap_requests(
+    // If this returns `Failed` status it means the request wasn't sent to any node (either because
+    // there were no nodes or because all the sends failed). We should proceed to the next bucket
+    // in that case.
+    async fn send_bootstrap_requests(
         &mut self,
         nodes: &[NodeInfo],
         target_id: NodeId,
@@ -266,7 +275,7 @@ impl TableBootstrap {
             );
 
             // Send the message to the node
-            if let Err(error) = socket::blocking_send(socket, &find_node_msg, node.addr) {
+            if let Err(error) = socket::send(socket, &find_node_msg, node.addr).await {
                 error!("Could not send a bootstrap message: {}", error);
                 continue;
             }
@@ -285,10 +294,10 @@ impl TableBootstrap {
         self.curr_bootstrap_bucket += 1;
         if self.curr_bootstrap_bucket == table::MAX_BUCKETS {
             BootstrapStatus::Completed
-        } else if messages_sent == 0 {
-            self.bootstrap_next_bucket(table, socket, timer)
-        } else {
+        } else if messages_sent > 0 {
             BootstrapStatus::Bootstrapping
+        } else {
+            BootstrapStatus::Failed
         }
     }
 
