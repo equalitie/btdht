@@ -66,7 +66,7 @@ impl TableLookup {
         target_id: InfoHash,
         id_generator: MIDGenerator,
         will_announce: bool,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> TableLookup {
@@ -120,7 +120,7 @@ impl TableLookup {
         node: Node,
         trans_id: &TransactionID,
         msg: GetPeersResponse,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
@@ -201,11 +201,11 @@ impl TableLookup {
         // Check if we need to iterate (not in the endgame already)
         if !self.in_endgame {
             // If the node gave us a closer id than its own to the target id, continue the search
-            if let Some(ref nodes) = iterate_nodes {
+            if let Some(nodes) = iterate_nodes {
                 let filtered_nodes = nodes
                     .iter()
-                    .filter(|&&(_, good)| good)
-                    .map(|&(ref n, _)| (n, next_dist_to_beat));
+                    .filter(|(_, good)| *good)
+                    .map(|(n, _)| (n, next_dist_to_beat));
                 self.start_request_round(filtered_nodes, table, socket, timer);
             }
 
@@ -225,7 +225,7 @@ impl TableLookup {
     pub fn recv_timeout(
         &mut self,
         trans_id: &TransactionID,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
@@ -250,7 +250,7 @@ impl TableLookup {
     pub fn recv_finished(
         &mut self,
         port: Option<u16>,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
     ) -> LookupStatus {
         // Announce if we were told to
@@ -282,7 +282,7 @@ impl TableLookup {
                 match socket::blocking_send(socket, &announce_peer_msg, node.addr()) {
                     Ok(()) => {
                         // We requested from the node, marke it down if the node is in our routing table
-                        if let Some(n) = table.find_node(node) {
+                        if let Some(n) = table.find_node_mut(node.info()) {
                             n.local_request()
                         }
                     }
@@ -309,7 +309,7 @@ impl TableLookup {
     fn start_request_round<'a, I>(
         &mut self,
         nodes: I,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
@@ -349,7 +349,7 @@ impl TableLookup {
             self.requested_nodes.insert(*node.info());
 
             // Update the node in the routing table
-            if let Some(n) = table.find_node(node) {
+            if let Some(n) = table.find_node_mut(node.info()) {
                 n.local_request()
             }
 
@@ -366,7 +366,7 @@ impl TableLookup {
 
     fn start_endgame_round(
         &mut self,
-        table: &RoutingTable,
+        table: &mut RoutingTable,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
@@ -408,7 +408,7 @@ impl TableLookup {
                 }
 
                 // Mark that we requested from the node in the RoutingTable
-                if let Some(n) = table.find_node(node) {
+                if let Some(n) = table.find_node_mut(node.info()) {
                     n.local_request()
                 }
 

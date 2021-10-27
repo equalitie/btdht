@@ -6,18 +6,17 @@ use super::{
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
-use crate::id::InfoHash;
 use crate::message::{
     error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
     Request, Response,
 };
 use crate::routing::node::Node;
 use crate::routing::node::NodeStatus;
-use crate::routing::table::BucketContents;
 use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
 use crate::transaction::{AIDGenerator, ActionID, TransactionID};
+use crate::{id::InfoHash, routing::node::NodeInfo};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
@@ -215,10 +214,10 @@ impl DhtHandler {
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
                 info!("bip_dht: Received a PingRequest...");
-                let node = Node::as_good(p.id, addr);
+                let node = NodeInfo::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -237,10 +236,10 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::FindNode(f)) => {
                 info!("bip_dht: Received a FindNodeRequest...");
-                let node = Node::as_good(f.id, addr);
+                let node = NodeInfo::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -268,10 +267,10 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::GetPeers(g)) => {
                 info!("bip_dht: Received a GetPeersRequest...");
-                let node = Node::as_good(g.id, addr);
+                let node = NodeInfo::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -316,10 +315,10 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
                 info!("bip_dht: Received an AnnouncePeerRequest...");
-                let node = Node::as_good(a.id, addr);
+                let node = NodeInfo::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node(&node) {
+                if let Some(n) = self.routing_table.find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -425,7 +424,7 @@ impl DhtHandler {
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
                         match bootstrap.recv_response(
                             &trans_id,
-                            &self.routing_table,
+                            &mut self.routing_table,
                             &self.socket,
                             &mut self.timer,
                         ) {
@@ -469,15 +468,10 @@ impl DhtHandler {
                     let mut total = 0;
 
                     for (index, bucket) in self.routing_table.buckets().enumerate() {
-                        let num_nodes = match bucket {
-                            BucketContents::Empty => 0,
-                            BucketContents::Sorted(b) => {
-                                b.iter().filter(|n| n.status() == NodeStatus::Good).count()
-                            }
-                            BucketContents::Assorted(b) => {
-                                b.iter().filter(|n| n.status() == NodeStatus::Good).count()
-                            }
-                        };
+                        let num_nodes = bucket
+                            .iter()
+                            .filter(|n| n.status() == NodeStatus::Good)
+                            .count();
                         total += num_nodes;
 
                         if num_nodes != 0 {
@@ -527,7 +521,7 @@ impl DhtHandler {
                         node,
                         &trans_id,
                         g,
-                        &self.routing_table,
+                        &mut self.routing_table,
                         &self.socket,
                         &mut self.timer,
                     ) {
@@ -619,7 +613,7 @@ impl DhtHandler {
                 Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => Some((
                     bootstrap.recv_timeout(
                         &trans_id,
-                        &self.routing_table,
+                        &mut self.routing_table,
                         &self.socket,
                         &mut self.timer,
                     ),
@@ -732,7 +726,7 @@ impl DhtHandler {
                 info_hash,
                 mid_generator,
                 should_announce,
-                &self.routing_table,
+                &mut self.routing_table,
                 &self.socket,
                 &mut self.timer,
             );
@@ -746,7 +740,7 @@ impl DhtHandler {
             Some(TableAction::Lookup(lookup)) => Some((
                 lookup.recv_timeout(
                     &trans_id,
-                    &self.routing_table,
+                    &mut self.routing_table,
                     &self.socket,
                     &mut self.timer,
                 ),
@@ -797,7 +791,7 @@ impl DhtHandler {
     fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
         let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
             Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup.recv_finished(self.announce_port, &self.routing_table, &self.socket),
+                lookup.recv_finished(self.announce_port, &mut self.routing_table, &self.socket),
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
@@ -845,7 +839,7 @@ impl DhtHandler {
     fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
         match self.table_actions.get_mut(&trans_id.action_id()) {
             Some(TableAction::Refresh(refresh)) => {
-                refresh.continue_refresh(&self.routing_table, &self.socket, &mut self.timer)
+                refresh.continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             }
             Some(TableAction::Lookup(_)) => {
                 error!("Resolved a TransactionID to a check table refresh but TableLookup found");

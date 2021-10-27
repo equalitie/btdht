@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
@@ -36,9 +35,9 @@ pub enum NodeStatus {
 #[derive(Clone)]
 pub struct Node {
     info: NodeInfo,
-    last_request: Cell<Option<Instant>>,
-    last_response: Cell<Option<Instant>>,
-    refresh_requests: Cell<usize>,
+    last_request: Option<Instant>,
+    last_response: Option<Instant>,
+    refresh_requests: usize,
 }
 
 impl Node {
@@ -46,9 +45,9 @@ impl Node {
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
             info: NodeInfo { id, addr },
-            last_response: Cell::new(Some(Instant::now())),
-            last_request: Cell::new(None),
-            refresh_requests: Cell::new(0),
+            last_response: Some(Instant::now()),
+            last_request: None,
+            refresh_requests: 0,
         }
     }
 
@@ -59,9 +58,9 @@ impl Node {
 
         Node {
             info: NodeInfo { id, addr },
-            last_response: Cell::new(Some(last_response)),
-            last_request: Cell::new(None),
-            refresh_requests: Cell::new(0),
+            last_response: Some(last_response),
+            last_request: None,
+            refresh_requests: 0,
         }
     }
 
@@ -69,32 +68,29 @@ impl Node {
     pub fn as_bad(id: NodeId, addr: SocketAddr) -> Node {
         Node {
             info: NodeInfo { id, addr },
-            last_response: Cell::new(None),
-            last_request: Cell::new(None),
-            refresh_requests: Cell::new(0),
+            last_response: None,
+            last_request: None,
+            refresh_requests: 0,
         }
     }
 
     /// Record that we sent the node a request.
-    pub fn local_request(&self) {
+    pub fn local_request(&mut self) {
         if self.status() != NodeStatus::Good {
-            let num_requests = self.refresh_requests.get() + 1;
-
-            self.refresh_requests.set(num_requests);
+            self.refresh_requests = self.refresh_requests.saturating_add(1);
         }
     }
 
     /// Record that the node sent us a request.
-    pub fn remote_request(&self) {
-        self.last_request.set(Some(Instant::now()));
+    pub fn remote_request(&mut self) {
+        self.last_request = Some(Instant::now());
     }
 
     /// Record that the node sent us a response.
     #[allow(unused)] // TODO: find out why is this unused
-    pub fn remote_response(&self) {
-        self.last_response.set(Some(Instant::now()));
-
-        self.refresh_requests.set(0);
+    pub fn remote_response(&mut self) {
+        self.last_response = Some(Instant::now());
+        self.refresh_requests = 0;
     }
 
     pub fn id(&self) -> NodeId {
@@ -116,6 +112,13 @@ impl Node {
         };
 
         recently_requested(self, curr_time)
+    }
+
+    /// Is node good or questionable?
+    pub fn is_pingable(&self) -> bool {
+        // Function is moderately expensive
+        let status = self.status();
+        status == NodeStatus::Good || status == NodeStatus::Questionable
     }
 
     pub(crate) fn info(&self) -> &NodeInfo {
@@ -142,15 +145,13 @@ impl Hash for Node {
 
 impl Debug for Node {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        f.write_fmt(format_args!(
-            "Node{{ id: {:?}, addr: {:?}, last_request: {:?}, \
-                                  last_response: {:?}, refresh_requests: {:?} }}",
-            self.info.id,
-            self.info.addr,
-            self.last_request.get(),
-            self.last_response.get(),
-            self.refresh_requests.get()
-        ))
+        f.debug_struct("Node")
+            .field("id", &self.info.id)
+            .field("addr", &self.info.addr)
+            .field("last_request", &self.last_request)
+            .field("last_response", &self.last_response)
+            .field("refresh_requests", &self.refresh_requests)
+            .finish()
     }
 }
 
@@ -159,6 +160,12 @@ impl Debug for Node {
 pub struct NodeInfo {
     pub id: NodeId,
     pub addr: SocketAddr,
+}
+
+impl NodeInfo {
+    pub fn new(id: NodeId, addr: SocketAddr) -> Self {
+        Self { id, addr }
+    }
 }
 
 // TODO: Verify the two scenarios follow the specification as some cases seem questionable (pun intended), ie, a node
@@ -172,7 +179,7 @@ pub struct NodeInfo {
 /// to us before, but not recently.
 fn recently_responded(node: &Node, curr_time: Instant) -> NodeStatus {
     // Check if node has ever responded to us
-    let since_response = match node.last_response.get() {
+    let since_response = match node.last_response {
         Some(response_time) => curr_time - response_time,
         None => return NodeStatus::Bad,
     };
@@ -195,7 +202,7 @@ fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
     let max_last_request = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
 
     // Check if the node has recently request from us
-    if let Some(request_time) = node.last_request.get() {
+    if let Some(request_time) = node.last_request {
         let since_request = curr_time - request_time;
 
         if since_request < max_last_request {
@@ -204,7 +211,7 @@ fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
     }
 
     // Check if we have request from node multiple times already without response
-    if node.refresh_requests.get() < MAX_REFRESH_REQUESTS {
+    if node.refresh_requests < MAX_REFRESH_REQUESTS {
         NodeStatus::Questionable
     } else {
         NodeStatus::Bad
@@ -269,7 +276,7 @@ mod tests {
 
     #[test]
     fn positive_response_renewal() {
-        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
+        let mut node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         node.remote_response();
 
@@ -278,7 +285,7 @@ mod tests {
 
     #[test]
     fn positive_request_renewal() {
-        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
+        let mut node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         node.remote_request();
 
@@ -287,19 +294,19 @@ mod tests {
 
     #[test]
     fn positive_node_idle() {
-        let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
+        let mut node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         let time_offset = Duration::from_secs(super::MAX_LAST_SEEN_MINS * 60);
         let idle_time = Instant::now() - time_offset;
 
-        node.last_response.set(Some(idle_time));
+        node.last_response = Some(idle_time);
 
         assert_eq!(node.status(), NodeStatus::Questionable);
     }
 
     #[test]
     fn positive_node_idle_reqeusts() {
-        let node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
+        let mut node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         for _ in 0..super::MAX_REFRESH_REQUESTS {
             node.local_request();

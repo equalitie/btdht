@@ -1,10 +1,9 @@
+use super::bucket::{self, Bucket};
+use super::node::{Node, NodeInfo, NodeStatus};
+use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
 use std::cmp::Ordering;
 use std::iter::Filter;
 use std::slice::Iter;
-
-use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
-use crate::routing::bucket::{self, Bucket};
-use crate::routing::node::{Node, NodeStatus};
 
 pub const MAX_BUCKETS: usize = SHA_HASH_LEN * 8;
 
@@ -40,32 +39,39 @@ impl RoutingTable {
     }
 
     /// Iterator over all buckets in the routing table.
-    pub fn buckets(&self) -> Buckets {
-        Buckets::new(&self.buckets)
+    pub fn buckets(&self) -> impl Iterator<Item = &Bucket> + ExactSizeIterator {
+        self.buckets.iter()
     }
 
     /// Find an instance of the target node in the RoutingTable, if it exists.
-    pub fn find_node(&self, node: &Node) -> Option<&Node> {
-        let bucket_index = leading_bit_count(self.node_id, node.id());
+    #[allow(unused)]
+    pub fn find_node(&self, node: &NodeInfo) -> Option<&Node> {
+        let bucket_index = self.bucket_index_for_node(node.id);
+        let bucket = self.buckets.get(bucket_index)?;
+        bucket.pingable_nodes().find(|n| n.info() == node)
+    }
+
+    /// Find a mutable reference to an instance of the target node in the RoutingTable, if it
+    /// exists.
+    pub fn find_node_mut<'a>(&'a mut self, node: &'_ NodeInfo) -> Option<&'a mut Node> {
+        let bucket_index = self.bucket_index_for_node(node.id);
+        let bucket = self.buckets.get_mut(bucket_index)?;
+        bucket.pingable_nodes_mut().find(|n| n.info() == node)
+    }
+
+    fn bucket_index_for_node(&self, node_id: NodeId) -> usize {
+        let bucket_index = leading_bit_count(self.node_id, node_id);
 
         // Check the sorted bucket
-        let opt_bucket_contents = if let Some(c) = self.buckets().nth(bucket_index) {
+        if bucket_index < self.buckets.len() {
             // Got the sorted bucket
-            Some(c)
+            bucket_index
         } else {
-            // Grab the assorted bucket (if it exists)
-            self.buckets().find(|c| match c {
-                BucketContents::Empty => false,
-                BucketContents::Sorted(_) => false,
-                BucketContents::Assorted(_) => true,
-            })
-        };
-
-        // Check for our target node in our results
-        match opt_bucket_contents {
-            Some(BucketContents::Sorted(b)) => b.pingable_nodes().find(|n| n == &node),
-            Some(BucketContents::Assorted(b)) => b.pingable_nodes().find(|n| n == &node),
-            _ => None,
+            // Grab the assorted bucket
+            self.buckets
+                .len()
+                .checked_sub(1)
+                .expect("no buckets present in RoutingTable - implementation error")
         }
     }
 
@@ -110,7 +116,7 @@ impl RoutingTable {
         // in the RoutingTable already.
         let split_bucket = match self.buckets.pop() {
             Some(bucket) => bucket,
-            None => panic!("No buckets present in RoutingTable, implementation error..."),
+            None => panic!("no buckets present in RoutingTable - implementation error"),
         };
 
         // Push two more buckets to distribute nodes between
@@ -160,83 +166,6 @@ fn bucket_placement(num_same_bits: usize, num_buckets: usize) -> usize {
         num_buckets - 1
     } else {
         ideal_index
-    }
-}
-
-// ----------------------------------------------------------------------------//
-
-#[derive(Copy, Clone)]
-pub enum BucketContents<'a> {
-    /// Empty bucket is a placeholder for a bucket that has not yet been created.
-    Empty,
-    /// Sorted bucket is where nodes with the same leading bits reside.
-    Sorted(&'a Bucket),
-    /// Assorted bucket is where nodes with differing bits reside.
-    ///
-    /// These nodes are dynamically placed in their sorted bucket when is is created.
-    Assorted(&'a Bucket),
-}
-
-impl<'a> BucketContents<'a> {
-    #[allow(unused)]
-    fn is_empty(&self) -> bool {
-        matches!(self, BucketContents::Empty)
-    }
-
-    #[allow(unused)]
-    fn is_sorted(&self) -> bool {
-        matches!(self, BucketContents::Sorted(_))
-    }
-
-    #[allow(unused)]
-    fn is_assorted(&self) -> bool {
-        matches!(self, BucketContents::Assorted(_))
-    }
-}
-
-/// Iterator over buckets where the item returned is an enum
-/// specifying the current state of the bucket returned.
-#[derive(Copy, Clone)]
-pub struct Buckets<'a> {
-    buckets: &'a [Bucket],
-    index: usize,
-}
-
-impl<'a> Buckets<'a> {
-    fn new(buckets: &'a [Bucket]) -> Buckets<'a> {
-        Buckets { buckets, index: 0 }
-    }
-}
-
-impl<'a> Iterator for Buckets<'a> {
-    type Item = BucketContents<'a>;
-
-    fn next(&mut self) -> Option<BucketContents<'a>> {
-        match self.index.cmp(&MAX_BUCKETS) {
-            Ordering::Greater => return None,
-            Ordering::Equal => {
-                // If not all sorted buckets were present, return the assorted bucket
-                // after the iteration of the last bucket occurs, which is here!
-                self.index += 1;
-
-                if self.buckets.len() == MAX_BUCKETS || self.buckets.is_empty() {
-                    return None;
-                } else {
-                    return Some(BucketContents::Assorted(
-                        &self.buckets[self.buckets.len() - 1],
-                    ));
-                };
-            }
-            Ordering::Less => (),
-        }
-
-        self.index += 1;
-
-        if self.index < self.buckets.len() || self.buckets.len() == MAX_BUCKETS {
-            Some(BucketContents::Sorted(&self.buckets[self.index - 1]))
-        } else {
-            Some(BucketContents::Empty)
-        }
     }
 }
 
@@ -431,11 +360,10 @@ fn index_is_in_bounds(length: usize, checked_index: Option<usize>) -> bool {
 
 #[cfg(test)]
 mod tests {
-
     use crate::id::{NodeId, NODE_ID_LEN};
     use crate::routing::bucket;
     use crate::routing::node::Node;
-    use crate::routing::table::{self, BucketContents, RoutingTable};
+    use crate::routing::table::{self, RoutingTable};
     use crate::test;
 
     #[test]
@@ -462,23 +390,9 @@ mod tests {
         let table_id = [1u8; NODE_ID_LEN];
         let table = RoutingTable::new(table_id.into());
 
-        // First buckets should be empty
-        assert_eq!(
-            table.buckets().take(table::MAX_BUCKETS).count(),
-            table::MAX_BUCKETS
-        );
-        assert!(table
-            .buckets()
-            .take(table::MAX_BUCKETS)
-            .all(|contents| contents.is_empty()));
-
-        // Last assorted bucket should show up
-        assert_eq!(table.buckets().skip(table::MAX_BUCKETS).count(), 1);
-        for bucket in table.buckets().skip(table::MAX_BUCKETS) {
-            match bucket {
-                BucketContents::Assorted(b) => assert_eq!(b.pingable_nodes().count(), 0),
-                _ => panic!("Expected BucketContents::Assorted"),
-            }
+        assert_eq!(table.buckets().count(), 1);
+        for bucket in table.buckets() {
+            assert_eq!(bucket.pingable_nodes().count(), 0)
         }
     }
 
@@ -501,33 +415,17 @@ mod tests {
         // First bucket should be sorted
         assert_eq!(table.buckets().take(1).count(), 1);
         for bucket in table.buckets().take(1) {
-            match bucket {
-                BucketContents::Sorted(b) => {
-                    assert_eq!(b.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
-                }
-                _ => panic!("Expected BucketContents::Sorted"),
-            }
+            assert_eq!(bucket.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
         }
 
-        // Middle buckets should be empty
-        assert_eq!(
-            table.buckets().skip(1).take(table::MAX_BUCKETS - 1).count(),
-            table::MAX_BUCKETS - 1
-        );
-        assert!(table
-            .buckets()
-            .skip(1)
-            .take(table::MAX_BUCKETS - 1)
-            .all(|contents| contents.is_empty()));
-
-        // Last assorted bucket should show up
-        assert_eq!(table.buckets().skip(table::MAX_BUCKETS).count(), 1);
-        for bucket in table.buckets().skip(table::MAX_BUCKETS) {
-            match bucket {
-                BucketContents::Assorted(b) => assert_eq!(b.pingable_nodes().count(), 0),
-                _ => panic!("Expected BucketContents::Assorted"),
-            }
+        // Assorted bucket should show up
+        assert_eq!(table.buckets().skip(1).count(), 1);
+        for bucket in table.buckets().skip(1) {
+            assert_eq!(bucket.pingable_nodes().count(), 0)
         }
+
+        // There should be only two buckets
+        assert_eq!(table.buckets().skip(2).count(), 0);
     }
 
     #[test]
@@ -552,10 +450,7 @@ mod tests {
             table::MAX_BUCKETS - 1
         );
         for bucket in table.buckets().take(table::MAX_BUCKETS - 1) {
-            match bucket {
-                BucketContents::Sorted(b) => assert_eq!(b.pingable_nodes().count(), 0),
-                _ => panic!("Expected BucketContents::Sorted"),
-            }
+            assert_eq!(bucket.pingable_nodes().count(), 0)
         }
 
         // Last bucket should be sorted
@@ -564,16 +459,8 @@ mod tests {
             1
         );
         for bucket in table.buckets().skip(table::MAX_BUCKETS - 1).take(1) {
-            match bucket {
-                BucketContents::Sorted(b) => {
-                    assert_eq!(b.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
-                }
-                _ => panic!("Expected BucketContents::Sorted"),
-            }
+            assert_eq!(bucket.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
         }
-
-        // Last assorted bucket should NOT show up
-        assert_eq!(table.buckets().skip(table::MAX_BUCKETS).count(), 0);
     }
 
     #[test]
@@ -592,12 +479,7 @@ mod tests {
 
         assert_eq!(table.buckets().count(), table::MAX_BUCKETS);
         for bucket in table.buckets() {
-            match bucket {
-                BucketContents::Sorted(b) => {
-                    assert_eq!(b.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
-                }
-                _ => panic!("Expected BucketContents::Sorted"),
-            }
+            assert_eq!(bucket.pingable_nodes().count(), bucket::MAX_BUCKET_SIZE)
         }
     }
 
