@@ -40,7 +40,7 @@ impl TableRefresh {
         if let Some(node) = table
             .closest_nodes(target_id)
             .find(|n| n.status() == NodeStatus::Questionable)
-            .map(|node| *node.info())
+            .map(|node| *node.handle())
         {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();

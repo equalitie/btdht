@@ -34,7 +34,7 @@ pub enum NodeStatus {
 /// Node participating in the dht.
 #[derive(Clone)]
 pub struct Node {
-    info: NodeInfo,
+    handle: NodeHandle,
     last_request: Option<Instant>,
     last_response: Option<Instant>,
     refresh_requests: usize,
@@ -44,7 +44,7 @@ impl Node {
     /// Create a new node that has recently responded to us but never requested from us.
     pub fn as_good(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            info: NodeInfo { id, addr },
+            handle: NodeHandle { id, addr },
             last_response: Some(Instant::now()),
             last_request: None,
             refresh_requests: 0,
@@ -57,7 +57,7 @@ impl Node {
         let last_response = Instant::now().checked_sub(last_response_offset).unwrap();
 
         Node {
-            info: NodeInfo { id, addr },
+            handle: NodeHandle { id, addr },
             last_response: Some(last_response),
             last_request: None,
             refresh_requests: 0,
@@ -67,7 +67,7 @@ impl Node {
     /// Create a new node that has never responded to us or requested from us.
     pub fn as_bad(id: NodeId, addr: SocketAddr) -> Node {
         Node {
-            info: NodeInfo { id, addr },
+            handle: NodeHandle { id, addr },
             last_response: None,
             last_request: None,
             refresh_requests: 0,
@@ -94,11 +94,11 @@ impl Node {
     }
 
     pub fn id(&self) -> NodeId {
-        self.info.id
+        self.handle.id
     }
 
     pub fn addr(&self) -> SocketAddr {
-        self.info.addr
+        self.handle.addr
     }
 
     /// Current status of the node.
@@ -121,8 +121,8 @@ impl Node {
         status == NodeStatus::Good || status == NodeStatus::Questionable
     }
 
-    pub(crate) fn info(&self) -> &NodeInfo {
-        &self.info
+    pub(crate) fn handle(&self) -> &NodeHandle {
+        &self.handle
     }
 }
 
@@ -130,7 +130,7 @@ impl Eq for Node {}
 
 impl PartialEq<Node> for Node {
     fn eq(&self, other: &Node) -> bool {
-        self.info == other.info
+        self.handle == other.handle
     }
 }
 
@@ -139,15 +139,15 @@ impl Hash for Node {
     where
         H: Hasher,
     {
-        self.info.hash(state);
+        self.handle.hash(state);
     }
 }
 
 impl Debug for Node {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         f.debug_struct("Node")
-            .field("id", &self.info.id)
-            .field("addr", &self.info.addr)
+            .field("id", &self.handle.id)
+            .field("addr", &self.handle.addr)
             .field("last_request", &self.last_request)
             .field("last_response", &self.last_response)
             .field("refresh_requests", &self.refresh_requests)
@@ -157,12 +157,12 @@ impl Debug for Node {
 
 /// Node id + its socket address.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct NodeInfo {
+pub struct NodeHandle {
     pub id: NodeId,
     pub addr: SocketAddr,
 }
 
-impl NodeInfo {
+impl NodeHandle {
     pub fn new(id: NodeId, addr: SocketAddr) -> Self {
         Self { id, addr }
     }
@@ -240,7 +240,7 @@ mod tests {
 
         let node = Node::as_good(node_id.into(), sock_addr);
 
-        let encoded_node = node.info().encode();
+        let encoded_node = node.handle().encode();
 
         let port_bytes = [(port >> 8) as u8, port as u8];
         for (expected, actual) in node_id

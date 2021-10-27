@@ -8,7 +8,7 @@ use crate::routing::bucket::Bucket;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
-use crate::{id::NodeId, routing::node::NodeInfo};
+use crate::{id::NodeId, routing::node::NodeHandle};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -32,33 +32,35 @@ pub(crate) enum BootstrapStatus {
 }
 
 pub(crate) struct TableBootstrap {
-    table_id: NodeId,
     id_generator: MIDGenerator,
     starting_nodes: HashSet<SocketAddr>,
-    active_messages: HashMap<TransactionID, Timeout>,
     starting_routers: HashSet<SocketAddr>,
+    active_messages: HashMap<TransactionID, Timeout>,
     curr_bootstrap_bucket: usize,
+    initial_responses: HashSet<SocketAddr>,
+    initial_responses_expected: usize,
 }
 
 impl TableBootstrap {
     pub fn new(
-        table_id: NodeId,
         id_generator: MIDGenerator,
         nodes: HashSet<SocketAddr>,
         routers: HashSet<SocketAddr>,
     ) -> TableBootstrap {
         TableBootstrap {
-            table_id,
             id_generator,
             starting_nodes: nodes,
             starting_routers: routers,
             active_messages: HashMap::new(),
             curr_bootstrap_bucket: 0,
+            initial_responses: HashSet::new(),
+            initial_responses_expected: 0,
         }
     }
 
     pub async fn start_bootstrap(
         &mut self,
+        table_id: NodeId,
         socket: &UdpSocket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
@@ -66,7 +68,12 @@ impl TableBootstrap {
         self.active_messages.clear();
         self.curr_bootstrap_bucket = 0;
 
-        // Generate transaction id for the initial bootstrap messages
+        // In the initial round, we send the requests to contacts (nodes and routers) who are not in
+        // our routing table. Because of that, we don't care who we receive a response from, only
+        // that we receive sufficient number of unique ones. Thus we use the same transaction id
+        // for all of them.
+        // After the initial round we are sending only to nodes from the routing table, so we use
+        // unique transaction id per node.
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
@@ -75,20 +82,20 @@ impl TableBootstrap {
             ScheduledTaskCheck::BootstrapTimeout(trans_id),
         );
 
-        // Insert the timeout into the active bootstraps just so we can check if a response was valid (and begin the bucket bootstraps)
         self.active_messages.insert(trans_id, timeout);
 
         let find_node_msg = Message {
             transaction_id: trans_id.as_ref().to_vec(),
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
-                id: self.table_id,
-                target: self.table_id,
+                id: table_id,
+                target: table_id,
             })),
         }
         .encode();
 
         // Ping all initial routers and nodes
-        let mut successes = 0;
+        self.initial_responses_expected = 0;
+        self.initial_responses.clear();
 
         for addr in self
             .starting_routers
@@ -97,13 +104,15 @@ impl TableBootstrap {
         {
             match socket::send(socket, &find_node_msg, *addr).await {
                 Ok(()) => {
-                    successes += 1;
+                    if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {
+                        self.initial_responses_expected += 1
+                    }
                 }
                 Err(error) => error!("Failed to send bootstrap message to router: {}", error),
             }
         }
 
-        if successes > 0 {
+        if self.initial_responses_expected > 0 {
             self.current_bootstrap_status()
         } else {
             BootstrapStatus::Failed
@@ -116,6 +125,7 @@ impl TableBootstrap {
 
     pub async fn recv_response(
         &mut self,
+        addr: SocketAddr,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
         socket: &UdpSocket,
@@ -125,21 +135,22 @@ impl TableBootstrap {
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
-            warn!(
-                "bip_dht: Received expired/unsolicited node response for an active table \
-                   bootstrap..."
-            );
+            warn!("Received expired/unsolicited node response for an active table bootstrap");
             return self.current_bootstrap_status();
         };
 
-        // If this response was from the initial bootstrap, we don't want to clear the timeout or remove
-        // the token from the map as we want to wait until the proper timeout has been triggered before starting
-        if self.curr_bootstrap_bucket != 0 {
-            // Message was not from the initial ping
-            // Remove the timeout from the event loop
-            timer.cancel(timeout);
+        // In the initial round all the messages have the same transaction id so clear it only after
+        // we receive sufficient number of unique response. After the initial round, every message
+        // has its own transaction id so clear it immediately.
+        if self.curr_bootstrap_bucket == 0 {
+            self.initial_responses.insert(addr);
 
-            // Remove the token from the mapping
+            if self.initial_responses.len() >= self.initial_responses_expected {
+                timer.cancel(timeout);
+                self.active_messages.remove(trans_id);
+            }
+        } else {
+            timer.cancel(timeout);
             self.active_messages.remove(trans_id);
         }
 
@@ -159,10 +170,7 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
-            warn!(
-                "bip_dht: Received expired/unsolicited node timeout for an active table \
-                   bootstrap..."
-            );
+            warn!("Received expired/unsolicited node timeout for an active table bootstrap");
             return self.current_bootstrap_status();
         }
 
@@ -182,7 +190,7 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         loop {
-            let target_id = self.table_id.flip_bit(self.curr_bootstrap_bucket);
+            let target_id = table.node_id().flip_bit(self.curr_bootstrap_bucket);
 
             // Get the optimal iterator to bootstrap the current bucket
             let nodes: Vec<_> =
@@ -191,7 +199,7 @@ impl TableBootstrap {
                         .closest_nodes(target_id)
                         .filter(|n| n.status() == NodeStatus::Questionable)
                         .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                        .map(|node| *node.info())
+                        .map(|node| *node.handle())
                         .collect()
                 } else {
                     let mut buckets = table.buckets().skip(self.curr_bootstrap_bucket - 2);
@@ -223,7 +231,7 @@ impl TableBootstrap {
                         .chain(percent_100_bucket)
                         .filter(|n| n.status() == NodeStatus::Questionable)
                         .take(BOOTSTRAP_PINGS_PER_BUCKET)
-                        .map(|node| *node.info())
+                        .map(|node| *node.handle())
                         .collect()
                 };
 
@@ -243,7 +251,7 @@ impl TableBootstrap {
     // in that case.
     async fn send_bootstrap_requests(
         &mut self,
-        nodes: &[NodeInfo],
+        nodes: &[NodeHandle],
         target_id: NodeId,
         table: &mut RoutingTable,
         socket: &UdpSocket,
@@ -262,7 +270,7 @@ impl TableBootstrap {
             let find_node_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),
                 body: MessageBody::Request(Request::FindNode(FindNodeRequest {
-                    id: self.table_id,
+                    id: table.node_id(),
                     target: target_id,
                 })),
             }

@@ -16,7 +16,7 @@ use crate::routing::table::RoutingTable;
 use crate::storage::AnnounceStorage;
 use crate::token::{Token, TokenStore};
 use crate::transaction::{AIDGenerator, ActionID, TransactionID};
-use crate::{id::InfoHash, routing::node::NodeInfo};
+use crate::{id::InfoHash, routing::node::NodeHandle};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
@@ -209,7 +209,7 @@ impl DhtHandler {
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
                 info!("bip_dht: Received a PingRequest...");
-                let node = NodeInfo::new(p.id, addr);
+                let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -231,7 +231,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::FindNode(f)) => {
                 info!("bip_dht: Received a FindNodeRequest...");
-                let node = NodeInfo::new(f.id, addr);
+                let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -243,7 +243,7 @@ impl DhtHandler {
                     .routing_table
                     .closest_nodes(f.target)
                     .take(8)
-                    .map(|node| *node.info())
+                    .map(|node| *node.handle())
                     .collect();
 
                 let find_node_rsp = FindNodeResponse {
@@ -262,7 +262,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::GetPeers(g)) => {
                 info!("bip_dht: Received a GetPeersRequest...");
-                let node = NodeInfo::new(g.id, addr);
+                let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -287,7 +287,7 @@ impl DhtHandler {
                     .routing_table
                     .closest_nodes(g.info_hash)
                     .take(8)
-                    .map(|node| *node.info())
+                    .map(|node| *node.handle())
                     .collect();
 
                 let token = self.token_store.checkout(addr.ip());
@@ -310,7 +310,7 @@ impl DhtHandler {
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
                 info!("bip_dht: Received an AnnouncePeerRequest...");
-                let node = NodeInfo::new(a.id, addr);
+                let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
                 if let Some(n) = self.routing_table.find_node_mut(&node) {
@@ -391,26 +391,23 @@ impl DhtHandler {
 
                 let bootstrap_complete = {
                     let opt_bootstrap = match self.table_actions.get_mut(&trans_id.action_id()) {
-                        Some(&mut TableAction::Refresh(_)) => {
+                        Some(TableAction::Refresh(_)) => {
                             self.routing_table.add_node(node);
                             None
                         }
-                        Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
+                        Some(TableAction::Bootstrap(bootstrap, attempts)) => {
                             if !bootstrap.is_router(&node.addr()) {
                                 self.routing_table.add_node(node);
                             }
                             Some((bootstrap, attempts))
                         }
-                        Some(&mut TableAction::Lookup(_)) => {
-                            error!(
-                                "bip_dht: Resolved a FindNodeResponse ActionID to a TableLookup..."
-                            );
+                        Some(TableAction::Lookup(_)) => {
+                            error!("Resolved a FindNodeResponse ActionID to a TableLookup");
                             None
                         }
                         None => {
                             error!(
-                                "bip_dht: Resolved a TransactionID to a FindNodeResponse but no \
-                                action found..."
+                                "Resolved a TransactionID to a FindNodeResponse but no action found"
                             );
                             None
                         }
@@ -419,6 +416,7 @@ impl DhtHandler {
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
                         match bootstrap
                             .recv_response(
+                                addr,
                                 &trans_id,
                                 &mut self.routing_table,
                                 &self.socket,
@@ -563,12 +561,11 @@ impl DhtHandler {
     ) {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
-        let mut table_bootstrap =
-            TableBootstrap::new(self.routing_table.node_id(), mid_generator, nodes, routers);
+        let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
         let bootstrap_status = table_bootstrap
-            .start_bootstrap(&self.socket, &mut self.timer)
+            .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer)
             .await;
 
         self.bootstrapping = true;
@@ -739,7 +736,6 @@ impl DhtHandler {
         } else {
             // Start the lookup right now if not bootstrapping
             let lookup = TableLookup::new(
-                self.routing_table.node_id(),
                 info_hash,
                 mid_generator,
                 should_announce,
@@ -927,7 +923,9 @@ async fn attempt_rebootstrap(
                 return Some(false);
             }
         } else {
-            let bootstrap_status = bootstrap.start_bootstrap(socket, timer).await;
+            let bootstrap_status = bootstrap
+                .start_bootstrap(routing_table.node_id(), socket, timer)
+                .await;
 
             match bootstrap_status {
                 BootstrapStatus::Idle => return Some(false),

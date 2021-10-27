@@ -1,5 +1,5 @@
 use super::bucket::{self, Bucket};
-use super::node::{Node, NodeInfo, NodeStatus};
+use super::node::{Node, NodeHandle, NodeStatus};
 use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
 use std::cmp::Ordering;
 use std::iter::Filter;
@@ -45,18 +45,18 @@ impl RoutingTable {
 
     /// Find an instance of the target node in the RoutingTable, if it exists.
     #[allow(unused)]
-    pub fn find_node(&self, node: &NodeInfo) -> Option<&Node> {
+    pub fn find_node(&self, node: &NodeHandle) -> Option<&Node> {
         let bucket_index = self.bucket_index_for_node(node.id);
         let bucket = self.buckets.get(bucket_index)?;
-        bucket.pingable_nodes().find(|n| n.info() == node)
+        bucket.pingable_nodes().find(|n| n.handle() == node)
     }
 
     /// Find a mutable reference to an instance of the target node in the RoutingTable, if it
     /// exists.
-    pub fn find_node_mut<'a>(&'a mut self, node: &'_ NodeInfo) -> Option<&'a mut Node> {
+    pub fn find_node_mut<'a>(&'a mut self, node: &'_ NodeHandle) -> Option<&'a mut Node> {
         let bucket_index = self.bucket_index_for_node(node.id);
         let bucket = self.buckets.get_mut(bucket_index)?;
-        bucket.pingable_nodes_mut().find(|n| n.info() == node)
+        bucket.pingable_nodes_mut().find(|n| n.handle() == node)
     }
 
     fn bucket_index_for_node(&self, node_id: NodeId) -> usize {
