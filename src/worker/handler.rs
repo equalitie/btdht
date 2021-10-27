@@ -391,26 +391,23 @@ impl DhtHandler {
 
                 let bootstrap_complete = {
                     let opt_bootstrap = match self.table_actions.get_mut(&trans_id.action_id()) {
-                        Some(&mut TableAction::Refresh(_)) => {
+                        Some(TableAction::Refresh(_)) => {
                             self.routing_table.add_node(node);
                             None
                         }
-                        Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
+                        Some(TableAction::Bootstrap(bootstrap, attempts)) => {
                             if !bootstrap.is_router(&node.addr()) {
                                 self.routing_table.add_node(node);
                             }
                             Some((bootstrap, attempts))
                         }
-                        Some(&mut TableAction::Lookup(_)) => {
-                            error!(
-                                "bip_dht: Resolved a FindNodeResponse ActionID to a TableLookup..."
-                            );
+                        Some(TableAction::Lookup(_)) => {
+                            error!("Resolved a FindNodeResponse ActionID to a TableLookup");
                             None
                         }
                         None => {
                             error!(
-                                "bip_dht: Resolved a TransactionID to a FindNodeResponse but no \
-                                action found..."
+                                "Resolved a TransactionID to a FindNodeResponse but no action found"
                             );
                             None
                         }
@@ -419,6 +416,7 @@ impl DhtHandler {
                     if let Some((bootstrap, attempts)) = opt_bootstrap {
                         match bootstrap
                             .recv_response(
+                                addr,
                                 &trans_id,
                                 &mut self.routing_table,
                                 &self.socket,
