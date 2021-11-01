@@ -6,6 +6,10 @@ use std::net::SocketAddr;
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
+///
+/// This type is cheaply cloneable where each clone refers to the same underlying DHT instance. This
+/// is useful to be able to issue DHT operations from multiple tasks/threads.
+#[derive(Clone)]
 pub struct MainlineDht {
     send: mpsc::UnboundedSender<OneshotTask>,
 }
