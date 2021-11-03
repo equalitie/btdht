@@ -98,15 +98,13 @@ impl DhtBuilder {
 
     /// Add a router which will let us gather nodes if our routing table is ever empty.
     ///
-    /// See [Self::with_router] for difference between a router and a node.
+    /// The difference between routers and nodes is that routers are not added to the routing table.
     pub fn add_router(mut self, router: SocketAddr) -> DhtBuilder {
         self.routers.insert(router);
         self
     }
 
-    /// Add routers
-    ///
-    /// See [Self::with_router] for difference between a router and a node.
+    /// Add routers. Same as calling `add_router` multiple times but more convenient in some cases.
     pub fn add_routers<I>(mut self, routers: I) -> DhtBuilder
     where
         I: IntoIterator<Item = SocketAddr>,
