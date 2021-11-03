@@ -8,8 +8,6 @@ use std::{
 
 const SOCKET_ADDR_V4_LEN: usize = 6;
 const SOCKET_ADDR_V6_LEN: usize = 18;
-const NODE_HANDLE_V4_LEN: usize = NODE_ID_LEN + SOCKET_ADDR_V4_LEN;
-const NODE_HANDLE_V6_LEN: usize = NODE_ID_LEN + SOCKET_ADDR_V6_LEN;
 
 /// Serialize/deserialize `Vec` of `SocketAddr` in compact format.
 pub(crate) mod values {
@@ -64,8 +62,48 @@ pub(crate) mod values {
     }
 }
 
-/// Serialize/deserialize `Vec` of `NodeHandle` in compact format.
+/// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Specialized for ipv4 addresses.
 pub(crate) mod nodes_v4 {
+    use crate::routing::node::NodeHandle;
+    use serde::{de::Deserializer, ser::Serializer};
+
+    pub(crate) fn serialize<S>(nodes: &[NodeHandle], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        super::nodes::serialize::<S, { super::SOCKET_ADDR_V4_LEN }>(nodes, s)
+    }
+
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Vec<NodeHandle>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        super::nodes::deserialize::<D, { super::SOCKET_ADDR_V4_LEN }>(d)
+    }
+}
+
+/// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Specialized for ipv6 addresses.
+pub(crate) mod nodes_v6 {
+    use crate::routing::node::NodeHandle;
+    use serde::{de::Deserializer, ser::Serializer};
+
+    pub(crate) fn serialize<S>(nodes: &[NodeHandle], s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        super::nodes::serialize::<S, { super::SOCKET_ADDR_V6_LEN }>(nodes, s)
+    }
+
+    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Vec<NodeHandle>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        super::nodes::deserialize::<D, { super::SOCKET_ADDR_V6_LEN }>(d)
+    }
+}
+
+/// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Generic over address family.
+mod nodes {
     use crate::{id::NodeId, routing::node::NodeHandle};
     use serde::{
         de::{Deserialize, Deserializer, Error as _},
@@ -74,33 +112,40 @@ pub(crate) mod nodes_v4 {
     use serde_bytes::ByteBuf;
     use std::convert::TryFrom;
 
-    pub(crate) fn serialize<S>(nodes: &[NodeHandle], s: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S, const ADDR_LEN: usize>(
+        nodes: &[NodeHandle],
+        s: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut buffer = Vec::with_capacity(nodes.len() * super::NODE_HANDLE_V4_LEN);
+        let mut buffer = Vec::with_capacity(nodes.len() * (super::NODE_ID_LEN + ADDR_LEN));
 
         for node in nodes {
-            if !node.addr.is_ipv4() {
-                return Err(S::Error::custom("node addr is not ipv4"));
+            let encoded_addr = super::encode_socket_addr(&node.addr);
+
+            if encoded_addr.len() != ADDR_LEN {
+                return Err(S::Error::custom("unexpected address family"));
             }
 
             buffer.extend(node.id.as_ref());
-            buffer.extend(super::encode_socket_addr(&node.addr));
+            buffer.extend(encoded_addr);
         }
 
         s.serialize_bytes(&buffer)
     }
 
-    pub(crate) fn deserialize<'de, D>(d: D) -> Result<Vec<NodeHandle>, D::Error>
+    pub(crate) fn deserialize<'de, D, const ADDR_LEN: usize>(
+        d: D,
+    ) -> Result<Vec<NodeHandle>, D::Error>
     where
         D: Deserializer<'de>,
     {
         let buffer = ByteBuf::deserialize(d)?;
-        let chunks = buffer.chunks_exact(super::NODE_HANDLE_V4_LEN);
+        let chunks = buffer.chunks_exact(super::NODE_ID_LEN + ADDR_LEN);
 
         if !chunks.remainder().is_empty() {
-            let msg = format!("multiple of {}", super::NODE_HANDLE_V4_LEN);
+            let msg = format!("multiple of {}", (super::NODE_ID_LEN + ADDR_LEN));
             return Err(D::Error::invalid_length(buffer.len(), &msg.as_ref()));
         }
 
@@ -116,8 +161,6 @@ pub(crate) mod nodes_v4 {
         Ok(nodes)
     }
 }
-
-struct V<T, const N: u8>(T);
 
 fn decode_socket_addr(src: &[u8]) -> Option<SocketAddr> {
     if src.len() == SOCKET_ADDR_V4_LEN {
@@ -298,6 +341,81 @@ mod tests {
                 b'z', b'0', b'1', b'2', b'3', 127, 0, 0, 2, 4, 210,
             ],
         );
+    }
+
+    #[test]
+    fn encode_decode_nodes_v6() {
+        #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+        #[serde(transparent)]
+        struct Wrapper {
+            #[serde(with = "super::nodes_v6")]
+            nodes: Vec<NodeHandle>,
+        }
+
+        encode_decode(&Wrapper { nodes: Vec::new() }, b"0:");
+        encode_decode(
+            &Wrapper {
+                nodes: vec![NodeHandle {
+                    id: NodeId::from(*b"0123456789abcdefghij"),
+                    addr: (
+                        Ipv6Addr::new(
+                            0x2001, 0x0db8, 0x85a3, 0x0000, 0x0000, 0x8a2e, 0x0370, 0x7334,
+                        ),
+                        6789,
+                    )
+                        .into(),
+                }],
+            },
+            &[
+                b'3', b'8', b':', b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a',
+                b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', 0x20, 0x01, 0x0d, 0xb8, 0x85,
+                0xa3, 0x00, 0x00, 0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34, 26, 133,
+            ],
+        );
+    }
+
+    #[test]
+    fn attempt_to_encode_v4_nodes_as_v6() {
+        #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+        #[serde(transparent)]
+        struct Wrapper {
+            #[serde(with = "super::nodes_v6")]
+            nodes: Vec<NodeHandle>,
+        }
+
+        let value = Wrapper {
+            nodes: vec![NodeHandle {
+                id: NodeId::from(*b"0123456789abcdefghij"),
+                addr: (Ipv4Addr::new(127, 0, 0, 1), 1234).into(),
+            }],
+        };
+
+        assert!(serde_bencode::to_bytes(&value).is_err());
+    }
+
+    #[test]
+    fn attempt_to_encode_v6_nodes_as_v4() {
+        #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+        #[serde(transparent)]
+        struct Wrapper {
+            #[serde(with = "super::nodes_v4")]
+            nodes: Vec<NodeHandle>,
+        }
+
+        let value = Wrapper {
+            nodes: vec![NodeHandle {
+                id: NodeId::from(*b"0123456789abcdefghij"),
+                addr: (
+                    Ipv6Addr::new(
+                        0x2001, 0x0db8, 0x85a3, 0x0000, 0x0000, 0x8a2e, 0x0370, 0x7334,
+                    ),
+                    1234,
+                )
+                    .into(),
+            }],
+        };
+
+        assert!(serde_bencode::to_bytes(&value).is_err());
     }
 
     fn encode_decode<'de, T>(value: &T, expected_encoded: &'de [u8])
