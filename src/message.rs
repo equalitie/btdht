@@ -8,7 +8,7 @@ use serde::{
     ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
 };
-use std::{fmt, net::SocketAddrV4};
+use std::{fmt, net::SocketAddr};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub(crate) struct Message {
@@ -185,7 +185,7 @@ pub(crate) struct AckResponse {
 pub(crate) struct FindNodeResponse {
     pub id: NodeId,
 
-    #[serde(with = "compact")]
+    #[serde(with = "compact::nodes_v4")]
     pub nodes: Vec<NodeHandle>,
 }
 
@@ -193,10 +193,18 @@ pub(crate) struct FindNodeResponse {
 pub(crate) struct GetPeersResponse {
     pub id: NodeId,
 
-    #[serde(with = "compact::vec", default, skip_serializing_if = "Vec::is_empty")]
-    pub values: Vec<SocketAddrV4>,
+    #[serde(
+        with = "compact::values",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub values: Vec<SocketAddr>,
 
-    #[serde(with = "compact", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        with = "compact::nodes_v4",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub nodes: Vec<NodeHandle>,
 
     #[serde(with = "serde_bytes")]
@@ -378,8 +386,8 @@ mod tests {
             body: MessageBody::Response(Response::GetPeers(GetPeersResponse {
                 id: NodeId::from(*b"abcdefghij0123456789"),
                 values: vec![
-                    SocketAddrV4::new(Ipv4Addr::new(97, 120, 106, 101), 11893),
-                    SocketAddrV4::new(Ipv4Addr::new(105, 100, 104, 116), 28269),
+                    (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
+                    (Ipv4Addr::new(105, 100, 104, 116), 28269).into(),
                 ],
                 nodes: vec![],
                 token: b"aoeusnth".to_vec(),

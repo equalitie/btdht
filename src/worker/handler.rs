@@ -274,11 +274,11 @@ impl DhtHandler {
                 let values: Vec<_> = self
                     .active_stores
                     .find_items(&g.info_hash)
-                    .filter_map(|addr| match addr {
-                        SocketAddr::V4(v4_addr) => Some(v4_addr),
+                    .filter(|addr| match addr {
+                        SocketAddr::V4(_) => true,
                         SocketAddr::V6(_) => {
                             error!("AnnounceStorage contained an IPv6 Address...");
-                            None
+                            false
                         }
                     })
                     .collect();
@@ -534,10 +534,9 @@ impl DhtHandler {
                             .send(DhtEvent::LookupCompleted(lookup.info_hash()))
                             .unwrap_or(()),
                         LookupStatus::Values(values) => {
-                            for v4_addr in values {
-                                let sock_addr = SocketAddr::V4(v4_addr);
+                            for addr in values {
                                 self.event_tx
-                                    .send(DhtEvent::PeerFound(lookup.info_hash(), sock_addr))
+                                    .send(DhtEvent::PeerFound(lookup.info_hash(), addr))
                                     .unwrap_or(());
                             }
                         }
@@ -795,10 +794,9 @@ impl DhtHandler {
                 .unwrap_or(()),
             Some((LookupStatus::Values(v), info_hash)) => {
                 // Add values to handshaker
-                for v4_addr in v {
-                    let sock_addr = SocketAddr::V4(v4_addr);
+                for addr in v {
                     self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                        .send(DhtEvent::PeerFound(info_hash, addr))
                         .unwrap_or(());
                 }
             }
@@ -845,10 +843,9 @@ impl DhtHandler {
                 .unwrap_or(()),
             Some((LookupStatus::Values(v), info_hash)) => {
                 // Add values to handshaker
-                for v4_addr in v {
-                    let sock_addr = SocketAddr::V4(v4_addr);
+                for addr in v {
                     self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                        .send(DhtEvent::PeerFound(info_hash, addr))
                         .unwrap_or(());
                 }
             }

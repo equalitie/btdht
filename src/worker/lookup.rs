@@ -12,7 +12,7 @@ use crate::routing::node::{Node, NodeHandle, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -34,7 +34,7 @@ type DistanceToBeat = ShaHash;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LookupStatus {
     Searching,
-    Values(Vec<SocketAddrV4>),
+    Values(Vec<SocketAddr>),
     Completed,
 }
 
