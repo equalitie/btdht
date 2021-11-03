@@ -1,10 +1,9 @@
-use crate::id::InfoHash;
-use crate::routing::table::{self, RoutingTable};
-use crate::worker::{
-    socket::{self, MultiSocket},
-    DhtEvent, DhtHandler, OneshotTask,
+use crate::{
+    id::InfoHash,
+    routing::table::{self, RoutingTable},
+    worker::{DhtEvent, DhtHandler, MultiSocket, OneshotTask},
 };
-use std::{collections::HashSet, io, net::SocketAddr};
+use std::{collections::HashSet, net::SocketAddr};
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
@@ -24,20 +23,14 @@ impl MainlineDht {
             routers: HashSet::new(),
             read_only: true,
             announce_port: None,
-            socket_v4: None,
-            socket_v6: None,
         }
     }
 
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(builder: DhtBuilder) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
-        let socket = match (builder.socket_v4, builder.socket_v6) {
-            (Some(v4), Some(v6)) => MultiSocket::Both { v4, v6 },
-            (Some(v4), None) => MultiSocket::V4(v4),
-            (None, Some(v6)) => MultiSocket::V6(v6),
-            (None, None) => panic!("no socket bound"),
-        };
-
+    fn with_builder(
+        builder: DhtBuilder,
+        socket: MultiSocket,
+    ) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
@@ -94,8 +87,6 @@ pub struct DhtBuilder {
     routers: HashSet<SocketAddr>,
     read_only: bool,
     announce_port: Option<u16>,
-    socket_v4: Option<UdpSocket>,
-    socket_v6: Option<UdpSocket>,
 }
 
 impl DhtBuilder {
@@ -143,24 +134,25 @@ impl DhtBuilder {
         self
     }
 
-    /// Set the UDP socket to use for communication with ipv4 peers.
-    /// Returns error if the socket is not bound to an ipv4 address.
-    pub fn set_socket_v4(mut self, socket: UdpSocket) -> io::Result<Self> {
-        socket::check_v4(&socket)?;
-        self.socket_v4 = Some(socket);
-        Ok(self)
+    /// Start a mainline DHT with the current configuration and bind it to the provided socket.
+    pub fn start(self, socket: UdpSocket) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
+        MainlineDht::with_builder(self, MultiSocket::SingleStack(socket))
     }
 
-    /// Set the UDP socket to use for communication with ipv6 peers.
-    /// Returns error if the socket is not bound to an ipv6 address.
-    pub fn set_socket_v6(mut self, socket: UdpSocket) -> io::Result<Self> {
-        socket::check_v6(&socket)?;
-        self.socket_v6 = Some(socket);
-        Ok(self)
-    }
-
-    /// Start a mainline DHT with the current configuration.
-    pub fn start(self) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
-        MainlineDht::with_builder(self)
+    /// Start a dual-stack (ipv4 + ipv6) mainline DHT with the current configuration.
+    ///
+    /// The first socket should be bound to a ipv4 and the second one to an ipv6 address.
+    pub fn start_dual_stack(
+        self,
+        socket_v4: UdpSocket,
+        socket_v6: UdpSocket,
+    ) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
+        MainlineDht::with_builder(
+            self,
+            MultiSocket::DualStack {
+                v4: socket_v4,
+                v6: socket_v6,
+            },
+        )
     }
 }

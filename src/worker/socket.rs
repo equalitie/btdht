@@ -5,33 +5,32 @@ use tokio::{net::UdpSocket, select};
 
 /// UDP socket that can send/recevie to/from both ipv4 and ipv6 addresses. Implemented as a pair of
 /// normal UDP sockets.
-pub(crate) enum MultiSocket {
-    V4(UdpSocket),
-    V6(UdpSocket),
-    Both { v4: UdpSocket, v6: UdpSocket },
+pub enum MultiSocket {
+    /// `MultiSocket` that wraps only a single socket (v4 or v6). Useful on single-stack devices.
+    SingleStack(UdpSocket),
+    /// `MultiSocket` that wraps both v4 and v6 sockets.
+    DualStack { v4: UdpSocket, v6: UdpSocket },
 }
 
 impl MultiSocket {
     /// Send a message to the specified address on the underlying socket depending on the address
     /// family.
-    pub async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
-        // Try to send on the socket with the matching family, if available. If not, send on the
-        // other socket which is expected to fail.
+    pub(crate) async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
         match (self, addr) {
-            (Self::V4(socket) | Self::Both { v4: socket, .. }, SocketAddr::V4(_))
-            | (Self::V6(socket) | Self::Both { v6: socket, .. }, SocketAddr::V6(_))
-            | (Self::V4(socket), SocketAddr::V6(_))
-            | (Self::V6(socket), SocketAddr::V4(_)) => send(socket, bytes, addr).await,
+            (Self::SingleStack(socket), _)
+            | (Self::DualStack { v4: socket, .. }, SocketAddr::V4(_))
+            | (Self::DualStack { v6: socket, .. }, SocketAddr::V6(_)) => {
+                send(socket, bytes, addr).await
+            }
         }
     }
 
     /// Receive a message on both sockets and return whichever finishes first.
     /// This function is cancel safe.
-    pub async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
+    pub(crate) async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
         match self {
-            Self::V4(socket) => recv(socket).await,
-            Self::V6(socket) => recv(socket).await,
-            Self::Both { v4, v6 } => select! {
+            Self::SingleStack(socket) => recv(socket).await,
+            Self::DualStack { v4, v6 } => select! {
                 result = recv(v4) => {
                     // if one failed, the other one might still succeed
                     match result {
@@ -47,28 +46,6 @@ impl MultiSocket {
                 }
             },
         }
-    }
-}
-
-pub(crate) fn check_v4(socket: &UdpSocket) -> io::Result<()> {
-    if socket.local_addr()?.is_ipv4() {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "socket not bound to an ipv4 address",
-        ))
-    }
-}
-
-pub(crate) fn check_v6(socket: &UdpSocket) -> io::Result<()> {
-    if socket.local_addr()?.is_ipv6() {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "socket not bound to an ipv6 address",
-        ))
     }
 }
 

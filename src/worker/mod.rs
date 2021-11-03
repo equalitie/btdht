@@ -1,14 +1,13 @@
-pub(crate) use self::handler::DhtHandler;
+pub(crate) use self::{handler::DhtHandler, socket::MultiSocket};
 use crate::id::InfoHash;
 use crate::transaction::TransactionID;
 use std::{collections::HashSet, net::SocketAddr};
-
-pub(crate) mod socket;
 
 mod bootstrap;
 mod handler;
 mod lookup;
 mod refresh;
+mod socket;
 mod timer;
 
 /// Task that our DHT will execute immediately.

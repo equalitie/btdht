@@ -23,9 +23,7 @@ async fn main() {
         .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
         .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
-        .set_socket_v4(socket)
-        .unwrap()
-        .start();
+        .start(socket);
 
     println!("bootstrapping...");
     let start = Instant::now();
