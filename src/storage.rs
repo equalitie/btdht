@@ -50,26 +50,27 @@ impl AnnounceStorage {
         }
     }
 
-    /// Invoke the closure once for each contact for the given InfoHash.
-    pub fn find_items<F>(&mut self, info_hash: &InfoHash, item_func: F)
-    where
-        F: FnMut(SocketAddr),
-    {
-        self.find(info_hash, item_func, Instant::now())
+    /// Returns an iterator over all contacts for the given info hash.
+    pub fn find_items<'a>(
+        &'a mut self,
+        info_hash: &'_ InfoHash,
+    ) -> impl Iterator<Item = SocketAddr> + 'a {
+        self.find(info_hash, Instant::now())
     }
 
-    fn find<F>(&mut self, info_hash: &InfoHash, mut item_func: F, curr_time: Instant)
-    where
-        F: FnMut(SocketAddr),
-    {
+    fn find<'a>(
+        &'a mut self,
+        info_hash: &'_ InfoHash,
+        curr_time: Instant,
+    ) -> impl Iterator<Item = SocketAddr> + 'a {
         // Clear out any old contacts that we have stored
         self.remove_expired_items(curr_time);
 
-        if let Some(items) = self.storage.get(info_hash) {
-            for item in items {
-                item_func(item.address());
-            }
-        }
+        self.storage
+            .get(info_hash)
+            .into_iter()
+            .flatten()
+            .map(|item| item.address())
     }
 
     /// Returns None if the contact could not be inserted, else, returns Some(true) if the contact was already
@@ -218,8 +219,7 @@ mod tests {
 
         assert!(announce_store.add_item(info_hash, sock_addr));
 
-        let mut items = Vec::new();
-        announce_store.find_items(&info_hash, |a| items.push(a));
+        let items: Vec<_> = announce_store.find_items(&info_hash).collect();
         assert_eq!(items.len(), 1);
 
         assert_eq!(items[0], sock_addr);
@@ -235,8 +235,7 @@ mod tests {
             assert!(announce_store.add_item(info_hash, *sock_addr));
         }
 
-        let mut items = Vec::new();
-        announce_store.find_items(&info_hash, |a| items.push(a));
+        let items: Vec<_> = announce_store.find_items(&info_hash).collect();
         assert_eq!(items.len(), storage::MAX_ITEMS_STORED);
 
         for item in items.iter() {
@@ -259,10 +258,9 @@ mod tests {
 
         // Returns false because it wasnt added
         assert!(!announce_store.add_item(other_info_hash, sock_addrs[sock_addrs.len() - 1]));
-        // Closure not invoked because it wasnt added
-        let mut times_invoked = 0;
-        announce_store.find_items(&other_info_hash, |_| times_invoked += 1);
-        assert_eq!(times_invoked, 0);
+        // Iterator is empty because it wasnt added
+        let count = announce_store.find_items(&other_info_hash).count();
+        assert_eq!(count, 0);
 
         // Try to add all of the initial nodes again (renew)
         for sock_addr in sock_addrs.iter().take(storage::MAX_ITEMS_STORED) {
@@ -286,10 +284,9 @@ mod tests {
 
         // Returned false because it wasnt added
         assert!(!announce_store.add_item(other_info_hash, sock_addrs[sock_addrs.len() - 1]));
-        // Closure not invoked because it wasnt added
-        let mut times_invoked = 0;
-        announce_store.find_items(&other_info_hash, |_| times_invoked += 1);
-        assert_eq!(times_invoked, 0);
+        // Iterator is empty because it wasnt added
+        let count = announce_store.find_items(&other_info_hash).count();
+        assert_eq!(count, 0);
 
         // Try to add a new item into the storage mocking the current time
         let mock_current_time = Instant::now() + storage::EXPIRATION_TIME;
@@ -298,9 +295,9 @@ mod tests {
             sock_addrs[sock_addrs.len() - 1],
             mock_current_time
         ));
-        // Closure invoked because it was added
-        announce_store.find_items(&other_info_hash, |_| times_invoked += 1);
-        assert_eq!(times_invoked, 1);
+        // Iterator is not empty because it was added
+        let count = announce_store.find_items(&other_info_hash).count();
+        assert_eq!(count, 1);
     }
 
     #[test]
@@ -329,10 +326,9 @@ mod tests {
         // Try to add a third info hash with a contact
         let info_hash_three = [2u8; INFO_HASH_LEN].into();
         assert!(!announce_store.add_item(info_hash_three, sock_addrs[sock_addrs.len() - 1]));
-        // Closure not invoked because it was not added
-        let mut times_invoked = 0;
-        announce_store.find_items(&info_hash_three, |_| times_invoked += 1);
-        assert_eq!(times_invoked, 0);
+        // Iterator is empty because it was not added
+        let count = announce_store.find_items(&info_hash_three).count();
+        assert_eq!(count, 0);
 
         // Try to add a new item into the storage mocking the current time
         let mock_current_time = Instant::now() + storage::EXPIRATION_TIME;
@@ -341,8 +337,8 @@ mod tests {
             sock_addrs[sock_addrs.len() - 1],
             mock_current_time
         ));
-        // Closure invoked because it was added
-        announce_store.find_items(&info_hash_three, |_| times_invoked += 1);
-        assert_eq!(times_invoked, 1);
+        // Iterator is not empty because it was added
+        let count = announce_store.find_items(&info_hash_three).count();
+        assert_eq!(count, 1);
     }
 }

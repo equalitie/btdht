@@ -271,16 +271,17 @@ impl DhtHandler {
 
                 // TODO: Check what the maximum number of values we can give without overflowing a udp packet
                 // Also, if we arent going to give all of the contacts, we may want to shuffle which ones we give
-                let mut values = Vec::new();
-                self.active_stores
-                    .find_items(&g.info_hash, |addr| match addr {
-                        SocketAddr::V4(v4_addr) => {
-                            values.push(v4_addr);
-                        }
+                let values: Vec<_> = self
+                    .active_stores
+                    .find_items(&g.info_hash)
+                    .filter_map(|addr| match addr {
+                        SocketAddr::V4(v4_addr) => Some(v4_addr),
                         SocketAddr::V6(_) => {
                             error!("AnnounceStorage contained an IPv6 Address...");
+                            None
                         }
-                    });
+                    })
+                    .collect();
 
                 // Grab the closest nodes
                 let nodes = self
