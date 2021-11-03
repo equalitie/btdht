@@ -121,9 +121,14 @@ pub(crate) struct AnnouncePeerRequest {
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum Want {
+    // The peer wants only ipv4 contacts
     V4,
+    // The peer wants only ipv6 contacts
     V6,
+    // The peer wants both ipv4 and ipv6 contacts
     Both,
+    // The peer wants contacts only of the same address family than its request came from.
+    // TODO: rename to "Implicit" or similar
     None,
 }
 

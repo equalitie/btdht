@@ -5,7 +5,7 @@ use tokio::{net::UdpSocket, select};
 
 /// UDP socket that can send/recevie to/from both ipv4 and ipv6 addresses. Implemented as a pair of
 /// normal UDP sockets.
-pub enum MultiSocket {
+pub(crate) enum MultiSocket {
     /// `MultiSocket` that wraps only a single socket (v4 or v6). Useful on single-stack devices.
     SingleStack(UdpSocket),
     /// `MultiSocket` that wraps both v4 and v6 sockets.
@@ -15,7 +15,7 @@ pub enum MultiSocket {
 impl MultiSocket {
     /// Send a message to the specified address on the underlying socket depending on the address
     /// family.
-    pub(crate) async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
+    pub async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
         match (self, addr) {
             (Self::SingleStack(socket), _)
             | (Self::DualStack { v4: socket, .. }, SocketAddr::V4(_))
@@ -27,7 +27,7 @@ impl MultiSocket {
 
     /// Receive a message on both sockets and return whichever finishes first.
     /// This function is cancel safe.
-    pub(crate) async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
+    pub async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
         match self {
             Self::SingleStack(socket) => recv(socket).await,
             Self::DualStack { v4, v6 } => select! {
@@ -46,6 +46,10 @@ impl MultiSocket {
                 }
             },
         }
+    }
+
+    pub fn is_dual_stack(&self) -> bool {
+        matches!(self, Self::DualStack { .. })
     }
 }
 
