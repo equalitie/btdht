@@ -32,8 +32,19 @@ impl MultiSocket {
             Self::V4(socket) => recv(socket).await,
             Self::V6(socket) => recv(socket).await,
             Self::Both { v4, v6 } => select! {
-                result = recv(v4) => result,
-                result = recv(v6) => result,
+                result = recv(v4) => {
+                    // if one failed, the other one might still succeed
+                    match result {
+                        Ok(output) => Ok(output),
+                        Err(_) => recv(v6).await,
+                    }
+                }
+                result = recv(v6) => {
+                    match result {
+                        Ok(output) => Ok(output),
+                        Err(_) => recv(v4).await,
+                    }
+                }
             },
         }
     }
