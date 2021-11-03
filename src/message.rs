@@ -8,6 +8,7 @@ use serde::{
     ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
 };
+use serde_bytes::Bytes;
 use std::{fmt, net::SocketAddr};
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -98,6 +99,8 @@ pub(crate) struct PingRequest {
 pub(crate) struct FindNodeRequest {
     pub id: NodeId,
     pub target: NodeId,
+    #[serde(default, skip_serializing_if = "Want::is_empty")]
+    pub want: Want,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -114,6 +117,93 @@ pub(crate) struct AnnouncePeerRequest {
     pub port: Option<u16>,
     #[serde(with = "serde_bytes")]
     pub token: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
+pub(crate) enum Want {
+    V4,
+    V6,
+    Both,
+    None,
+}
+
+impl Want {
+    pub fn has_v4(&self) -> bool {
+        matches!(self, Self::V4 | Self::Both)
+    }
+
+    pub fn has_v6(&self) -> bool {
+        matches!(self, Self::V6 | Self::Both)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Self::V4 | Self::V6 => 1,
+            Self::Both => 2,
+            Self::None => 0,
+        }
+    }
+}
+
+impl Default for Want {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl Serialize for Want {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut seq = s.serialize_seq(Some(self.len()))?;
+
+        if self.has_v4() {
+            seq.serialize_element(Bytes::new(b"n4"))?;
+        }
+
+        if self.has_v6() {
+            seq.serialize_element(Bytes::new(b"n6"))?;
+        }
+
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Want {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct WantVisitor;
+
+        impl<'de> Visitor<'de> for WantVisitor {
+            type Value = Want;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "a list of strings")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut value = Want::None;
+
+                while let Some(s) = seq.next_element::<String>()? {
+                    value = match (value, s.to_lowercase().as_str()) {
+                        (Want::None, "n4") => Want::V4,
+                        (Want::None, "n6") => Want::V6,
+                        (Want::V4, "n6") => Want::Both,
+                        (Want::V6, "n4") => Want::Both,
+                        (_, _) => value,
+                    }
+                }
+
+                Ok(value)
+            }
+        }
+
+        d.deserialize_seq(WantVisitor)
+    }
 }
 
 mod port {
@@ -295,6 +385,22 @@ mod tests {
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: NodeId::from(*b"abcdefghij0123456789"),
                 target: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                want: Want::None,
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded)
+    }
+
+    #[test]
+    fn serialize_find_node_request_with_want() {
+        let encoded = "d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz1234564:wantl2:n42:n6ee1:q9:find_node1:t2:aa1:y1:qe";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Request(Request::FindNode(FindNodeRequest {
+                id: NodeId::from(*b"abcdefghij0123456789"),
+                target: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                want: Want::Both,
             })),
         };
 
