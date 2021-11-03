@@ -13,12 +13,16 @@ async fn basic() {
     let (node_a, mut events_a) = MainlineDht::builder()
         .add_node(b_addr)
         .set_read_only(false)
-        .start(a_socket);
+        .set_socket_v4(a_socket)
+        .unwrap()
+        .start();
 
     let (node_b, mut events_b) = MainlineDht::builder()
         .add_node(a_addr)
         .set_read_only(false)
-        .start(b_socket);
+        .set_socket_v4(b_socket)
+        .unwrap()
+        .start();
 
     let the_info_hash = InfoHash::from_bytes(b"foo");
 

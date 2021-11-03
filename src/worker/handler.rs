@@ -2,7 +2,7 @@ use super::{
     bootstrap::{BootstrapStatus, TableBootstrap},
     lookup::{LookupStatus, TableLookup},
     refresh::TableRefresh,
-    socket,
+    socket::MultiSocket,
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
@@ -21,7 +21,7 @@ use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::net::SocketAddr;
-use tokio::{net::UdpSocket, select, sync::mpsc};
+use tokio::{select, sync::mpsc};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
@@ -54,7 +54,7 @@ pub(crate) struct DhtHandler {
     timer: Timer<ScheduledTaskCheck>,
     read_only: bool,
     announce_port: Option<u16>,
-    socket: UdpSocket,
+    socket: MultiSocket,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
     bootstrapping: bool,
@@ -70,7 +70,7 @@ pub(crate) struct DhtHandler {
 impl DhtHandler {
     pub fn new(
         table: RoutingTable,
-        socket: UdpSocket,
+        socket: MultiSocket,
         read_only: bool,
         announce_port: Option<u16>,
         command_rx: mpsc::UnboundedReceiver<OneshotTask>,
@@ -126,7 +126,7 @@ impl DhtHandler {
                     self.shutdown()
                 }
             }
-            message = socket::recv(&self.socket) => {
+            message = self.socket.recv() => {
                 match message {
                     Ok((buffer, addr)) => self.handle_incoming(&buffer, addr).await,
                     Err(error) => warn!("Failed to receive incoming message: {}", error),
@@ -225,7 +225,7 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &ping_msg, addr).await {
+                if let Err(error) = self.socket.send(&ping_msg, addr).await {
                     error!("Failed to send a ping response: {}", error);
                 }
             }
@@ -256,7 +256,7 @@ impl DhtHandler {
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &find_node_msg, addr).await {
+                if let Err(error) = self.socket.send(&find_node_msg, addr).await {
                     error!("Failed to send a find node response: {}", error);
                 }
             }
@@ -305,7 +305,7 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &get_peers_msg, addr).await {
+                if let Err(error) = self.socket.send(&get_peers_msg, addr).await {
                     error!("Failed to send a get peers response: {}", error);
                 }
             }
@@ -372,7 +372,7 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if let Err(error) = socket::send(&self.socket, &response_msg, addr).await {
+                if let Err(error) = self.socket.send(&response_msg, addr).await {
                     error!(
                         "bip_dht: Failed to send an announce peer response: {}",
                         error
@@ -903,7 +903,7 @@ async fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
-    socket: &UdpSocket,
+    socket: &MultiSocket,
     timer: &mut Timer<ScheduledTaskCheck>,
 ) -> Option<bool> {
     loop {

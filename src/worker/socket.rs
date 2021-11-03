@@ -12,33 +12,6 @@ pub(crate) enum MultiSocket {
 }
 
 impl MultiSocket {
-    /// Create a `MultiSocket` that wraps only a single socket bound to a ipv4 address.
-    /// Returns error if the socket is not bound to an ipv4 address.
-    pub fn new_v4(socket: UdpSocket) -> io::Result<Self> {
-        check_v4(&socket)?;
-        Ok(Self::V4(socket))
-    }
-
-    /// Create a `MultiSocket` that wraps only a single socket bound to a ipv6 address.
-    /// Returns error if the socket is not bound to an ipv6 address.
-    pub fn new_v6(socket: UdpSocket) -> io::Result<Self> {
-        check_v6(&socket)?;
-        Ok(Self::V6(socket))
-    }
-
-    /// Create a `MultiSocket` that wraps two sockets - one bound to a ipv4 and the other to a ipv6
-    /// addresses.
-    /// Returns error if the first socket is not bound to an ipv4 address or if the second socket
-    /// is not bound to a ipv6 address.
-    pub fn new(socket_v4: UdpSocket, socket_v6: UdpSocket) -> io::Result<Self> {
-        check_v4(&socket_v4)?;
-        check_v6(&socket_v6)?;
-        Ok(Self::Both {
-            v4: socket_v4,
-            v6: socket_v6,
-        })
-    }
-
     /// Send a message to the specified address on the underlying socket depending on the address
     /// family.
     pub async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
@@ -66,7 +39,7 @@ impl MultiSocket {
     }
 }
 
-fn check_v4(socket: &UdpSocket) -> io::Result<()> {
+pub(crate) fn check_v4(socket: &UdpSocket) -> io::Result<()> {
     if socket.local_addr()?.is_ipv4() {
         Ok(())
     } else {
@@ -77,7 +50,7 @@ fn check_v4(socket: &UdpSocket) -> io::Result<()> {
     }
 }
 
-fn check_v6(socket: &UdpSocket) -> io::Result<()> {
+pub(crate) fn check_v6(socket: &UdpSocket) -> io::Result<()> {
     if socket.local_addr()?.is_ipv6() {
         Ok(())
     } else {
@@ -88,7 +61,7 @@ fn check_v6(socket: &UdpSocket) -> io::Result<()> {
     }
 }
 
-pub(crate) async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
+async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
     let mut bytes_sent = 0;
 
     while bytes_sent < bytes.len() {
@@ -99,8 +72,8 @@ pub(crate) async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> 
     Ok(())
 }
 
-/// This function is cancel safe: https://docs.rs/tokio/1.12.0/tokio/net/struct.UdpSocket.html#cancel-safety-6
-pub(crate) async fn recv(socket: &UdpSocket) -> io::Result<(Vec<u8>, SocketAddr)> {
+// This function is cancel safe: https://docs.rs/tokio/1.12.0/tokio/net/struct.UdpSocket.html#cancel-safety-6
+async fn recv(socket: &UdpSocket) -> io::Result<(Vec<u8>, SocketAddr)> {
     let mut buffer = vec![0u8; 1500];
     let (size, addr) = socket.recv_from(&mut buffer).await?;
     buffer.truncate(size);

@@ -2,7 +2,7 @@ use btdht::{router, DhtEvent, InfoHash, LengthError, MainlineDht};
 use std::{
     collections::HashSet,
     convert::TryFrom,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr},
     str::FromStr,
     time::Instant,
 };
@@ -16,14 +16,16 @@ use tokio::{
 async fn main() {
     pretty_env_logger::init();
 
-    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
     let (dht, mut events) = MainlineDht::builder()
         .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
         .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
-        .start(socket);
+        .set_socket_v4(socket)
+        .unwrap()
+        .start();
 
     println!("bootstrapping...");
     let start = Instant::now();
