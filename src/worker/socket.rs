@@ -47,10 +47,6 @@ impl MultiSocket {
             },
         }
     }
-
-    pub fn is_dual_stack(&self) -> bool {
-        matches!(self, Self::DualStack { .. })
-    }
 }
 
 async fn send(socket: &UdpSocket, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {

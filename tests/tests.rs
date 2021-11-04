@@ -1,13 +1,24 @@
 use btdht::{DhtEvent, InfoHash, MainlineDht};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use tokio::net::UdpSocket;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn basic() {
+async fn announce_and_lookup_v4() {
     let a_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let a_addr = a_socket.local_addr().unwrap();
-
     let b_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    announce_and_lookup(a_socket, b_socket).await;
+}
+
+#[ignore] // FIXME: un-ignore this test when ipv6 works
+#[tokio::test(flavor = "multi_thread")]
+async fn announce_and_lookup_v6() {
+    let a_socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
+    let b_socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
+    announce_and_lookup(a_socket, b_socket).await;
+}
+
+async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
+    let a_addr = a_socket.local_addr().unwrap();
     let b_addr = b_socket.local_addr().unwrap();
 
     let (node_a, mut events_a) = MainlineDht::builder()

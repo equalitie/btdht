@@ -83,17 +83,12 @@ impl TableBootstrap {
 
         self.active_messages.insert(trans_id, timeout);
 
-        let want = if socket.is_dual_stack() {
-            Want::Both
-        } else {
-            Want::None
-        };
         let find_node_msg = Message {
             transaction_id: trans_id.as_ref().to_vec(),
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: table_id,
                 target: table_id,
-                want,
+                want: Want::None,
             })),
         }
         .encode();
@@ -277,7 +272,7 @@ impl TableBootstrap {
                 body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                     id: table.node_id(),
                     target: target_id,
-                    want: Want::None, // TODO: set according to socket
+                    want: Want::None,
                 })),
             }
             .encode();

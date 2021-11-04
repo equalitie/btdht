@@ -178,6 +178,7 @@ fn decode_socket_addr(src: &[u8]) -> Option<SocketAddr> {
     }
 }
 
+// TODO: consider returning `ArrayVec` to avoid lot of small allocations.
 fn encode_socket_addr(addr: &SocketAddr) -> Vec<u8> {
     let mut buffer = match addr {
         SocketAddr::V4(addr) => {

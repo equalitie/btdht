@@ -48,7 +48,7 @@ impl TableRefresh {
             let find_node_req = FindNodeRequest {
                 id: table.node_id(),
                 target: target_id,
-                want: Want::None, // TODO: set according to socket
+                want: Want::None,
             };
             let find_node_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),

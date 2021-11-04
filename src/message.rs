@@ -194,11 +194,11 @@ impl<'de> Deserialize<'de> for Want {
                 let mut value = Want::None;
 
                 while let Some(s) = seq.next_element::<String>()? {
-                    value = match (value, s.to_lowercase().as_str()) {
-                        (Want::None, "n4") => Want::V4,
-                        (Want::None, "n6") => Want::V6,
-                        (Want::V4, "n6") => Want::Both,
-                        (Want::V6, "n4") => Want::Both,
+                    value = match (value, s.as_str().trim()) {
+                        (Want::None, "n4" | "N4") => Want::V4,
+                        (Want::None, "n6" | "N6") => Want::V6,
+                        (Want::V4, "n6" | "N6") => Want::Both,
+                        (Want::V6, "n4" | "N4") => Want::Both,
                         (_, _) => value,
                     }
                 }
