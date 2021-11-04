@@ -7,8 +7,7 @@ use super::{
     {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
 use crate::message::{
-    error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
-    Request, Response,
+    error_code, Error, GetPeersResponse, Message, MessageBody, OtherResponse, Request, Response,
 };
 use crate::routing::node::Node;
 use crate::routing::node::NodeStatus;
@@ -167,7 +166,7 @@ impl DhtHandler {
         let message = match Message::decode(buffer) {
             Ok(message) => message,
             Err(error) => {
-                warn!("bip_dht: Received invalid bencode data: {}", error);
+                warn!("Received invalid bencode data: {}", error);
                 return;
             }
         };
@@ -179,17 +178,17 @@ impl DhtHandler {
                 if let Some(trans_id) = TransactionID::from_bytes(&message.transaction_id) {
                     trans_id
                 } else {
-                    warn!("bip_dht: Received response with invalid transaction id");
+                    warn!("Received response with invalid transaction id");
                     return;
                 };
 
             // Match the response action id with our current actions
             match (self.table_actions.get(&trans_id.action_id()), response) {
                 (Some(TableAction::Lookup(_)), Response::GetPeers(_))
-                | (Some(TableAction::Refresh(_)), Response::FindNode(_))
-                | (Some(TableAction::Bootstrap(..)), Response::FindNode(_)) => (),
+                | (Some(TableAction::Refresh(_)), Response::Other(_))
+                | (Some(TableAction::Bootstrap(..)), Response::Other(_)) => (),
                 _ => {
-                    warn!("bip_dht: Received unsolicited response");
+                    warn!("Received unsolicited response");
                     return;
                 }
             }
@@ -208,7 +207,7 @@ impl DhtHandler {
         // Process the given message
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
-                info!("bip_dht: Received a PingRequest...");
+                info!("Received a PingRequest");
                 let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -216,12 +215,14 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                let ping_rsp = AckResponse {
+                let ping_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
+                    nodes_v4: vec![],
+                    nodes_v6: vec![],
                 };
                 let ping_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::Ack(ping_rsp)),
+                    body: MessageBody::Response(Response::Other(ping_rsp)),
                 };
                 let ping_msg = ping_msg.encode();
 
@@ -230,7 +231,7 @@ impl DhtHandler {
                 }
             }
             MessageBody::Request(Request::FindNode(f)) => {
-                info!("bip_dht: Received a FindNodeRequest...");
+                info!("Received a FindNodeRequest");
                 let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -246,13 +247,14 @@ impl DhtHandler {
                     .map(|node| *node.handle())
                     .collect();
 
-                let find_node_rsp = FindNodeResponse {
+                let find_node_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
-                    nodes: closest_nodes,
+                    nodes_v4: closest_nodes,
+                    nodes_v6: vec![],
                 };
                 let find_node_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::FindNode(find_node_rsp)),
+                    body: MessageBody::Response(Response::Other(find_node_rsp)),
                 };
                 let find_node_msg = find_node_msg.encode();
 
@@ -261,7 +263,7 @@ impl DhtHandler {
                 }
             }
             MessageBody::Request(Request::GetPeers(g)) => {
-                info!("bip_dht: Received a GetPeersRequest...");
+                info!("Received a GetPeersRequest");
                 let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -310,7 +312,7 @@ impl DhtHandler {
                 }
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
-                info!("bip_dht: Received an AnnouncePeerRequest...");
+                info!("Received an AnnouncePeerRequest");
                 let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -352,8 +354,10 @@ impl DhtHandler {
                     // Node successfully stored the value with us, send an announce response
                     Message {
                         transaction_id: message.transaction_id,
-                        body: MessageBody::Response(Response::Ack(AckResponse {
+                        body: MessageBody::Response(Response::Other(OtherResponse {
                             id: self.routing_table.node_id(),
+                            nodes_v4: vec![],
+                            nodes_v6: vec![],
                         })),
                     }
                     .encode()
@@ -379,13 +383,13 @@ impl DhtHandler {
                     );
                 }
             }
-            MessageBody::Response(Response::FindNode(f)) => {
-                info!("bip_dht: Received a FindNodeResponse...");
+            MessageBody::Response(Response::Other(f)) => {
+                info!("Received a OtherResponse");
                 let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
                 let node = Node::as_good(f.id, addr);
 
                 // Add the payload nodes as questionable
-                for node in f.nodes {
+                for node in f.nodes_v4 {
                     self.routing_table
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
@@ -403,12 +407,12 @@ impl DhtHandler {
                             Some((bootstrap, attempts))
                         }
                         Some(TableAction::Lookup(_)) => {
-                            error!("Resolved a FindNodeResponse ActionID to a TableLookup");
+                            error!("Resolved a OtherResponse ActionID to a TableLookup");
                             None
                         }
                         None => {
                             error!(
-                                "Resolved a TransactionID to a FindNodeResponse but no action found"
+                                "Resolved a TransactionID to a OtherResponse but no action found"
                             );
                             None
                         }
@@ -542,10 +546,6 @@ impl DhtHandler {
                         }
                     }
                 }
-            }
-            MessageBody::Response(Response::Ack(_)) => {
-                info!("bip_dht: Received a AckResponse...");
-                // TODO: mark the node as good?
             }
             MessageBody::Error(e) => {
                 info!("bip_dht: Received an ErrorMessage...");

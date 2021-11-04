@@ -263,25 +263,31 @@ pub(crate) enum Response {
     // NOTE: the order these variants are listed in is important to make sure they deserialize
     // properly because we use `untagged` enum for this.
     GetPeers(GetPeersResponse),
-    FindNode(FindNodeResponse),
-    // This is a reponse to either `ping` or `announce_peer`. They are not distinguishable just by
-    // looking at the message itself, so that's why we put them into a single variant. To tell which
-    // response this is, one has to look up the transaction created when sending the corresponding
+    // This can be a response to either `ping`, `announce_peer` or `find_node`. Which it actually is
+    // needs to be determined by looking up the transaction id to find the type of the corresponding
     // request.
-    Ack(AckResponse),
+    Other(OtherResponse),
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct AckResponse {
-    pub id: NodeId,
-}
-
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct FindNodeResponse {
+pub(crate) struct OtherResponse {
     pub id: NodeId,
 
-    #[serde(with = "compact::nodes_v4")]
-    pub nodes: Vec<NodeHandle>,
+    #[serde(
+        rename = "nodes",
+        with = "compact::nodes_v4",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub nodes_v4: Vec<NodeHandle>,
+
+    #[serde(
+        rename = "nodes6",
+        with = "compact::nodes_v6",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub nodes_v6: Vec<NodeHandle>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -367,7 +373,7 @@ pub mod error_code {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
     fn serialize_ping_request() {
@@ -459,12 +465,14 @@ mod tests {
     }
 
     #[test]
-    fn serialize_ack_response() {
+    fn serialize_other_response_none() {
         let encoded = "d1:rd2:id20:mnopqrstuvwxyz123456e1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
-            body: MessageBody::Response(Response::Ack(AckResponse {
+            body: MessageBody::Response(Response::Other(OtherResponse {
                 id: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                nodes_v4: vec![],
+                nodes_v6: vec![],
             })),
         };
 
@@ -472,16 +480,70 @@ mod tests {
     }
 
     #[test]
-    fn serialize_find_node_response() {
+    fn serialize_other_response_v4() {
         let encoded =
-            "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz123456axje.ue1:t2:aa1:y1:re";
+            "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz012345axje.ue1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
-            body: MessageBody::Response(Response::FindNode(FindNodeResponse {
+            body: MessageBody::Response(Response::Other(OtherResponse {
                 id: NodeId::from(*b"0123456789abcdefghij"),
-                nodes: vec![NodeHandle {
-                    id: NodeId::from(*b"mnopqrstuvwxyz123456"),
+                nodes_v4: vec![NodeHandle {
+                    id: NodeId::from(*b"mnopqrstuvwxyz012345"),
                     addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
+                }],
+                nodes_v6: vec![],
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded);
+    }
+
+    #[test]
+    fn serialize_other_response_v6() {
+        let encoded =
+            "d1:rd2:id20:0123456789abcdefghij6:nodes638:mnopqrstuvwxyz012345abcdefghijklmnop.ue1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::Other(OtherResponse {
+                id: NodeId::from(*b"0123456789abcdefghij"),
+                nodes_v4: vec![],
+                nodes_v6: vec![NodeHandle {
+                    id: NodeId::from(*b"mnopqrstuvwxyz012345"),
+                    addr: (
+                        Ipv6Addr::new(
+                            0x6162, 0x6364, 0x6566, 0x6768, 0x696a, 0x6b6c, 0x6d6e, 0x6f70,
+                        ),
+                        11893,
+                    )
+                        .into(),
+                }],
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded);
+    }
+
+    #[test]
+    fn serialize_other_response_both() {
+        let encoded =
+            "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz012345axje.u6:nodes638:6789abcdefghijklmnopabcdefghijklmnop.ue1:t2:aa1:y1:re";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response::Other(OtherResponse {
+                id: NodeId::from(*b"0123456789abcdefghij"),
+                nodes_v4: vec![NodeHandle {
+                    id: NodeId::from(*b"mnopqrstuvwxyz012345"),
+                    addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
+                }],
+                nodes_v6: vec![NodeHandle {
+                    id: NodeId::from(*b"6789abcdefghijklmnop"),
+                    addr: (
+                        Ipv6Addr::new(
+                            0x6162, 0x6364, 0x6566, 0x6768, 0x696a, 0x6b6c, 0x6d6e, 0x6f70,
+                        ),
+                        11893,
+                    )
+                        .into(),
                 }],
             })),
         };
