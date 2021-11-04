@@ -126,10 +126,7 @@ impl TableLookup {
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
         } else {
-            warn!(
-                "bip_dht: Received expired/unsolicited node response for an active table \
-                   lookup..."
-            );
+            warn!("Received expired/unsolicited node response for an active table lookup");
             return self.current_lookup_status();
         };
 
@@ -141,7 +138,15 @@ impl TableLookup {
         // Add the announce token to our list of tokens
         self.announce_tokens.insert(*node.handle(), msg.token);
 
-        let nodes = msg.nodes;
+        let nodes = match socket.local_addr() {
+            Ok(SocketAddr::V4(_)) => msg.nodes_v4,
+            Ok(SocketAddr::V6(_)) => msg.nodes_v6,
+            Err(error) => {
+                error!("Failed to retreive local socket address: {}", error);
+                vec![]
+            }
+        };
+
         let values = msg.values;
 
         // Check if we beat the distance, get the next distance to beat

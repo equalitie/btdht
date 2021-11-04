@@ -287,11 +287,20 @@ pub(crate) struct GetPeersResponse {
     pub values: Vec<SocketAddr>,
 
     #[serde(
+        rename = "nodes",
         with = "compact::nodes_v4",
         default,
         skip_serializing_if = "Vec::is_empty"
     )]
-    pub nodes: Vec<NodeHandle>,
+    pub nodes_v4: Vec<NodeHandle>,
+
+    #[serde(
+        rename = "nodes6",
+        with = "compact::nodes_v6",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub nodes_v6: Vec<NodeHandle>,
 
     #[serde(with = "serde_bytes")]
     pub token: Vec<u8>,
@@ -563,7 +572,8 @@ mod tests {
                     (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
                     (Ipv4Addr::new(105, 100, 104, 116), 28269).into(),
                 ],
-                nodes: vec![],
+                nodes_v4: vec![],
+                nodes_v6: vec![],
                 token: b"aoeusnth".to_vec(),
             })),
         };
@@ -572,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_get_peers_response_with_nodes() {
+    fn serialize_get_peers_response_with_nodes_v4() {
         let encoded =
             "d1:rd2:id20:abcdefghij01234567895:nodes52:mnopqrstuvwxyz123456axje.u789abcdefghijklmnopqidhtnm5:token8:aoeusnthe1:t2:aa1:y1:re";
         let decoded = Message {
@@ -580,7 +590,7 @@ mod tests {
             body: MessageBody::Response(Response::GetPeers(GetPeersResponse {
                 id: NodeId::from(*b"abcdefghij0123456789"),
                 values: vec![],
-                nodes: vec![
+                nodes_v4: vec![
                     NodeHandle {
                         id: NodeId::from(*b"mnopqrstuvwxyz123456"),
                         addr: (Ipv4Addr::new(97, 120, 106, 101), 11893).into(),
@@ -590,6 +600,7 @@ mod tests {
                         addr: (Ipv4Addr::new(105, 100, 104, 116), 28269).into(),
                     },
                 ],
+                nodes_v6: vec![],
                 token: b"aoeusnth".to_vec(),
             })),
         };

@@ -243,40 +243,12 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                let want = match f.want {
-                    Some(want) => want,
-                    None => match self.socket.local_addr() {
-                        Ok(SocketAddr::V4(_)) => Want::V4,
-                        Ok(SocketAddr::V6(_)) => Want::V6,
-                        Err(error) => {
-                            error!("Failed to retrieve local socket address: {}", error);
-                            return;
-                        }
-                    },
-                };
-
-                // Grab the closest nodes
-                let nodes_v4 = if matches!(want, Want::V4 | Want::Both) {
-                    self.routing_table
-                        .closest_nodes(f.target)
-                        .filter(|node| node.addr().is_ipv4())
-                        .take(8)
-                        .map(|node| *node.handle())
-                        .collect()
-                } else {
-                    vec![]
-                };
-
-                let nodes_v6 = if matches!(want, Want::V6 | Want::Both) {
-                    self.routing_table
-                        .closest_nodes(f.target)
-                        .filter(|node| node.addr().is_ipv6())
-                        .take(8)
-                        .map(|node| *node.handle())
-                        .collect()
-                } else {
-                    vec![]
-                };
+                let (nodes_v4, nodes_v6) =
+                    if let Some(nodes) = self.find_closest_nodes(f.target, f.want) {
+                        nodes
+                    } else {
+                        return;
+                    };
 
                 let find_node_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
@@ -317,19 +289,20 @@ impl DhtHandler {
                     .collect();
 
                 // Grab the closest nodes
-                let nodes = self
-                    .routing_table
-                    .closest_nodes(g.info_hash)
-                    .take(8)
-                    .map(|node| *node.handle())
-                    .collect();
+                let (nodes_v4, nodes_v6) =
+                    if let Some(nodes) = self.find_closest_nodes(g.info_hash, g.want) {
+                        nodes
+                    } else {
+                        return;
+                    };
 
                 let token = self.token_store.checkout(addr.ip());
 
                 let get_peers_rsp = GetPeersResponse {
                     id: self.routing_table.node_id(),
                     values,
-                    nodes,
+                    nodes_v4,
+                    nodes_v6,
                     token: token.as_ref().to_vec(),
                 };
                 let get_peers_msg = Message {
@@ -370,9 +343,7 @@ impl DhtHandler {
                 // Resolve type of response we are going to send
                 let response_msg = if !is_valid {
                     // Node gave us an invalid token
-                    warn!(
-                        "bip_dht: Remote node sent us an invalid token for an AnnounceRequest..."
-                    );
+                    warn!("Remote node sent us an invalid token for an AnnounceRequest");
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Error(Error {
@@ -395,7 +366,7 @@ impl DhtHandler {
                 } else {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
-                    warn!("bip_dht: AnnounceStorage failed to store contact information because it is full...");
+                    warn!("AnnounceStorage failed to store contact information because it is full");
 
                     Message {
                         transaction_id: message.transaction_id,
@@ -408,10 +379,7 @@ impl DhtHandler {
                 };
 
                 if let Err(error) = self.socket.send(&response_msg, addr).await {
-                    error!(
-                        "bip_dht: Failed to send an announce peer response: {}",
-                        error
-                    );
+                    error!("Failed to send an announce peer response: {}", error);
                 }
             }
             MessageBody::Response(Response::Other(f)) => {
@@ -905,6 +873,49 @@ impl DhtHandler {
 
     fn shutdown(&mut self) {
         self.running = false;
+    }
+
+    // TODO: return `Result`, not `Option`.
+    fn find_closest_nodes(
+        &self,
+        target: InfoHash,
+        want: Option<Want>,
+    ) -> Option<(Vec<NodeHandle>, Vec<NodeHandle>)> {
+        let want = match want {
+            Some(want) => want,
+            None => match self.socket.local_addr() {
+                Ok(SocketAddr::V4(_)) => Want::V4,
+                Ok(SocketAddr::V6(_)) => Want::V6,
+                Err(error) => {
+                    error!("Failed to retrieve local socket address: {}", error);
+                    return None;
+                }
+            },
+        };
+
+        let nodes_v4 = if matches!(want, Want::V4 | Want::Both) {
+            self.routing_table
+                .closest_nodes(target)
+                .filter(|node| node.addr().is_ipv4())
+                .take(8)
+                .map(|node| *node.handle())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let nodes_v6 = if matches!(want, Want::V6 | Want::Both) {
+            self.routing_table
+                .closest_nodes(target)
+                .filter(|node| node.addr().is_ipv6())
+                .take(8)
+                .map(|node| *node.handle())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        Some((nodes_v4, nodes_v6))
     }
 }
 
