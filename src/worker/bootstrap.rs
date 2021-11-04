@@ -3,7 +3,7 @@ use super::{
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
-use crate::message::{FindNodeRequest, Message, MessageBody, Request, Want};
+use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
@@ -88,7 +88,7 @@ impl TableBootstrap {
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: table_id,
                 target: table_id,
-                want: Want::None,
+                want: None,
             })),
         }
         .encode();
@@ -272,7 +272,7 @@ impl TableBootstrap {
                 body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                     id: table.node_id(),
                     target: target_id,
-                    want: Want::None,
+                    want: None,
                 })),
             }
             .encode();

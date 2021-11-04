@@ -1,5 +1,5 @@
 use super::{socket::MultiSocket, timer::Timer, ScheduledTaskCheck};
-use crate::message::{FindNodeRequest, Message, MessageBody, Request, Want};
+use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::MIDGenerator;
@@ -48,7 +48,7 @@ impl TableRefresh {
             let find_node_req = FindNodeRequest {
                 id: table.node_id(),
                 target: target_id,
-                want: Want::None,
+                want: None,
             };
             let find_node_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),
