@@ -1,5 +1,5 @@
 use super::{
-    socket::MultiSocket,
+    socket::Socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -60,7 +60,7 @@ impl TableBootstrap {
     pub async fn start_bootstrap(
         &mut self,
         table_id: NodeId,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Reset the bootstrap state
@@ -128,7 +128,7 @@ impl TableBootstrap {
         addr: SocketAddr,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Process the message transaction id
@@ -166,7 +166,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
@@ -186,7 +186,7 @@ impl TableBootstrap {
     async fn bootstrap_next_bucket(
         &mut self,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         loop {
@@ -254,7 +254,7 @@ impl TableBootstrap {
         nodes: &[NodeHandle],
         target_id: NodeId,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         info!(

@@ -1,5 +1,5 @@
 use super::{
-    socket::MultiSocket,
+    socket::Socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -64,7 +64,7 @@ impl TableLookup {
         id_generator: MIDGenerator,
         will_announce: bool,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> TableLookup {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
@@ -119,7 +119,7 @@ impl TableLookup {
         trans_id: &TransactionID,
         msg: GetPeersResponse,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Process the message transaction id
@@ -223,7 +223,7 @@ impl TableLookup {
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
@@ -248,7 +248,7 @@ impl TableLookup {
         &mut self,
         port: Option<u16>,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
     ) -> LookupStatus {
         // Announce if we were told to
         if self.will_announce {
@@ -307,7 +307,7 @@ impl TableLookup {
         &mut self,
         nodes: I,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
@@ -364,7 +364,7 @@ impl TableLookup {
     async fn start_endgame_round(
         &mut self,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Entering the endgame phase

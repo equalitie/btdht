@@ -1,4 +1,4 @@
-use super::{socket::MultiSocket, timer::Timer, ScheduledTaskCheck};
+use super::{socket::Socket, timer::Timer, ScheduledTaskCheck};
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
@@ -23,7 +23,7 @@ impl TableRefresh {
     pub async fn continue_refresh(
         &mut self,
         table: &mut RoutingTable,
-        socket: &MultiSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {

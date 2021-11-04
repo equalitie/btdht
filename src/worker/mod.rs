@@ -1,4 +1,4 @@
-pub(crate) use self::{handler::DhtHandler, socket::MultiSocket};
+pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::id::InfoHash;
 use crate::transaction::TransactionID;
 use std::{collections::HashSet, net::SocketAddr};

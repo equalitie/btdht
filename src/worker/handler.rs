@@ -2,20 +2,24 @@ use super::{
     bootstrap::{BootstrapStatus, TableBootstrap},
     lookup::{LookupStatus, TableLookup},
     refresh::TableRefresh,
-    socket::MultiSocket,
+    socket::Socket,
     timer::Timer,
     {DhtEvent, OneshotTask, ScheduledTaskCheck},
 };
-use crate::message::{
-    error_code, Error, GetPeersResponse, Message, MessageBody, OtherResponse, Request, Response,
+use crate::{
+    id::InfoHash,
+    message::{
+        error_code, Error, GetPeersResponse, Message, MessageBody, OtherResponse, Request,
+        Response, Want,
+    },
+    routing::{
+        node::{Node, NodeHandle, NodeStatus},
+        table::RoutingTable,
+    },
+    storage::AnnounceStorage,
+    token::{Token, TokenStore},
+    transaction::{AIDGenerator, ActionID, TransactionID},
 };
-use crate::routing::node::Node;
-use crate::routing::node::NodeStatus;
-use crate::routing::table::RoutingTable;
-use crate::storage::AnnounceStorage;
-use crate::token::{Token, TokenStore};
-use crate::transaction::{AIDGenerator, ActionID, TransactionID};
-use crate::{id::InfoHash, routing::node::NodeHandle};
 use futures_util::StreamExt;
 use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
@@ -53,7 +57,7 @@ pub(crate) struct DhtHandler {
     timer: Timer<ScheduledTaskCheck>,
     read_only: bool,
     announce_port: Option<u16>,
-    socket: MultiSocket,
+    socket: Socket,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
     bootstrapping: bool,
@@ -69,7 +73,7 @@ pub(crate) struct DhtHandler {
 impl DhtHandler {
     pub fn new(
         table: RoutingTable,
-        socket: MultiSocket,
+        socket: Socket,
         read_only: bool,
         announce_port: Option<u16>,
         command_rx: mpsc::UnboundedReceiver<OneshotTask>,
@@ -239,18 +243,45 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
+                let want = match f.want {
+                    Some(want) => want,
+                    None => match self.socket.local_addr() {
+                        Ok(SocketAddr::V4(_)) => Want::V4,
+                        Ok(SocketAddr::V6(_)) => Want::V6,
+                        Err(error) => {
+                            error!("Failed to retrieve local socket address: {}", error);
+                            return;
+                        }
+                    },
+                };
+
                 // Grab the closest nodes
-                let closest_nodes = self
-                    .routing_table
-                    .closest_nodes(f.target)
-                    .take(8)
-                    .map(|node| *node.handle())
-                    .collect();
+                let nodes_v4 = if matches!(want, Want::V4 | Want::Both) {
+                    self.routing_table
+                        .closest_nodes(f.target)
+                        .filter(|node| node.addr().is_ipv4())
+                        .take(8)
+                        .map(|node| *node.handle())
+                        .collect()
+                } else {
+                    vec![]
+                };
+
+                let nodes_v6 = if matches!(want, Want::V6 | Want::Both) {
+                    self.routing_table
+                        .closest_nodes(f.target)
+                        .filter(|node| node.addr().is_ipv6())
+                        .take(8)
+                        .map(|node| *node.handle())
+                        .collect()
+                } else {
+                    vec![]
+                };
 
                 let find_node_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
-                    nodes_v4: closest_nodes,
-                    nodes_v6: vec![],
+                    nodes_v4,
+                    nodes_v6,
                 };
                 let find_node_msg = Message {
                     transaction_id: message.transaction_id,
@@ -900,7 +931,7 @@ async fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
-    socket: &MultiSocket,
+    socket: &Socket,
     timer: &mut Timer<ScheduledTaskCheck>,
 ) -> Option<bool> {
     loop {

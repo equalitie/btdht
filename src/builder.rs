@@ -1,7 +1,7 @@
 use crate::{
     id::InfoHash,
     routing::table::{self, RoutingTable},
-    worker::{DhtEvent, DhtHandler, MultiSocket, OneshotTask},
+    worker::{DhtEvent, DhtHandler, OneshotTask, Socket},
 };
 use std::{collections::HashSet, net::SocketAddr};
 use tokio::{net::UdpSocket, sync::mpsc, task};
@@ -29,7 +29,7 @@ impl MainlineDht {
     /// Start the MainlineDht with the given DhtBuilder.
     fn with_builder(
         builder: DhtBuilder,
-        socket: MultiSocket,
+        socket: UdpSocket,
     ) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -38,7 +38,7 @@ impl MainlineDht {
         let routing_table = RoutingTable::new(table::random_node_id());
         let handler = DhtHandler::new(
             routing_table,
-            socket,
+            Socket::new(socket),
             builder.read_only,
             builder.announce_port,
             command_rx,
@@ -134,23 +134,6 @@ impl DhtBuilder {
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
     pub fn start(self, socket: UdpSocket) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
-        MainlineDht::with_builder(self, MultiSocket::SingleStack(socket))
-    }
-
-    /// Start a dual-stack (ipv4 + ipv6) mainline DHT with the current configuration.
-    ///
-    /// The first socket should be bound to a ipv4 and the second one to an ipv6 address.
-    pub fn start_dual_stack(
-        self,
-        socket_v4: UdpSocket,
-        socket_v6: UdpSocket,
-    ) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
-        MainlineDht::with_builder(
-            self,
-            MultiSocket::DualStack {
-                v4: socket_v4,
-                v6: socket_v6,
-            },
-        )
+        MainlineDht::with_builder(self, socket)
     }
 }
