@@ -579,8 +579,7 @@ impl DhtHandler {
                 }
             }
             MessageBody::Error(e) => {
-                info!("bip_dht: Received an ErrorMessage...");
-                warn!("bip_dht: KRPC error message from {:?}: {:?}", addr, e);
+                warn!("Received an ErrorMessage from {}: {:?}", addr, e);
             }
         }
     }

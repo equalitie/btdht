@@ -98,6 +98,7 @@ pub(crate) struct PingRequest {
 pub(crate) struct FindNodeRequest {
     pub id: NodeId,
     pub target: NodeId,
+
     #[serde(with = "want", default, skip_serializing_if = "Option::is_none")]
     pub want: Option<Want>,
 }
@@ -106,6 +107,9 @@ pub(crate) struct FindNodeRequest {
 pub(crate) struct GetPeersRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
+
+    #[serde(with = "want", default, skip_serializing_if = "Option::is_none")]
+    pub want: Option<Want>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -407,6 +411,22 @@ mod tests {
             body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                 id: NodeId::from(*b"abcdefghij0123456789"),
                 info_hash: InfoHash::from(*b"mnopqrstuvwxyz123456"),
+                want: None,
+            })),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded)
+    }
+
+    #[test]
+    fn serialize_get_peers_request_with_want() {
+        let encoded = "d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz1234564:wantl2:n4ee1:q9:get_peers1:t2:aa1:y1:qe";
+        let decoded = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
+                id: NodeId::from(*b"abcdefghij0123456789"),
+                info_hash: InfoHash::from(*b"mnopqrstuvwxyz123456"),
+                want: Some(Want::V4),
             })),
         };
 

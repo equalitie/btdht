@@ -333,6 +333,7 @@ impl TableLookup {
                 body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                     id: table.node_id(),
                     info_hash: self.target_id,
+                    want: None,
                 })),
             }
             .encode();
@@ -395,6 +396,7 @@ impl TableLookup {
                     body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                         id: table.node_id(),
                         info_hash: self.target_id,
+                        want: None,
                     })),
                 }
                 .encode();
