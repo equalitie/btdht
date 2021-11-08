@@ -21,7 +21,7 @@ const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum BootstrapStatus {
     /// Bootstrap is in progress.
-    Bootstrapping,
+    Ongoing,
     /// Bootstrap just finished.
     Completed,
 }
@@ -109,7 +109,7 @@ impl TableBootstrap {
         }
 
         if self.initial_responses_expected > 0 {
-            BootstrapStatus::Bootstrapping
+            BootstrapStatus::Ongoing
         } else {
             BootstrapStatus::Completed
         }
@@ -136,7 +136,7 @@ impl TableBootstrap {
             *t
         } else {
             warn!("Received expired/unsolicited node response for an active table bootstrap");
-            return BootstrapStatus::Bootstrapping;
+            return BootstrapStatus::Ongoing;
         };
 
         // In the initial round all the messages have the same transaction id so clear it only after
@@ -158,7 +158,7 @@ impl TableBootstrap {
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            BootstrapStatus::Bootstrapping
+            BootstrapStatus::Ongoing
         }
     }
 
@@ -171,14 +171,14 @@ impl TableBootstrap {
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
             warn!("Received expired/unsolicited node timeout for an active table bootstrap");
-            return BootstrapStatus::Bootstrapping;
+            return BootstrapStatus::Ongoing;
         }
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            BootstrapStatus::Bootstrapping
+            BootstrapStatus::Ongoing
         }
     }
 
@@ -245,7 +245,7 @@ impl TableBootstrap {
                 .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
                 .await
             {
-                return BootstrapStatus::Bootstrapping;
+                return BootstrapStatus::Ongoing;
             }
         }
     }

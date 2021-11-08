@@ -360,7 +360,7 @@ impl DhtHandler {
                         )
                         .await
                     {
-                        BootstrapStatus::Bootstrapping => false,
+                        BootstrapStatus::Ongoing => false,
                         BootstrapStatus::Completed => {
                             if should_rebootstrap(&self.routing_table) {
                                 match attempt_rebootstrap(
@@ -437,7 +437,7 @@ impl DhtHandler {
                     )
                     .await
                 {
-                    LookupStatus::Searching => (),
+                    LookupStatus::Ongoing => (),
                     LookupStatus::Completed => self
                         .event_tx
                         .send(DhtEvent::LookupCompleted(lookup.info_hash()))
@@ -482,7 +482,7 @@ impl DhtHandler {
         let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Bootstrapping => false,
+            BootstrapStatus::Ongoing => false,
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
@@ -535,7 +535,7 @@ impl DhtHandler {
             .await;
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Bootstrapping => false,
+            BootstrapStatus::Ongoing => false,
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
@@ -627,7 +627,7 @@ impl DhtHandler {
         let info_hash = lookup.info_hash();
 
         match lookup_status {
-            LookupStatus::Searching => (),
+            LookupStatus::Ongoing => (),
             LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
@@ -656,7 +656,7 @@ impl DhtHandler {
         let info_hash = lookup.info_hash();
 
         match lookup_status {
-            LookupStatus::Searching => (),
+            LookupStatus::Ongoing => (),
             LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
@@ -761,7 +761,7 @@ async fn attempt_rebootstrap(
                 .await;
 
             match bootstrap_status {
-                BootstrapStatus::Bootstrapping => return Some(true),
+                BootstrapStatus::Ongoing => return Some(true),
                 BootstrapStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
                         return Some(false);
