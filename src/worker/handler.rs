@@ -469,6 +469,13 @@ impl DhtHandler {
         routers: HashSet<SocketAddr>,
         nodes: HashSet<SocketAddr>,
     ) {
+        // If we have no bootstrap contacts it means we are the first node in the network and
+        // other would bootstrap against us. We consider this node as already bootstrapped.
+        if routers.is_empty() && nodes.is_empty() {
+            self.broadcast_bootstrap_completed().await;
+            return;
+        }
+
         let mid_generator = self.aid_generator.generate();
         let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes, routers);
 
