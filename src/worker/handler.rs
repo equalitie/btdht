@@ -32,19 +32,6 @@ use tokio::{select, sync::mpsc};
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
-/// Actions that we can perform on our RoutingTable.
-enum TableAction {
-    /// Lookup action.
-    Lookup(TableLookup),
-}
-
-/// Actions that we want to perform on our RoutingTable after bootstrapping finishes.
-#[allow(clippy::large_enum_variant)]
-enum PostBootstrapAction {
-    /// Future lookup action.
-    Lookup(InfoHash, bool),
-}
-
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
     running: bool,
@@ -57,15 +44,16 @@ pub(crate) struct DhtHandler {
     aid_generator: AIDGenerator,
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
-    // If future actions is not empty, that means we are still bootstrapping
-    // since we will always spin up a table refresh action after bootstrapping.
-    future_actions: Vec<PostBootstrapAction>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-    // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attemps.
+    // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attempts.
     bootstrap: Option<(TableBootstrap, usize)>,
     // TableRefresh action.
     refresh: TableRefresh,
-    table_actions: HashMap<ActionID, TableAction>,
+    // Ongoing TableLookups.
+    lookups: HashMap<ActionID, TableLookup>,
+    // Lookups initiated while we were still bootstrapping, to be executed when the bootstrap is
+    // complete.
+    future_lookups: Vec<(InfoHash, bool)>,
 }
 
 impl DhtHandler {
@@ -94,11 +82,11 @@ impl DhtHandler {
             aid_generator,
             routing_table: table,
             active_stores: AnnounceStorage::new(),
-            future_actions: vec![],
             event_tx,
             bootstrap: None,
             refresh: table_refresh,
-            table_actions: HashMap::new(),
+            lookups: HashMap::new(),
+            future_lookups: vec![],
         }
     }
 
@@ -438,10 +426,10 @@ impl DhtHandler {
 
                 self.routing_table.add_node(node.clone());
 
-                let lookup = match self.table_actions.get_mut(&trans_id.action_id()) {
-                    Some(TableAction::Lookup(lookup)) => lookup,
-                    None => return Err(WorkerError::UnsolicitedResponse),
-                };
+                let lookup = self
+                    .lookups
+                    .get_mut(&trans_id.action_id())
+                    .ok_or(WorkerError::UnsolicitedResponse)?;
 
                 match lookup
                     .recv_response(
@@ -601,13 +589,8 @@ impl DhtHandler {
         self.handle_check_table_refresh().await;
 
         // Start the post bootstrap actions.
-        let future_actions = mem::take(&mut self.future_actions);
-        for table_action in future_actions {
-            match table_action {
-                PostBootstrapAction::Lookup(info_hash, should_announce) => {
-                    self.handle_start_lookup(info_hash, should_announce).await;
-                }
-            }
+        for (info_hash, should_announce) in mem::take(&mut self.future_lookups) {
+            self.handle_start_lookup(info_hash, should_announce).await;
         }
     }
 
@@ -617,8 +600,7 @@ impl DhtHandler {
 
         if self.bootstrap.is_some() {
             // Queue it up if we are currently bootstrapping
-            self.future_actions
-                .push(PostBootstrapAction::Lookup(info_hash, should_announce));
+            self.future_lookups.push((info_hash, should_announce));
         } else {
             // Start the lookup right now if not bootstrapping
             let lookup = TableLookup::new(
@@ -630,38 +612,35 @@ impl DhtHandler {
                 &mut self.timer,
             )
             .await;
-            self.table_actions
-                .insert(action_id, TableAction::Lookup(lookup));
+            self.lookups.insert(action_id, lookup);
         }
     }
 
     async fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {
-        let opt_lookup_info = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(TableAction::Lookup(lookup)) => Some((
-                lookup
-                    .recv_timeout(
-                        &trans_id,
-                        &mut self.routing_table,
-                        &self.socket,
-                        &mut self.timer,
-                    )
-                    .await,
-                lookup.info_hash(),
-            )),
-            None => {
-                error!("Resolved a TransactionID to a check table lookup but no action found");
-                None
-            }
+        let lookup = if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
+            lookup
+        } else {
+            error!("Resolved a TransactionID to a check table lookup but no action found");
+            return;
         };
 
-        match opt_lookup_info {
-            None => (),
-            Some((LookupStatus::Searching, _)) => (),
-            Some((LookupStatus::Completed, info_hash)) => self
+        let lookup_status = lookup
+            .recv_timeout(
+                &trans_id,
+                &mut self.routing_table,
+                &self.socket,
+                &mut self.timer,
+            )
+            .await;
+        let info_hash = lookup.info_hash();
+
+        match lookup_status {
+            LookupStatus::Searching => (),
+            LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Values(v), info_hash)) => {
+            LookupStatus::Values(v) => {
                 for addr in v {
                     self.event_tx
                         .send(DhtEvent::PeerFound(info_hash, addr))
@@ -672,27 +651,25 @@ impl DhtHandler {
     }
 
     async fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
-        let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
-            Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup
-                    .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
-                    .await,
-                lookup.info_hash(),
-            )),
-            None => {
-                error!("Resolved a TransactionID to a check table lookup but no action found");
-                None
-            }
+        let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
+            lookup
+        } else {
+            error!("Resolved a TransactionID to a check table lookup but no action found");
+            return;
         };
 
-        match opt_lookup_info {
-            None => (),
-            Some((LookupStatus::Searching, _)) => (),
-            Some((LookupStatus::Completed, info_hash)) => self
+        let lookup_status = lookup
+            .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+            .await;
+        let info_hash = lookup.info_hash();
+
+        match lookup_status {
+            LookupStatus::Searching => (),
+            LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Values(v), info_hash)) => {
+            LookupStatus::Values(v) => {
                 // Add values to handshaker
                 for addr in v {
                     self.event_tx
