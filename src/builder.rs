@@ -1,6 +1,6 @@
 use crate::{
-    id::InfoHash,
-    routing::table::{self, RoutingTable},
+    id::{InfoHash, NodeId},
+    routing::table::RoutingTable,
     worker::{DhtEvent, DhtHandler, OneshotTask, Socket},
 };
 use std::{collections::HashSet, net::SocketAddr};
@@ -23,6 +23,7 @@ impl MainlineDht {
             routers: HashSet::new(),
             read_only: true,
             announce_port: None,
+            node_id: None,
         }
     }
 
@@ -35,7 +36,7 @@ impl MainlineDht {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         // TODO: Utilize the security extension.
-        let routing_table = RoutingTable::new(table::random_node_id());
+        let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
         let handler = DhtHandler::new(
             routing_table,
             Socket::new(socket),
@@ -87,6 +88,7 @@ pub struct DhtBuilder {
     routers: HashSet<SocketAddr>,
     read_only: bool,
     announce_port: Option<u16>,
+    node_id: Option<NodeId>,
 }
 
 impl DhtBuilder {
@@ -129,6 +131,15 @@ impl DhtBuilder {
     /// If this is not supplied, will use implied port.
     pub fn set_announce_port(mut self, port: u16) -> Self {
         self.announce_port = Some(port);
+        self
+    }
+
+    /// Set the id of this node. If not provided, a random node id is generated.
+    ///
+    /// NOTE: when creating a double-stack DHT (ipv4 + ipv6), it's recommended that both DHTs use
+    /// the same node id.
+    pub fn set_node_id(mut self, id: NodeId) -> Self {
+        self.node_id = Some(id);
         self
     }
 

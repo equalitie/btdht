@@ -1,3 +1,7 @@
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::{
@@ -93,6 +97,12 @@ impl BitXor<ShaHash> for ShaHash {
         }
 
         self
+    }
+}
+
+impl Distribution<ShaHash> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ShaHash {
+        ShaHash { hash: rng.gen() }
     }
 }
 

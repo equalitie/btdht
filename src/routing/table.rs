@@ -1,9 +1,9 @@
-use super::bucket::{self, Bucket};
-use super::node::{Node, NodeHandle, NodeStatus};
-use crate::id::{NodeId, ShaHash, SHA_HASH_LEN};
-use std::cmp::Ordering;
-use std::iter::Filter;
-use std::slice::Iter;
+use super::{
+    bucket::{self, Bucket},
+    node::{Node, NodeHandle, NodeStatus},
+};
+use crate::id::{NodeId, SHA_HASH_LEN};
+use std::{cmp::Ordering, iter::Filter, slice::Iter};
 
 pub const MAX_BUCKETS: usize = SHA_HASH_LEN * 8;
 
@@ -134,20 +134,6 @@ impl RoutingTable {
 /// Returns true if the bucket can be split.
 fn can_split_bucket(num_buckets: usize, bucket_index: usize) -> bool {
     bucket_index == num_buckets - 1 && bucket_index != MAX_BUCKETS - 1
-}
-
-/// Generates a random NodeId.
-///
-/// TODO: Shouldnt use this in the future to get an id for the routing table,
-/// generate one from the security module to be compliant with the spec.
-pub fn random_node_id() -> NodeId {
-    let mut random_sha_hash = [0u8; SHA_HASH_LEN];
-
-    for byte in random_sha_hash.iter_mut() {
-        *byte = rand::random::<u8>();
-    }
-
-    ShaHash::from(random_sha_hash)
 }
 
 /// Number of leading bits that are identical between the local and remote node ids.
