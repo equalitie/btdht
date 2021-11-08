@@ -2,7 +2,7 @@ use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::{Duration, Instant};
 
-use crate::id::{LengthError, ShaHash, SHA_HASH_LEN};
+use crate::id::{Id, LengthError, ID_LEN};
 
 /// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
 /// secret will change every 10 minutes and tokens up to 10 minutes old will be accepted. This
@@ -26,7 +26,7 @@ const IPV6_SECRET_BUFFER_LEN: usize = 16 + 4;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Token {
-    token: [u8; SHA_HASH_LEN],
+    token: [u8; ID_LEN],
 }
 
 impl Token {
@@ -37,14 +37,14 @@ impl Token {
     }
 }
 
-impl From<Token> for [u8; SHA_HASH_LEN] {
-    fn from(token: Token) -> [u8; SHA_HASH_LEN] {
+impl From<Token> for [u8; ID_LEN] {
+    fn from(token: Token) -> [u8; ID_LEN] {
         token.token
     }
 }
 
-impl From<[u8; SHA_HASH_LEN]> for Token {
-    fn from(token: [u8; SHA_HASH_LEN]) -> Token {
+impl From<[u8; ID_LEN]> for Token {
+    fn from(token: [u8; ID_LEN]) -> Token {
         Token { token }
     }
 }
@@ -141,8 +141,8 @@ fn generate_token_from_addr_v4(v4_addr: Ipv4Addr, secret: u32) -> Token {
         *dst = *src;
     }
 
-    let hash_buffer = ShaHash::sha1(&buffer);
-    Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
+    let hash_buffer = Id::sha1(&buffer);
+    Into::<[u8; ID_LEN]>::into(hash_buffer).into()
 }
 
 /// Generate a token from an ipv6 address and a secret.
@@ -156,8 +156,8 @@ fn generate_token_from_addr_v6(v6_addr: Ipv6Addr, secret: u32) -> Token {
         *dst = *src;
     }
 
-    let hash_buffer = ShaHash::sha1(&buffer);
-    Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
+    let hash_buffer = Id::sha1(&buffer);
+    Into::<[u8; ID_LEN]>::into(hash_buffer).into()
 }
 
 /// Validate a token given an ip address and the two current secrets.

@@ -11,23 +11,27 @@ use std::{
 };
 use thiserror::Error;
 
-/// Length of a SHA-1 hash.
-pub const SHA_HASH_LEN: usize = 20;
+/// Length of `Id` in bytes.
+pub const ID_LEN: usize = 20;
 
-/// SHA-1 hash wrapper type for performing operations on the hash.
+/// 20-byte long identifier of nodes and objects on the DHT
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
-pub struct ShaHash(#[serde(with = "byte_array")] [u8; SHA_HASH_LEN]);
+pub struct Id(#[serde(with = "byte_array")] [u8; ID_LEN]);
 
-impl ShaHash {
-    /// Create a ShaHash by hashing the given bytes using SHA-1.
+impl Id {
+    /// Create a DhtId by hashing the given bytes using SHA-1.
     pub fn sha1(bytes: &[u8]) -> Self {
         let hash = Sha1::digest(bytes);
         Self(hash.into())
     }
 
-    /// Panics if index is out of bounds.
-    pub fn flip_bit(self, index: usize) -> Self {
+    /// Flip the bit at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if index is out of bounds (>= 160)
+    pub(crate) fn flip_bit(self, index: usize) -> Self {
         let mut bytes = self.0;
         let (byte_index, bit_index) = (index / 8, index % 8);
 
@@ -38,7 +42,7 @@ impl ShaHash {
     }
 
     /// Number of leading zero bits.
-    pub fn leading_zeros(&self) -> u32 {
+    pub(crate) fn leading_zeros(&self) -> u32 {
         let mut bits = 0;
 
         for byte in self.0 {
@@ -53,29 +57,29 @@ impl ShaHash {
     }
 }
 
-impl AsRef<[u8]> for ShaHash {
+impl AsRef<[u8]> for Id {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl From<ShaHash> for [u8; SHA_HASH_LEN] {
-    fn from(hash: ShaHash) -> [u8; SHA_HASH_LEN] {
+impl From<Id> for [u8; ID_LEN] {
+    fn from(hash: Id) -> [u8; ID_LEN] {
         hash.0
     }
 }
 
-impl From<[u8; SHA_HASH_LEN]> for ShaHash {
-    fn from(hash: [u8; SHA_HASH_LEN]) -> ShaHash {
+impl From<[u8; ID_LEN]> for Id {
+    fn from(hash: [u8; ID_LEN]) -> Id {
         Self(hash)
     }
 }
 
 #[derive(Debug, Error)]
-#[error("invalid SHA-1 hash length")]
+#[error("invalid id length")]
 pub struct LengthError;
 
-impl<'a> TryFrom<&'a [u8]> for ShaHash {
+impl<'a> TryFrom<&'a [u8]> for Id {
     type Error = LengthError;
 
     fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
@@ -83,7 +87,7 @@ impl<'a> TryFrom<&'a [u8]> for ShaHash {
     }
 }
 
-impl BitXor for ShaHash {
+impl BitXor for Id {
     type Output = Self;
 
     fn bitxor(mut self, rhs: Self) -> Self {
@@ -95,13 +99,13 @@ impl BitXor for ShaHash {
     }
 }
 
-impl Distribution<ShaHash> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ShaHash {
-        ShaHash(rng.gen())
+impl Distribution<Id> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Id {
+        Id(rng.gen())
     }
 }
 
-impl fmt::LowerHex for ShaHash {
+impl fmt::LowerHex for Id {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in &self.0 {
             write!(f, "{:02x}", b)?;
@@ -111,14 +115,14 @@ impl fmt::LowerHex for ShaHash {
     }
 }
 
-impl fmt::Debug for ShaHash {
+impl fmt::Debug for Id {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:x}", self)
     }
 }
 
 mod byte_array {
-    use super::SHA_HASH_LEN;
+    use super::ID_LEN;
     use serde::{
         de::{Deserialize, Deserializer, Error},
         ser::{Serialize, Serializer},
@@ -126,22 +130,17 @@ mod byte_array {
     use serde_bytes::{ByteBuf, Bytes};
     use std::convert::TryInto;
 
-    pub(super) fn serialize<S: Serializer>(
-        bytes: &[u8; SHA_HASH_LEN],
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(bytes: &[u8; ID_LEN], s: S) -> Result<S::Ok, S::Error> {
         Bytes::new(bytes.as_ref()).serialize(s)
     }
 
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
-        d: D,
-    ) -> Result<[u8; SHA_HASH_LEN], D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; ID_LEN], D::Error> {
         let buf = ByteBuf::deserialize(d)?;
         let buf = buf.into_vec();
         let len = buf.len();
 
         buf.try_into().map_err(|_| {
-            let expected = format!("{}", SHA_HASH_LEN);
+            let expected = format!("{}", ID_LEN);
             D::Error::invalid_length(len, &expected.as_ref())
         })
     }
@@ -150,16 +149,16 @@ mod byte_array {
 // ----------------------------------------------------------------------------//
 
 /// Bittorrent `NodeId`.
-pub type NodeId = ShaHash;
+pub type NodeId = Id;
 
 /// Bittorrent `InfoHash`.
-pub type InfoHash = ShaHash;
+pub type InfoHash = Id;
 
 /// Length of a `NodeId`.
-pub const NODE_ID_LEN: usize = SHA_HASH_LEN;
+pub const NODE_ID_LEN: usize = ID_LEN;
 
 /// Length of an `InfoHash`.
-pub const INFO_HASH_LEN: usize = SHA_HASH_LEN;
+pub const INFO_HASH_LEN: usize = ID_LEN;
 
 // ----------------------------------------------------------------------------//
 
@@ -169,8 +168,8 @@ mod tests {
 
     #[test]
     fn positive_no_leading_zeroes() {
-        let zero_bits = ShaHash::from([0u8; SHA_HASH_LEN]);
-        let one_bits = ShaHash::from([255u8; SHA_HASH_LEN]);
+        let zero_bits = Id::from([0u8; ID_LEN]);
+        let one_bits = Id::from([255u8; ID_LEN]);
 
         let xor_hash = zero_bits ^ one_bits;
 
@@ -179,21 +178,21 @@ mod tests {
 
     #[test]
     fn positive_all_leading_zeroes() {
-        let first_one_bits = ShaHash::from([255u8; SHA_HASH_LEN]);
-        let second_one_bits = ShaHash::from([255u8; SHA_HASH_LEN]);
+        let first_one_bits = Id::from([255u8; ID_LEN]);
+        let second_one_bits = Id::from([255u8; ID_LEN]);
 
         let xor_hash = first_one_bits ^ second_one_bits;
 
-        assert_eq!(xor_hash.leading_zeros() as usize, SHA_HASH_LEN * 8);
+        assert_eq!(xor_hash.leading_zeros() as usize, ID_LEN * 8);
     }
 
     #[test]
     fn positive_one_leading_zero() {
-        let zero_bits = ShaHash::from([0u8; SHA_HASH_LEN]);
+        let zero_bits = Id::from([0u8; ID_LEN]);
 
-        let mut bytes = [255u8; SHA_HASH_LEN];
+        let mut bytes = [255u8; ID_LEN];
         bytes[0] = 127;
-        let mostly_one_bits = ShaHash::from(bytes);
+        let mostly_one_bits = Id::from(bytes);
 
         let xor_hash = zero_bits ^ mostly_one_bits;
 
@@ -202,11 +201,11 @@ mod tests {
 
     #[test]
     fn positive_one_trailing_zero() {
-        let zero_bits = ShaHash::from([0u8; SHA_HASH_LEN]);
+        let zero_bits = Id::from([0u8; ID_LEN]);
 
-        let mut bytes = [255u8; SHA_HASH_LEN];
-        bytes[super::SHA_HASH_LEN - 1] = 254;
-        let mostly_zero_bits = ShaHash::from(bytes);
+        let mut bytes = [255u8; ID_LEN];
+        bytes[super::ID_LEN - 1] = 254;
+        let mostly_zero_bits = Id::from(bytes);
 
         let xor_hash = zero_bits ^ mostly_zero_bits;
 

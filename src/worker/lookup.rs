@@ -3,7 +3,7 @@ use super::{
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
-use crate::id::{InfoHash, ShaHash, NODE_ID_LEN};
+use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
@@ -28,8 +28,8 @@ const INITIAL_PICK_NUM: usize = 4; // Alpha
 const ITERATIVE_PICK_NUM: usize = 3; // Beta
 const ANNOUNCE_PICK_NUM: usize = 8; // # Announces
 
-type Distance = ShaHash;
-type DistanceToBeat = ShaHash;
+type Distance = Id;
+type DistanceToBeat = Id;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LookupStatus {
