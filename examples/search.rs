@@ -188,7 +188,7 @@ impl From<LengthError> for ParseError {
 
 fn parse_info_hash(s: &str) -> Result<InfoHash, ParseError> {
     if &s[..1] == "#" {
-        Ok(InfoHash::from_bytes(s[1..].trim().as_bytes()))
+        Ok(InfoHash::sha1(s[1..].trim().as_bytes()))
     } else {
         Ok(InfoHash::try_from(hex::decode(s)?.as_ref())?)
     }

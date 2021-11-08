@@ -141,7 +141,7 @@ fn generate_token_from_addr_v4(v4_addr: Ipv4Addr, secret: u32) -> Token {
         *dst = *src;
     }
 
-    let hash_buffer = ShaHash::from_bytes(&buffer);
+    let hash_buffer = ShaHash::sha1(&buffer);
     Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
 }
 
@@ -156,7 +156,7 @@ fn generate_token_from_addr_v6(v6_addr: Ipv6Addr, secret: u32) -> Token {
         *dst = *src;
     }
 
-    let hash_buffer = ShaHash::from_bytes(&buffer);
+    let hash_buffer = ShaHash::sha1(&buffer);
     Into::<[u8; SHA_HASH_LEN]>::into(hash_buffer).into()
 }
 

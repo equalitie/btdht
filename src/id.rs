@@ -20,8 +20,8 @@ pub const SHA_HASH_LEN: usize = 20;
 pub struct ShaHash(#[serde(with = "byte_array")] [u8; SHA_HASH_LEN]);
 
 impl ShaHash {
-    /// Create a ShaHash by hashing the given bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Self {
+    /// Create a ShaHash by hashing the given bytes using SHA-1.
+    pub fn sha1(bytes: &[u8]) -> Self {
         let hash = Sha1::digest(bytes);
         Self(hash.into())
     }

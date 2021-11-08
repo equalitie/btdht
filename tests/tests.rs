@@ -30,7 +30,7 @@ async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
         .set_read_only(false)
         .start(b_socket);
 
-    let the_info_hash = InfoHash::from_bytes(b"foo");
+    let the_info_hash = InfoHash::sha1(b"foo");
 
     // Perform a lookup with announce by A. It should not return any peers initially but it should
     // make B aware that A has the infohash.
