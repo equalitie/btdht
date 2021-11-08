@@ -1,14 +1,23 @@
-use crate::id::InfoHash;
-use crate::routing::table::{self, RoutingTable};
-use crate::worker::{DhtEvent, DhtHandler, OneshotTask};
-use std::collections::HashSet;
-use std::net::SocketAddr;
+use crate::{
+    id::{InfoHash, NodeId},
+    routing::table::RoutingTable,
+    worker::{DhtEvent, DhtHandler, OneshotTask, Socket},
+};
+use std::{collections::HashSet, net::SocketAddr};
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
 ///
 /// This type is cheaply cloneable where each clone refers to the same underlying DHT instance. This
 /// is useful to be able to issue DHT operations from multiple tasks/threads.
+///
+/// # IPv6
+///
+/// This implementation supports IPv6 as per [BEP32](https://www.bittorrent.org/beps/bep_0032.html).
+/// To enable dual-stack DHT (use both IPv4 and IPv6), one needs to create two separate
+/// `MainlineDht` instances, one bound to an IPv4 and the other to an IPv6 address. It is
+/// recommended that both instances use the same node id ([`DhtBuilder::set_node_id`]). Any lookup
+/// should then be performed on both instances and their results aggregated.
 #[derive(Clone)]
 pub struct MainlineDht {
     send: mpsc::UnboundedSender<OneshotTask>,
@@ -22,6 +31,7 @@ impl MainlineDht {
             routers: HashSet::new(),
             read_only: true,
             announce_port: None,
+            node_id: None,
         }
     }
 
@@ -34,10 +44,10 @@ impl MainlineDht {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         // TODO: Utilize the security extension.
-        let routing_table = RoutingTable::new(table::random_node_id());
+        let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
         let handler = DhtHandler::new(
             routing_table,
-            socket,
+            Socket::new(socket),
             builder.read_only,
             builder.announce_port,
             command_rx,
@@ -80,12 +90,13 @@ impl MainlineDht {
 // ----------------------------------------------------------------------------//
 
 /// Stores information for initializing a DHT.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct DhtBuilder {
     nodes: HashSet<SocketAddr>,
     routers: HashSet<SocketAddr>,
     read_only: bool,
     announce_port: Option<u16>,
+    node_id: Option<NodeId>,
 }
 
 impl DhtBuilder {
@@ -97,15 +108,13 @@ impl DhtBuilder {
 
     /// Add a router which will let us gather nodes if our routing table is ever empty.
     ///
-    /// See [Self::with_router] for difference between a router and a node.
+    /// The difference between routers and nodes is that routers are not added to the routing table.
     pub fn add_router(mut self, router: SocketAddr) -> DhtBuilder {
         self.routers.insert(router);
         self
     }
 
-    /// Add routers
-    ///
-    /// See [Self::with_router] for difference between a router and a node.
+    /// Add routers. Same as calling `add_router` multiple times but more convenient in some cases.
     pub fn add_routers<I>(mut self, routers: I) -> DhtBuilder
     where
         I: IntoIterator<Item = SocketAddr>,
@@ -130,6 +139,15 @@ impl DhtBuilder {
     /// If this is not supplied, will use implied port.
     pub fn set_announce_port(mut self, port: u16) -> Self {
         self.announce_port = Some(port);
+        self
+    }
+
+    /// Set the id of this node. If not provided, a random node id is generated.
+    ///
+    /// NOTE: when creating a double-stack DHT (ipv4 + ipv6), it's recommended that both DHTs use
+    /// the same node id.
+    pub fn set_node_id(mut self, id: NodeId) -> Self {
+        self.node_id = Some(id);
         self
     }
 

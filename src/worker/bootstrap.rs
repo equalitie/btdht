@@ -1,5 +1,5 @@
 use super::{
-    socket,
+    socket::Socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
@@ -12,7 +12,6 @@ use crate::{id::NodeId, routing::node::NodeHandle};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::net::UdpSocket;
 
 const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -61,7 +60,7 @@ impl TableBootstrap {
     pub async fn start_bootstrap(
         &mut self,
         table_id: NodeId,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Reset the bootstrap state
@@ -89,6 +88,7 @@ impl TableBootstrap {
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: table_id,
                 target: table_id,
+                want: None, // we want only contacts of the same address family we have.
             })),
         }
         .encode();
@@ -102,7 +102,7 @@ impl TableBootstrap {
             .iter()
             .chain(self.starting_nodes.iter())
         {
-            match socket::send(socket, &find_node_msg, *addr).await {
+            match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {
                         self.initial_responses_expected += 1
@@ -128,7 +128,7 @@ impl TableBootstrap {
         addr: SocketAddr,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         // Process the message transaction id
@@ -166,7 +166,7 @@ impl TableBootstrap {
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
@@ -186,7 +186,7 @@ impl TableBootstrap {
     async fn bootstrap_next_bucket(
         &mut self,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         loop {
@@ -254,7 +254,7 @@ impl TableBootstrap {
         nodes: &[NodeHandle],
         target_id: NodeId,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         info!(
@@ -272,6 +272,7 @@ impl TableBootstrap {
                 body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                     id: table.node_id(),
                     target: target_id,
+                    want: None,
                 })),
             }
             .encode();
@@ -283,7 +284,7 @@ impl TableBootstrap {
             );
 
             // Send the message to the node
-            if let Err(error) = socket::send(socket, &find_node_msg, node.addr).await {
+            if let Err(error) = socket.send(&find_node_msg, node.addr).await {
                 error!("Could not send a bootstrap message: {}", error);
                 continue;
             }

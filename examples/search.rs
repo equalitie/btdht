@@ -2,7 +2,7 @@ use btdht::{router, DhtEvent, InfoHash, LengthError, MainlineDht};
 use std::{
     collections::HashSet,
     convert::TryFrom,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    net::{Ipv4Addr, SocketAddr},
     str::FromStr,
     time::Instant,
 };
@@ -16,7 +16,7 @@ use tokio::{
 async fn main() {
     pretty_env_logger::init();
 
-    let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0));
+    let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
     let (dht, mut events) = MainlineDht::builder()
@@ -188,7 +188,7 @@ impl From<LengthError> for ParseError {
 
 fn parse_info_hash(s: &str) -> Result<InfoHash, ParseError> {
     if &s[..1] == "#" {
-        Ok(InfoHash::from_bytes(s[1..].trim().as_bytes()))
+        Ok(InfoHash::sha1(s[1..].trim().as_bytes()))
     } else {
         Ok(InfoHash::try_from(hex::decode(s)?.as_ref())?)
     }

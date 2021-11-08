@@ -220,38 +220,10 @@ fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
 
 #[cfg(test)]
 mod tests {
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::time::{Duration, Instant};
 
-    use crate::compact::Compact;
     use crate::routing::node::{Node, NodeStatus};
     use crate::test;
-
-    #[test]
-    fn positive_encode_node() {
-        let node_id = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-        ];
-        let ip_addr = [127, 0, 0, 1];
-        let port = 6881;
-
-        let v4_ip = Ipv4Addr::new(ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
-        let sock_addr = SocketAddr::V4(SocketAddrV4::new(v4_ip, port));
-
-        let node = Node::as_good(node_id.into(), sock_addr);
-
-        let encoded_node = node.handle().encode();
-
-        let port_bytes = [(port >> 8) as u8, port as u8];
-        for (expected, actual) in node_id
-            .iter()
-            .chain(ip_addr.iter())
-            .chain(port_bytes.iter())
-            .zip(encoded_node.iter())
-        {
-            assert_eq!(expected, actual);
-        }
-    }
 
     #[test]
     fn positive_as_bad() {

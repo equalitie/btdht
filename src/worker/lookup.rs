@@ -1,9 +1,9 @@
 use super::{
-    socket,
+    socket::Socket,
     timer::{Timeout, Timer},
     ScheduledTaskCheck,
 };
-use crate::id::{InfoHash, ShaHash, NODE_ID_LEN};
+use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
 };
@@ -12,9 +12,8 @@ use crate::routing::node::{Node, NodeHandle, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
 use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::time::Duration;
-use tokio::net::UdpSocket;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
 const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -29,13 +28,13 @@ const INITIAL_PICK_NUM: usize = 4; // Alpha
 const ITERATIVE_PICK_NUM: usize = 3; // Beta
 const ANNOUNCE_PICK_NUM: usize = 8; // # Announces
 
-type Distance = ShaHash;
-type DistanceToBeat = ShaHash;
+type Distance = Id;
+type DistanceToBeat = Id;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LookupStatus {
     Searching,
-    Values(Vec<SocketAddrV4>),
+    Values(Vec<SocketAddr>),
     Completed,
 }
 
@@ -65,7 +64,7 @@ impl TableLookup {
         id_generator: MIDGenerator,
         will_announce: bool,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> TableLookup {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
@@ -120,17 +119,14 @@ impl TableLookup {
         trans_id: &TransactionID,
         msg: GetPeersResponse,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Process the message transaction id
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
         } else {
-            warn!(
-                "bip_dht: Received expired/unsolicited node response for an active table \
-                   lookup..."
-            );
+            warn!("Received expired/unsolicited node response for an active table lookup");
             return self.current_lookup_status();
         };
 
@@ -142,7 +138,15 @@ impl TableLookup {
         // Add the announce token to our list of tokens
         self.announce_tokens.insert(*node.handle(), msg.token);
 
-        let nodes = msg.nodes;
+        let nodes = match socket.local_addr() {
+            Ok(SocketAddr::V4(_)) => msg.nodes_v4,
+            Ok(SocketAddr::V6(_)) => msg.nodes_v6,
+            Err(error) => {
+                error!("Failed to retreive local socket address: {}", error);
+                vec![]
+            }
+        };
+
         let values = msg.values;
 
         // Check if we beat the distance, get the next distance to beat
@@ -224,7 +228,7 @@ impl TableLookup {
         &mut self,
         trans_id: &TransactionID,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
@@ -249,7 +253,7 @@ impl TableLookup {
         &mut self,
         port: Option<u16>,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
     ) -> LookupStatus {
         // Announce if we were told to
         if self.will_announce {
@@ -277,7 +281,7 @@ impl TableLookup {
                 };
                 let announce_peer_msg = announce_peer_msg.encode();
 
-                match socket::send(socket, &announce_peer_msg, node.addr).await {
+                match socket.send(&announce_peer_msg, node.addr).await {
                     Ok(()) => {
                         // We requested from the node, marke it down if the node is in our routing table
                         if let Some(n) = table.find_node_mut(node) {
@@ -308,7 +312,7 @@ impl TableLookup {
         &mut self,
         nodes: I,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus
     where
@@ -334,11 +338,12 @@ impl TableLookup {
                 body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                     id: table.node_id(),
                     info_hash: self.target_id,
+                    want: None,
                 })),
             }
             .encode();
 
-            if let Err(error) = socket::send(socket, &get_peers_msg, node.addr).await {
+            if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
                 error!("Could not send a lookup message: {}", error);
                 continue;
             }
@@ -365,7 +370,7 @@ impl TableLookup {
     async fn start_endgame_round(
         &mut self,
         table: &mut RoutingTable,
-        socket: &UdpSocket,
+        socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         // Entering the endgame phase
@@ -396,11 +401,12 @@ impl TableLookup {
                     body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
                         id: table.node_id(),
                         info_hash: self.target_id,
+                        want: None,
                     })),
                 }
                 .encode();
 
-                if let Err(error) = socket::send(socket, &get_peers_msg, node.addr).await {
+                if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
                     error!("Could not send an endgame message: {}", error);
                     continue;
                 }

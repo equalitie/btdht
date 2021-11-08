@@ -1,7 +1,7 @@
-pub(crate) use self::handler::DhtHandler;
-use crate::id::InfoHash;
-use crate::transaction::TransactionID;
-use std::{collections::HashSet, net::SocketAddr};
+pub(crate) use self::{handler::DhtHandler, socket::Socket};
+use crate::{id::InfoHash, transaction::TransactionID};
+use std::{collections::HashSet, io, net::SocketAddr};
+use thiserror::Error;
 
 mod bootstrap;
 mod handler;
@@ -43,4 +43,16 @@ pub enum DhtEvent {
     PeerFound(InfoHash, SocketAddr),
     /// Lookup operation for the given InfoHash completed.
     LookupCompleted(InfoHash),
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum WorkerError {
+    #[error("invalid bencode data")]
+    InvalidBencode(#[source] serde_bencode::Error),
+    #[error("invalid transaction id")]
+    InvalidTransactionId,
+    #[error("received unsolicited response")]
+    UnsolicitedResponse,
+    #[error("socket error")]
+    SocketError(#[from] io::Error),
 }

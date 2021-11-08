@@ -8,7 +8,6 @@ extern crate log;
 // - Unrecognized requests which contain either an 'info_hash' or 'target' arguments are interpreted as 'find_node'
 // - Client identification will be present in all outgoing messages in the form of the 'v' key TODO
 // const CLIENT_IDENTIFICATION: &'static [u8] = &[b'B', b'I', b'P', 0, 1];
-// * IPv6 is currently NOT supported in this implementation
 
 // TODO: The Vuze dht operates over a protocol that is different than the mainline dht.
 // It would be possible to create a dht client that can work over both dhts simultaneously,
@@ -32,5 +31,5 @@ mod transaction;
 mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
-pub use crate::id::{InfoHash, LengthError, INFO_HASH_LEN};
+pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
 pub use crate::worker::DhtEvent;

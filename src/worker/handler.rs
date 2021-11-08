@@ -2,26 +2,32 @@ use super::{
     bootstrap::{BootstrapStatus, TableBootstrap},
     lookup::{LookupStatus, TableLookup},
     refresh::TableRefresh,
-    socket,
+    socket::Socket,
     timer::Timer,
-    {DhtEvent, OneshotTask, ScheduledTaskCheck},
+    DhtEvent, OneshotTask, ScheduledTaskCheck, WorkerError,
 };
-use crate::message::{
-    error_code, AckResponse, Error, FindNodeResponse, GetPeersResponse, Message, MessageBody,
-    Request, Response,
+use crate::{
+    id::InfoHash,
+    message::{
+        error_code, Error, GetPeersResponse, Message, MessageBody, OtherResponse, Request,
+        Response, Want,
+    },
+    routing::{
+        node::{Node, NodeHandle, NodeStatus},
+        table::RoutingTable,
+    },
+    storage::AnnounceStorage,
+    token::{Token, TokenStore},
+    transaction::{AIDGenerator, ActionID, TransactionID},
 };
-use crate::routing::node::Node;
-use crate::routing::node::NodeStatus;
-use crate::routing::table::RoutingTable;
-use crate::storage::AnnounceStorage;
-use crate::token::{Token, TokenStore};
-use crate::transaction::{AIDGenerator, ActionID, TransactionID};
-use crate::{id::InfoHash, routing::node::NodeHandle};
 use futures_util::StreamExt;
-use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::net::SocketAddr;
-use tokio::{net::UdpSocket, select, sync::mpsc};
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
+use tokio::{select, sync::mpsc};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
@@ -54,7 +60,7 @@ pub(crate) struct DhtHandler {
     timer: Timer<ScheduledTaskCheck>,
     read_only: bool,
     announce_port: Option<u16>,
-    socket: UdpSocket,
+    socket: Socket,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
     bootstrapping: bool,
@@ -70,7 +76,7 @@ pub(crate) struct DhtHandler {
 impl DhtHandler {
     pub fn new(
         table: RoutingTable,
-        socket: UdpSocket,
+        socket: Socket,
         read_only: bool,
         announce_port: Option<u16>,
         command_rx: mpsc::UnboundedReceiver<OneshotTask>,
@@ -126,10 +132,12 @@ impl DhtHandler {
                     self.shutdown()
                 }
             }
-            message = socket::recv(&self.socket) => {
+            message = self.socket.recv() => {
                 match message {
-                    Ok((buffer, addr)) => self.handle_incoming(&buffer, addr).await,
-                    Err(error) => warn!("Failed to receive incoming message: {}", error),
+                    Ok((buffer, addr)) => if let Err(error) = self.handle_incoming(&buffer, addr).await {
+                        error!("Failed to handle incoming message: {}", error);
+                    }
+                    Err(error) => error!("Failed to receive incoming message: {}", error),
                 }
             }
         }
@@ -163,52 +171,25 @@ impl DhtHandler {
         }
     }
 
-    async fn handle_incoming(&mut self, buffer: &[u8], addr: SocketAddr) {
-        let message = match Message::decode(buffer) {
-            Ok(message) => message,
-            Err(error) => {
-                warn!("bip_dht: Received invalid bencode data: {}", error);
-                return;
-            }
-        };
-
-        // Validate response
-        if let MessageBody::Response(response) = &message.body {
-            // Check if we can interpret the response transaction id as one of ours.
-            let trans_id =
-                if let Some(trans_id) = TransactionID::from_bytes(&message.transaction_id) {
-                    trans_id
-                } else {
-                    warn!("bip_dht: Received response with invalid transaction id");
-                    return;
-                };
-
-            // Match the response action id with our current actions
-            match (self.table_actions.get(&trans_id.action_id()), response) {
-                (Some(TableAction::Lookup(_)), Response::GetPeers(_))
-                | (Some(TableAction::Refresh(_)), Response::FindNode(_))
-                | (Some(TableAction::Bootstrap(..)), Response::FindNode(_)) => (),
-                _ => {
-                    warn!("bip_dht: Received unsolicited response");
-                    return;
-                }
-            }
-        }
+    async fn handle_incoming(
+        &mut self,
+        buffer: &[u8],
+        addr: SocketAddr,
+    ) -> Result<(), WorkerError> {
+        let message = Message::decode(buffer).map_err(WorkerError::InvalidBencode)?;
 
         // Do not process requests if we are read only
         // TODO: Add read only flags to messages we send it we are read only!
         // Also, check for read only flags on responses we get before adding nodes
         // to our RoutingTable.
-        if self.read_only {
-            if let MessageBody::Request(_) = message.body {
-                return;
-            }
+        if self.read_only && matches!(message.body, MessageBody::Request(_)) {
+            return Ok(());
         }
 
         // Process the given message
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
-                info!("bip_dht: Received a PingRequest...");
+                info!("Received a PingRequest");
                 let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -216,21 +197,21 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                let ping_rsp = AckResponse {
+                let ping_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
+                    nodes_v4: vec![],
+                    nodes_v6: vec![],
                 };
                 let ping_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::Ack(ping_rsp)),
+                    body: MessageBody::Response(Response::Other(ping_rsp)),
                 };
                 let ping_msg = ping_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &ping_msg, addr).await {
-                    error!("Failed to send a ping response: {}", error);
-                }
+                self.socket.send(&ping_msg, addr).await?
             }
             MessageBody::Request(Request::FindNode(f)) => {
-                info!("bip_dht: Received a FindNodeRequest...");
+                info!("Received a FindNodeRequest");
                 let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -238,30 +219,23 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                // Grab the closest nodes
-                let closest_nodes = self
-                    .routing_table
-                    .closest_nodes(f.target)
-                    .take(8)
-                    .map(|node| *node.handle())
-                    .collect();
+                let (nodes_v4, nodes_v6) = self.find_closest_nodes(f.target, f.want)?;
 
-                let find_node_rsp = FindNodeResponse {
+                let find_node_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
-                    nodes: closest_nodes,
+                    nodes_v4,
+                    nodes_v6,
                 };
                 let find_node_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::FindNode(find_node_rsp)),
+                    body: MessageBody::Response(Response::Other(find_node_rsp)),
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &find_node_msg, addr).await {
-                    error!("Failed to send a find node response: {}", error);
-                }
+                self.socket.send(&find_node_msg, addr).await?
             }
             MessageBody::Request(Request::GetPeers(g)) => {
-                info!("bip_dht: Received a GetPeersRequest...");
+                info!("Received a GetPeersRequest");
                 let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -271,31 +245,31 @@ impl DhtHandler {
 
                 // TODO: Check what the maximum number of values we can give without overflowing a udp packet
                 // Also, if we arent going to give all of the contacts, we may want to shuffle which ones we give
-                let mut values = Vec::new();
-                self.active_stores
-                    .find_items(&g.info_hash, |addr| match addr {
-                        SocketAddr::V4(v4_addr) => {
-                            values.push(v4_addr);
+                let values: Vec<_> = self
+                    .active_stores
+                    .find_items(&g.info_hash)
+                    .filter(|value_addr| {
+                        // According to the spec (BEP32), `values` should contain only addresses of the
+                        // same family as the address the request came from. The `want` field affects only
+                        // the `nodes` and `nodes6` fields, not the `values` field.
+                        match (addr, value_addr) {
+                            (SocketAddr::V4(_), SocketAddr::V4(_)) => true,
+                            (SocketAddr::V6(_), SocketAddr::V6(_)) => true,
+                            (SocketAddr::V4(_), SocketAddr::V6(_)) => false,
+                            (SocketAddr::V6(_), SocketAddr::V4(_)) => false,
                         }
-                        SocketAddr::V6(_) => {
-                            error!("AnnounceStorage contained an IPv6 Address...");
-                        }
-                    });
-
-                // Grab the closest nodes
-                let nodes = self
-                    .routing_table
-                    .closest_nodes(g.info_hash)
-                    .take(8)
-                    .map(|node| *node.handle())
+                    })
                     .collect();
 
+                // Grab the closest nodes
+                let (nodes_v4, nodes_v6) = self.find_closest_nodes(g.info_hash, g.want)?;
                 let token = self.token_store.checkout(addr.ip());
 
                 let get_peers_rsp = GetPeersResponse {
                     id: self.routing_table.node_id(),
                     values,
-                    nodes,
+                    nodes_v4,
+                    nodes_v6,
                     token: token.as_ref().to_vec(),
                 };
                 let get_peers_msg = Message {
@@ -304,12 +278,10 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if let Err(error) = socket::send(&self.socket, &get_peers_msg, addr).await {
-                    error!("Failed to send a get peers response: {}", error);
-                }
+                self.socket.send(&get_peers_msg, addr).await?
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
-                info!("bip_dht: Received an AnnouncePeerRequest...");
+                info!("Received an AnnouncePeerRequest");
                 let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -336,9 +308,7 @@ impl DhtHandler {
                 // Resolve type of response we are going to send
                 let response_msg = if !is_valid {
                     // Node gave us an invalid token
-                    warn!(
-                        "bip_dht: Remote node sent us an invalid token for an AnnounceRequest..."
-                    );
+                    warn!("Remote node sent us an invalid token for an AnnounceRequest");
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Error(Error {
@@ -351,15 +321,17 @@ impl DhtHandler {
                     // Node successfully stored the value with us, send an announce response
                     Message {
                         transaction_id: message.transaction_id,
-                        body: MessageBody::Response(Response::Ack(AckResponse {
+                        body: MessageBody::Response(Response::Other(OtherResponse {
                             id: self.routing_table.node_id(),
+                            nodes_v4: vec![],
+                            nodes_v6: vec![],
                         })),
                     }
                     .encode()
                 } else {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
-                    warn!("bip_dht: AnnounceStorage failed to store contact information because it is full...");
+                    warn!("AnnounceStorage failed to store contact information because it is full");
 
                     Message {
                         transaction_id: message.transaction_id,
@@ -371,20 +343,21 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if let Err(error) = socket::send(&self.socket, &response_msg, addr).await {
-                    error!(
-                        "bip_dht: Failed to send an announce peer response: {}",
-                        error
-                    );
-                }
+                self.socket.send(&response_msg, addr).await?
             }
-            MessageBody::Response(Response::FindNode(f)) => {
-                info!("bip_dht: Received a FindNodeResponse...");
-                let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+            MessageBody::Response(Response::Other(f)) => {
+                info!("Received a OtherResponse");
+                let trans_id = TransactionID::from_bytes(&message.transaction_id)
+                    .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(f.id, addr);
 
+                let nodes = match self.socket.local_addr()? {
+                    SocketAddr::V4(_) => f.nodes_v4,
+                    SocketAddr::V6(_) => f.nodes_v6,
+                };
+
                 // Add the payload nodes as questionable
-                for node in f.nodes {
+                for node in nodes {
                     self.routing_table
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
@@ -401,15 +374,8 @@ impl DhtHandler {
                             }
                             Some((bootstrap, attempts))
                         }
-                        Some(TableAction::Lookup(_)) => {
-                            error!("Resolved a FindNodeResponse ActionID to a TableLookup");
-                            None
-                        }
-                        None => {
-                            error!(
-                                "Resolved a TransactionID to a FindNodeResponse but no action found"
-                            );
-                            None
+                        Some(TableAction::Lookup(_)) | None => {
+                            return Err(WorkerError::UnsolicitedResponse)
                         }
                     };
 
@@ -482,76 +448,52 @@ impl DhtHandler {
                 }
             }
             MessageBody::Response(Response::GetPeers(g)) => {
-                // info!("bip_dht: Received a GetPeersResponse...");
-                let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+                info!("Received a GetPeersResponse");
+
+                let trans_id = TransactionID::from_bytes(&message.transaction_id)
+                    .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(g.id, addr);
 
                 self.routing_table.add_node(node.clone());
 
-                let opt_lookup = {
-                    match self.table_actions.get_mut(&trans_id.action_id()) {
-                        Some(TableAction::Lookup(lookup)) => Some(lookup),
-                        Some(TableAction::Refresh(_)) => {
-                            error!(
-                                "bip_dht: Resolved a GetPeersResponse ActionID to a \
-                                TableRefresh..."
-                            );
-                            None
-                        }
-                        Some(TableAction::Bootstrap(_, _)) => {
-                            error!(
-                                "bip_dht: Resolved a GetPeersResponse ActionID to a \
-                                TableBootstrap..."
-                            );
-                            None
-                        }
-                        None => {
-                            error!(
-                                "bip_dht: Resolved a TransactionID to a GetPeersResponse but no \
-                                action found..."
-                            );
-                            None
-                        }
+                let lookup = match self.table_actions.get_mut(&trans_id.action_id()) {
+                    Some(TableAction::Lookup(lookup)) => lookup,
+                    Some(TableAction::Refresh(_)) | Some(TableAction::Bootstrap(_, _)) | None => {
+                        return Err(WorkerError::UnsolicitedResponse)
                     }
                 };
 
-                if let Some(lookup) = opt_lookup {
-                    match lookup
-                        .recv_response(
-                            node,
-                            &trans_id,
-                            g,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await
-                    {
-                        LookupStatus::Searching => (),
-                        LookupStatus::Completed => self
-                            .event_tx
-                            .send(DhtEvent::LookupCompleted(lookup.info_hash()))
-                            .unwrap_or(()),
-                        LookupStatus::Values(values) => {
-                            for v4_addr in values {
-                                let sock_addr = SocketAddr::V4(v4_addr);
-                                self.event_tx
-                                    .send(DhtEvent::PeerFound(lookup.info_hash(), sock_addr))
-                                    .unwrap_or(());
-                            }
+                match lookup
+                    .recv_response(
+                        node,
+                        &trans_id,
+                        g,
+                        &mut self.routing_table,
+                        &self.socket,
+                        &mut self.timer,
+                    )
+                    .await
+                {
+                    LookupStatus::Searching => (),
+                    LookupStatus::Completed => self
+                        .event_tx
+                        .send(DhtEvent::LookupCompleted(lookup.info_hash()))
+                        .unwrap_or(()),
+                    LookupStatus::Values(values) => {
+                        for addr in values {
+                            self.event_tx
+                                .send(DhtEvent::PeerFound(lookup.info_hash(), addr))
+                                .unwrap_or(());
                         }
                     }
                 }
             }
-            MessageBody::Response(Response::Ack(_)) => {
-                info!("bip_dht: Received a AckResponse...");
-                // TODO: mark the node as good?
-            }
             MessageBody::Error(e) => {
-                info!("bip_dht: Received an ErrorMessage...");
-                warn!("bip_dht: KRPC error message from {:?}: {:?}", addr, e);
+                warn!("Received an ErrorMessage from {}: {:?}", addr, e);
             }
         }
+
+        Ok(())
     }
 
     async fn handle_start_bootstrap(
@@ -584,10 +526,8 @@ impl DhtHandler {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
                     let (bootstrap, attempts) = match self.table_actions.get_mut(&action_id) {
-                        Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
-                            (bootstrap, attempts)
-                        }
-                        _ => panic!("bip_dht: Bug, in DhtHandler..."),
+                        Some(TableAction::Bootstrap(bootstrap, attempts)) => (bootstrap, attempts),
+                        _ => unreachable!(),
                     };
 
                     match attempt_rebootstrap(
@@ -633,22 +573,19 @@ impl DhtHandler {
                 )),
                 Some(TableAction::Lookup(_)) => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but \
-                        TableLookup found..."
+                        "Resolved a TransactionID to a check table bootstrap but TableLookup found"
                     );
                     None
                 }
                 Some(TableAction::Refresh(_)) => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but \
-                        TableRefresh found..."
+                        "Resolved a TransactionID to a check table bootstrap but TableRefresh found"
                     );
                     None
                 }
                 None => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but no \
-                        action found..."
+                        "Resolved a TransactionID to a check table bootstrap but no action found"
                     );
                     None
                 }
@@ -709,8 +646,8 @@ impl DhtHandler {
         self.table_actions.remove(&action_id);
 
         // Start the post bootstrap actions.
-        let mut future_actions = self.future_actions.split_off(0);
-        for table_action in future_actions.drain(..) {
+        let future_actions = mem::take(&mut self.future_actions);
+        for table_action in future_actions {
             match table_action {
                 PostBootstrapAction::Lookup(info_hash, should_announce) => {
                     self.handle_start_lookup(info_hash, should_announce).await;
@@ -718,7 +655,6 @@ impl DhtHandler {
                 PostBootstrapAction::Refresh(refresh, trans_id) => {
                     self.table_actions
                         .insert(trans_id.action_id(), TableAction::Refresh(refresh));
-
                     self.handle_check_table_refresh(trans_id).await;
                 }
             }
@@ -763,24 +699,15 @@ impl DhtHandler {
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableBootstrap \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
                 None
             }
             Some(TableAction::Refresh(_)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableRefresh \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
                 None
             }
             None => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but no action \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
             }
         };
@@ -793,11 +720,9 @@ impl DhtHandler {
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
             Some((LookupStatus::Values(v), info_hash)) => {
-                // Add values to handshaker
-                for v4_addr in v {
-                    let sock_addr = SocketAddr::V4(v4_addr);
+                for addr in v {
                     self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                        .send(DhtEvent::PeerFound(info_hash, addr))
                         .unwrap_or(());
                 }
             }
@@ -813,24 +738,15 @@ impl DhtHandler {
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableBootstrap \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
                 None
             }
             Some(TableAction::Refresh(_)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableRefresh \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
                 None
             }
             None => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but no action \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
             }
         };
@@ -844,10 +760,9 @@ impl DhtHandler {
                 .unwrap_or(()),
             Some((LookupStatus::Values(v), info_hash)) => {
                 // Add values to handshaker
-                for v4_addr in v {
-                    let sock_addr = SocketAddr::V4(v4_addr);
+                for addr in v {
                     self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, sock_addr))
+                        .send(DhtEvent::PeerFound(info_hash, addr))
                         .unwrap_or(());
                 }
             }
@@ -878,6 +793,44 @@ impl DhtHandler {
     fn shutdown(&mut self) {
         self.running = false;
     }
+
+    fn find_closest_nodes(
+        &self,
+        target: InfoHash,
+        want: Option<Want>,
+    ) -> Result<(Vec<NodeHandle>, Vec<NodeHandle>), WorkerError> {
+        let want = match want {
+            Some(want) => want,
+            None => match self.socket.local_addr()? {
+                SocketAddr::V4(_) => Want::V4,
+                SocketAddr::V6(_) => Want::V6,
+            },
+        };
+
+        let nodes_v4 = if matches!(want, Want::V4 | Want::Both) {
+            self.routing_table
+                .closest_nodes(target)
+                .filter(|node| node.addr().is_ipv4())
+                .take(8)
+                .map(|node| *node.handle())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        let nodes_v6 = if matches!(want, Want::V6 | Want::Both) {
+            self.routing_table
+                .closest_nodes(target)
+                .filter(|node| node.addr().is_ipv6())
+                .take(8)
+                .map(|node| *node.handle())
+                .collect()
+        } else {
+            vec![]
+        };
+
+        Ok((nodes_v4, nodes_v6))
+    }
 }
 
 // ----------------------------------------------------------------------------//
@@ -902,7 +855,7 @@ async fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
     routing_table: &RoutingTable,
-    socket: &UdpSocket,
+    socket: &Socket,
     timer: &mut Timer<ScheduledTaskCheck>,
 ) -> Option<bool> {
     loop {
@@ -910,7 +863,7 @@ async fn attempt_rebootstrap(
         *attempts += 1;
 
         warn!(
-            "bip_dht: Bootstrap attempt {} failed, attempting a rebootstrap...",
+            "Bootstrap attempt {} failed, attempting a rebootstrap",
             *attempts
         );
 
