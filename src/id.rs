@@ -16,22 +16,19 @@ pub const SHA_HASH_LEN: usize = 20;
 
 /// SHA-1 hash wrapper type for performing operations on the hash.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ShaHash {
-    #[serde(with = "hash_bytes")]
-    hash: [u8; SHA_HASH_LEN],
-}
+#[repr(transparent)]
+pub struct ShaHash(#[serde(with = "byte_array")] [u8; SHA_HASH_LEN]);
 
 impl ShaHash {
     /// Create a ShaHash by hashing the given bytes.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let hash = Sha1::digest(bytes);
-        Self { hash: hash.into() }
+        Self(hash.into())
     }
 
     /// Panics if index is out of bounds.
     pub fn flip_bit(self, index: usize) -> Self {
-        let mut bytes = self.hash;
+        let mut bytes = self.0;
         let (byte_index, bit_index) = (index / 8, index % 8);
 
         let actual_bit_index = 7 - bit_index;
@@ -44,7 +41,7 @@ impl ShaHash {
     pub fn leading_zeros(&self) -> u32 {
         let mut bits = 0;
 
-        for byte in self.hash {
+        for byte in self.0 {
             bits += byte.leading_zeros();
 
             if byte != 0 {
@@ -58,19 +55,19 @@ impl ShaHash {
 
 impl AsRef<[u8]> for ShaHash {
     fn as_ref(&self) -> &[u8] {
-        &self.hash
+        &self.0
     }
 }
 
 impl From<ShaHash> for [u8; SHA_HASH_LEN] {
     fn from(hash: ShaHash) -> [u8; SHA_HASH_LEN] {
-        hash.hash
+        hash.0
     }
 }
 
 impl From<[u8; SHA_HASH_LEN]> for ShaHash {
     fn from(hash: [u8; SHA_HASH_LEN]) -> ShaHash {
-        ShaHash { hash }
+        Self(hash)
     }
 }
 
@@ -82,17 +79,15 @@ impl<'a> TryFrom<&'a [u8]> for ShaHash {
     type Error = LengthError;
 
     fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self {
-            hash: slice.try_into().map_err(|_| LengthError)?,
-        })
+        Ok(Self(slice.try_into().map_err(|_| LengthError)?))
     }
 }
 
-impl BitXor<ShaHash> for ShaHash {
-    type Output = ShaHash;
+impl BitXor for ShaHash {
+    type Output = Self;
 
-    fn bitxor(mut self, rhs: ShaHash) -> ShaHash {
-        for (src, dst) in rhs.hash.iter().zip(self.hash.iter_mut()) {
+    fn bitxor(mut self, rhs: Self) -> Self {
+        for (src, dst) in rhs.0.iter().zip(self.0.iter_mut()) {
             *dst ^= *src;
         }
 
@@ -102,13 +97,13 @@ impl BitXor<ShaHash> for ShaHash {
 
 impl Distribution<ShaHash> for Standard {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ShaHash {
-        ShaHash { hash: rng.gen() }
+        ShaHash(rng.gen())
     }
 }
 
 impl fmt::LowerHex for ShaHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for b in &self.hash {
+        for b in &self.0 {
             write!(f, "{:02x}", b)?;
         }
 
@@ -122,7 +117,7 @@ impl fmt::Debug for ShaHash {
     }
 }
 
-mod hash_bytes {
+mod byte_array {
     use super::SHA_HASH_LEN;
     use serde::{
         de::{Deserialize, Deserializer, Error},
