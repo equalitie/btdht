@@ -115,8 +115,9 @@ async fn handle_command(
             while let Some(event) = events.recv().await {
                 match event {
                     DhtEvent::PeerFound(event_info_hash, addr) if event_info_hash == info_hash => {
-                        println!("peer found: {}", addr);
-                        peers.insert(addr);
+                        if peers.insert(addr) {
+                            println!("peer found: {}", addr);
+                        }
                     }
                     DhtEvent::LookupCompleted(event_info_hash) if event_info_hash == info_hash => {
                         let elapsed = start.elapsed();

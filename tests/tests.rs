@@ -1,44 +1,64 @@
 use btdht::{DhtEvent, InfoHash, MainlineDht};
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::net::UdpSocket;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn announce_and_lookup_v4() {
-    let a_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let b_socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    announce_and_lookup(a_socket, b_socket).await;
+    announce_and_lookup(AddrFamily::V4).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn announce_and_lookup_v6() {
-    let a_socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
-    let b_socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();
-    announce_and_lookup(a_socket, b_socket).await;
+    announce_and_lookup(AddrFamily::V6).await;
 }
 
-async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
-    let a_addr = a_socket.local_addr().unwrap();
-    let b_addr = b_socket.local_addr().unwrap();
+async fn announce_and_lookup(addr_family: AddrFamily) {
+    // Start the router node for the other nodes to bootstrap against.
+    let bootstrap_node_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
+    let bootstrap_node_addr = bootstrap_node_socket.local_addr().unwrap();
+    let (_node, mut bootstrap_node_events) = MainlineDht::builder()
+        .set_read_only(false)
+        .start(bootstrap_node_socket);
+    let mut bootstrap_node_started = false;
 
-    let (node_a, mut events_a) = MainlineDht::builder()
-        .add_node(b_addr)
+    while let Some(event) = bootstrap_node_events.recv().await {
+        match event {
+            DhtEvent::BootstrapCompleted => {
+                bootstrap_node_started = true;
+                break;
+            }
+            DhtEvent::BootstrapFailed | DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..) => {
+                panic!("unexpected event {:?}", event)
+            }
+        }
+    }
+
+    assert!(bootstrap_node_started);
+
+    // Start node A
+    let a_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
+    let a_addr = a_socket.local_addr().unwrap();
+    let (a_node, mut a_events) = MainlineDht::builder()
+        .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(a_socket);
 
-    let (node_b, mut events_b) = MainlineDht::builder()
-        .add_node(a_addr)
+    // Start node B
+    let b_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
+    let (b_node, mut b_events) = MainlineDht::builder()
+        .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(b_socket);
 
     let the_info_hash = InfoHash::sha1(b"foo");
 
     // Perform a lookup with announce by A. It should not return any peers initially but it should
-    // make B aware that A has the infohash.
-    node_a.search(the_info_hash, true);
+    // make the network aware that A has the infohash.
+    a_node.search(the_info_hash, true);
 
     let mut lookup_completed = false;
 
-    while let Some(event) = events_a.recv().await {
+    while let Some(event) = a_events.recv().await {
         match event {
             DhtEvent::BootstrapCompleted => (),
             DhtEvent::LookupCompleted(info_hash) => {
@@ -46,7 +66,7 @@ async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
                 lookup_completed = true;
                 break;
             }
-            event @ (DhtEvent::BootstrapFailed | DhtEvent::PeerFound(..)) => {
+            DhtEvent::BootstrapFailed | DhtEvent::PeerFound(..) => {
                 panic!("unexpected event {:?}", event)
             }
         }
@@ -55,12 +75,12 @@ async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
     assert!(lookup_completed);
 
     // Now perform the lookup by B. It should find A.
-    node_b.search(the_info_hash, false);
+    b_node.search(the_info_hash, false);
 
     let mut peer_found = false;
     let mut lookup_completed = false;
 
-    while let Some(event) = events_b.recv().await {
+    while let Some(event) = b_events.recv().await {
         match event {
             DhtEvent::BootstrapCompleted => (),
             DhtEvent::LookupCompleted(info_hash) => {
@@ -73,7 +93,7 @@ async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
                 assert_eq!(addr, a_addr);
                 peer_found = true;
             }
-            event @ DhtEvent::BootstrapFailed => {
+            DhtEvent::BootstrapFailed => {
                 panic!("unexpected event {:?}", event)
             }
         }
@@ -81,4 +101,17 @@ async fn announce_and_lookup(a_socket: UdpSocket, b_socket: UdpSocket) {
 
     assert!(peer_found);
     assert!(lookup_completed);
+}
+
+#[derive(Copy, Clone)]
+enum AddrFamily {
+    V4,
+    V6,
+}
+
+fn localhost(family: AddrFamily) -> SocketAddr {
+    match family {
+        AddrFamily::V4 => (Ipv4Addr::LOCALHOST, 0).into(),
+        AddrFamily::V6 => (Ipv6Addr::LOCALHOST, 0).into(),
+    }
 }

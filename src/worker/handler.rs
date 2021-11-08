@@ -32,27 +32,6 @@ use tokio::{select, sync::mpsc};
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
-/// Actions that we can perform on our RoutingTable.
-enum TableAction {
-    /// Lookup action.
-    Lookup(TableLookup),
-    /// Refresh action.
-    Refresh(TableRefresh),
-    /// Bootstrap action.
-    ///
-    /// Includes number of bootstrap attempts.
-    Bootstrap(TableBootstrap, usize),
-}
-
-/// Actions that we want to perform on our RoutingTable after bootstrapping finishes.
-#[allow(clippy::large_enum_variant)]
-enum PostBootstrapAction {
-    /// Future lookup action.
-    Lookup(InfoHash, bool),
-    /// Future refresh action.
-    Refresh(TableRefresh, TransactionID),
-}
-
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
     running: bool,
@@ -63,14 +42,18 @@ pub(crate) struct DhtHandler {
     socket: Socket,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
-    bootstrapping: bool,
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
-    // If future actions is not empty, that means we are still bootstrapping
-    // since we will always spin up a table refresh action after bootstrapping.
-    future_actions: Vec<PostBootstrapAction>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-    table_actions: HashMap<ActionID, TableAction>,
+    // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attempts.
+    bootstrap: Option<(TableBootstrap, usize)>,
+    // TableRefresh action.
+    refresh: TableRefresh,
+    // Ongoing TableLookups.
+    lookups: HashMap<ActionID, TableLookup>,
+    // Lookups initiated while we were still bootstrapping, to be executed when the bootstrap is
+    // complete.
+    future_lookups: Vec<(InfoHash, bool)>,
 }
 
 impl DhtHandler {
@@ -84,14 +67,9 @@ impl DhtHandler {
     ) -> Self {
         let mut aid_generator = AIDGenerator::new();
 
-        // Insert the refresh task to execute after the bootstrap
-        let mut mid_generator = aid_generator.generate();
-        let refresh_trans_id = mid_generator.generate();
+        // The refresh task to execute after the bootstrap
+        let mid_generator = aid_generator.generate();
         let table_refresh = TableRefresh::new(mid_generator);
-        let future_actions = vec![PostBootstrapAction::Refresh(
-            table_refresh,
-            refresh_trans_id,
-        )];
 
         Self {
             running: true,
@@ -102,12 +80,13 @@ impl DhtHandler {
             socket,
             token_store: TokenStore::new(),
             aid_generator,
-            bootstrapping: false,
             routing_table: table,
             active_stores: AnnounceStorage::new(),
-            future_actions,
             event_tx,
-            table_actions: HashMap::new(),
+            bootstrap: None,
+            refresh: table_refresh,
+            lookups: HashMap::new(),
+            future_lookups: vec![],
         }
     }
 
@@ -156,8 +135,8 @@ impl DhtHandler {
 
     async fn handle_timeout(&mut self, token: ScheduledTaskCheck) {
         match token {
-            ScheduledTaskCheck::TableRefresh(trans_id) => {
-                self.handle_check_table_refresh(trans_id).await;
+            ScheduledTaskCheck::TableRefresh => {
+                self.handle_check_table_refresh().await;
             }
             ScheduledTaskCheck::BootstrapTimeout(trans_id) => {
                 self.handle_check_bootstrap_timeout(trans_id).await;
@@ -362,71 +341,57 @@ impl DhtHandler {
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
 
-                let bootstrap_complete = {
-                    let opt_bootstrap = match self.table_actions.get_mut(&trans_id.action_id()) {
-                        Some(TableAction::Refresh(_)) => {
-                            self.routing_table.add_node(node);
-                            None
-                        }
-                        Some(TableAction::Bootstrap(bootstrap, attempts)) => {
-                            if !bootstrap.is_router(&node.addr()) {
-                                self.routing_table.add_node(node);
+                if let Some((bootstrap, attempts)) = self
+                    .bootstrap
+                    .as_mut()
+                    .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
+                {
+                    if !bootstrap.is_router(&node.addr()) {
+                        self.routing_table.add_node(node);
+                    }
+
+                    let bootstrap_complete = match bootstrap
+                        .recv_response(
+                            addr,
+                            &trans_id,
+                            &mut self.routing_table,
+                            &self.socket,
+                            &mut self.timer,
+                        )
+                        .await
+                    {
+                        BootstrapStatus::Ongoing => false,
+                        BootstrapStatus::Completed => {
+                            if should_rebootstrap(&self.routing_table) {
+                                match attempt_rebootstrap(
+                                    bootstrap,
+                                    attempts,
+                                    &self.routing_table,
+                                    &self.socket,
+                                    &mut self.timer,
+                                )
+                                .await
+                                {
+                                    Some(bootstrap_started) => !bootstrap_started,
+                                    None => {
+                                        self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
+                                        self.shutdown();
+                                        false
+                                    }
+                                }
+                            } else {
+                                true
                             }
-                            Some((bootstrap, attempts))
-                        }
-                        Some(TableAction::Lookup(_)) | None => {
-                            return Err(WorkerError::UnsolicitedResponse)
                         }
                     };
 
-                    if let Some((bootstrap, attempts)) = opt_bootstrap {
-                        match bootstrap
-                            .recv_response(
-                                addr,
-                                &trans_id,
-                                &mut self.routing_table,
-                                &self.socket,
-                                &mut self.timer,
-                            )
-                            .await
-                        {
-                            BootstrapStatus::Idle => true,
-                            BootstrapStatus::Bootstrapping => false,
-                            BootstrapStatus::Failed => {
-                                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                                self.shutdown();
-                                false
-                            }
-                            BootstrapStatus::Completed => {
-                                if should_rebootstrap(&self.routing_table) {
-                                    match attempt_rebootstrap(
-                                        bootstrap,
-                                        attempts,
-                                        &self.routing_table,
-                                        &self.socket,
-                                        &mut self.timer,
-                                    )
-                                    .await
-                                    {
-                                        Some(bootstrap_started) => !bootstrap_started,
-                                        None => {
-                                            self.shutdown();
-                                            false
-                                        }
-                                    }
-                                } else {
-                                    true
-                                }
-                            }
-                        }
-                    } else {
-                        false
+                    if bootstrap_complete {
+                        self.broadcast_bootstrap_completed().await;
                     }
-                };
-
-                if bootstrap_complete {
-                    self.broadcast_bootstrap_completed(trans_id.action_id())
-                        .await;
+                } else if self.refresh.action_id() == trans_id.action_id() {
+                    self.routing_table.add_node(node);
+                } else {
+                    return Err(WorkerError::UnsolicitedResponse);
                 }
 
                 if log_enabled!(log::Level::Info) {
@@ -456,12 +421,10 @@ impl DhtHandler {
 
                 self.routing_table.add_node(node.clone());
 
-                let lookup = match self.table_actions.get_mut(&trans_id.action_id()) {
-                    Some(TableAction::Lookup(lookup)) => lookup,
-                    Some(TableAction::Refresh(_)) | Some(TableAction::Bootstrap(_, _)) | None => {
-                        return Err(WorkerError::UnsolicitedResponse)
-                    }
-                };
+                let lookup = self
+                    .lookups
+                    .get_mut(&trans_id.action_id())
+                    .ok_or(WorkerError::UnsolicitedResponse)?;
 
                 match lookup
                     .recv_response(
@@ -474,7 +437,7 @@ impl DhtHandler {
                     )
                     .await
                 {
-                    LookupStatus::Searching => (),
+                    LookupStatus::Ongoing => (),
                     LookupStatus::Completed => self
                         .event_tx
                         .send(DhtEvent::LookupCompleted(lookup.info_hash()))
@@ -501,8 +464,14 @@ impl DhtHandler {
         routers: HashSet<SocketAddr>,
         nodes: HashSet<SocketAddr>,
     ) {
+        // If we have no bootstrap contacts it means we are the first node in the network and
+        // other would bootstrap against us. We consider this node as already bootstrapped.
+        if routers.is_empty() && nodes.is_empty() {
+            self.broadcast_bootstrap_completed().await;
+            return;
+        }
+
         let mid_generator = self.aid_generator.generate();
-        let action_id = mid_generator.action_id();
         let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes, routers);
 
         // Begin the bootstrap operation
@@ -510,28 +479,15 @@ impl DhtHandler {
             .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer)
             .await;
 
-        self.bootstrapping = true;
-        self.table_actions
-            .insert(action_id, TableAction::Bootstrap(table_bootstrap, 0));
+        let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Idle => true,
-            BootstrapStatus::Bootstrapping => false,
-            BootstrapStatus::Failed => {
-                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                self.shutdown();
-                false
-            }
+            BootstrapStatus::Ongoing => false,
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
-                    let (bootstrap, attempts) = match self.table_actions.get_mut(&action_id) {
-                        Some(TableAction::Bootstrap(bootstrap, attempts)) => (bootstrap, attempts),
-                        _ => unreachable!(),
-                    };
-
                     match attempt_rebootstrap(
-                        bootstrap,
+                        table_bootstrap,
                         attempts,
                         &self.routing_table,
                         &self.socket,
@@ -541,6 +497,7 @@ impl DhtHandler {
                     {
                         Some(bootstrap_started) => !bootstrap_started,
                         None => {
+                            self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
                             self.shutdown();
                             false
                         }
@@ -552,112 +509,80 @@ impl DhtHandler {
         };
 
         if bootstrap_complete {
-            self.broadcast_bootstrap_completed(action_id).await;
+            self.broadcast_bootstrap_completed().await;
         }
     }
 
     async fn handle_check_bootstrap_timeout(&mut self, trans_id: TransactionID) {
-        let bootstrap_complete = {
-            let opt_bootstrap_info = match self.table_actions.get_mut(&trans_id.action_id()) {
-                Some(TableAction::Bootstrap(bootstrap, attempts)) => Some((
-                    bootstrap
-                        .recv_timeout(
-                            &trans_id,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await,
-                    bootstrap,
-                    attempts,
-                )),
-                Some(TableAction::Lookup(_)) => {
-                    error!(
-                        "Resolved a TransactionID to a check table bootstrap but TableLookup found"
-                    );
-                    None
-                }
-                Some(TableAction::Refresh(_)) => {
-                    error!(
-                        "Resolved a TransactionID to a check table bootstrap but TableRefresh found"
-                    );
-                    None
-                }
-                None => {
-                    error!(
-                        "Resolved a TransactionID to a check table bootstrap but no action found"
-                    );
-                    None
-                }
-            };
+        let (bootstrap, attempts) = if let Some(bootstrap) = self
+            .bootstrap
+            .as_mut()
+            .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
+        {
+            bootstrap
+        } else {
+            error!("Bootstrap timeout expired but no bootstrap is in progress");
+            return;
+        };
 
-            match opt_bootstrap_info {
-                None => false,
-                Some((BootstrapStatus::Idle, _, _)) => true,
-                Some((BootstrapStatus::Bootstrapping, _, _)) => false,
-                Some((BootstrapStatus::Failed, _, _)) => {
-                    self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                    self.shutdown();
-                    false
-                }
-                Some((BootstrapStatus::Completed, bootstrap, attempts)) => {
-                    // Check if our bootstrap was actually good
-                    if should_rebootstrap(&self.routing_table) {
-                        match attempt_rebootstrap(
-                            bootstrap,
-                            attempts,
-                            &self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await
-                        {
-                            Some(bootstrap_started) => !bootstrap_started,
-                            None => {
-                                self.shutdown();
-                                false
-                            }
+        let bootstrap_status = bootstrap
+            .recv_timeout(
+                &trans_id,
+                &mut self.routing_table,
+                &self.socket,
+                &mut self.timer,
+            )
+            .await;
+
+        let bootstrap_complete = match bootstrap_status {
+            BootstrapStatus::Ongoing => false,
+            BootstrapStatus::Completed => {
+                // Check if our bootstrap was actually good
+                if should_rebootstrap(&self.routing_table) {
+                    match attempt_rebootstrap(
+                        bootstrap,
+                        attempts,
+                        &self.routing_table,
+                        &self.socket,
+                        &mut self.timer,
+                    )
+                    .await
+                    {
+                        Some(bootstrap_started) => !bootstrap_started,
+                        None => {
+                            self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
+                            self.shutdown();
+                            false
                         }
-                    } else {
-                        true
                     }
+                } else {
+                    true
                 }
             }
         };
 
         if bootstrap_complete {
-            self.broadcast_bootstrap_completed(trans_id.action_id())
-                .await;
+            self.broadcast_bootstrap_completed().await;
         }
     }
 
     /// Broadcast that the bootstrap has completed.
     /// IMPORTANT: Should call this instead of just sending the event!
-    async fn broadcast_bootstrap_completed(&mut self, action_id: ActionID) {
+    async fn broadcast_bootstrap_completed(&mut self) {
         // Send notification that the bootstrap has completed.
         self.event_tx
             .send(DhtEvent::BootstrapCompleted)
             .unwrap_or(());
 
         // Indicates we are out of the bootstrapping phase
-        self.bootstrapping = false;
+        self.bootstrap = None;
 
-        // Remove the bootstrap action from our table actions
-        self.table_actions.remove(&action_id);
+        // Start the refresh action.
+        self.handle_check_table_refresh().await;
 
         // Start the post bootstrap actions.
-        let future_actions = mem::take(&mut self.future_actions);
-        for table_action in future_actions {
-            match table_action {
-                PostBootstrapAction::Lookup(info_hash, should_announce) => {
-                    self.handle_start_lookup(info_hash, should_announce).await;
-                }
-                PostBootstrapAction::Refresh(refresh, trans_id) => {
-                    self.table_actions
-                        .insert(trans_id.action_id(), TableAction::Refresh(refresh));
-                    self.handle_check_table_refresh(trans_id).await;
-                }
-            }
+        for (info_hash, should_announce) in mem::take(&mut self.future_lookups) {
+            self.handle_start_lookup(info_hash, should_announce).await;
         }
     }
 
@@ -665,10 +590,9 @@ impl DhtHandler {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
 
-        if self.bootstrapping {
+        if self.bootstrap.is_some() {
             // Queue it up if we are currently bootstrapping
-            self.future_actions
-                .push(PostBootstrapAction::Lookup(info_hash, should_announce));
+            self.future_lookups.push((info_hash, should_announce));
         } else {
             // Start the lookup right now if not bootstrapping
             let lookup = TableLookup::new(
@@ -680,46 +604,35 @@ impl DhtHandler {
                 &mut self.timer,
             )
             .await;
-            self.table_actions
-                .insert(action_id, TableAction::Lookup(lookup));
+            self.lookups.insert(action_id, lookup);
         }
     }
 
     async fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {
-        let opt_lookup_info = match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(TableAction::Lookup(lookup)) => Some((
-                lookup
-                    .recv_timeout(
-                        &trans_id,
-                        &mut self.routing_table,
-                        &self.socket,
-                        &mut self.timer,
-                    )
-                    .await,
-                lookup.info_hash(),
-            )),
-            Some(TableAction::Bootstrap(_, _)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
-                None
-            }
-            Some(TableAction::Refresh(_)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
-                None
-            }
-            None => {
-                error!("Resolved a TransactionID to a check table lookup but no action found");
-                None
-            }
+        let lookup = if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
+            lookup
+        } else {
+            error!("Resolved a TransactionID to a check table lookup but no action found");
+            return;
         };
 
-        match opt_lookup_info {
-            None => (),
-            Some((LookupStatus::Searching, _)) => (),
-            Some((LookupStatus::Completed, info_hash)) => self
+        let lookup_status = lookup
+            .recv_timeout(
+                &trans_id,
+                &mut self.routing_table,
+                &self.socket,
+                &mut self.timer,
+            )
+            .await;
+        let info_hash = lookup.info_hash();
+
+        match lookup_status {
+            LookupStatus::Ongoing => (),
+            LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Values(v), info_hash)) => {
+            LookupStatus::Values(v) => {
                 for addr in v {
                     self.event_tx
                         .send(DhtEvent::PeerFound(info_hash, addr))
@@ -730,35 +643,25 @@ impl DhtHandler {
     }
 
     async fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
-        let opt_lookup_info = match self.table_actions.remove(&trans_id.action_id()) {
-            Some(TableAction::Lookup(mut lookup)) => Some((
-                lookup
-                    .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
-                    .await,
-                lookup.info_hash(),
-            )),
-            Some(TableAction::Bootstrap(_, _)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
-                None
-            }
-            Some(TableAction::Refresh(_)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
-                None
-            }
-            None => {
-                error!("Resolved a TransactionID to a check table lookup but no action found");
-                None
-            }
+        let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
+            lookup
+        } else {
+            error!("Resolved a TransactionID to a check table lookup but no action found");
+            return;
         };
 
-        match opt_lookup_info {
-            None => (),
-            Some((LookupStatus::Searching, _)) => (),
-            Some((LookupStatus::Completed, info_hash)) => self
+        let lookup_status = lookup
+            .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+            .await;
+        let info_hash = lookup.info_hash();
+
+        match lookup_status {
+            LookupStatus::Ongoing => (),
+            LookupStatus::Completed => self
                 .event_tx
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
-            Some((LookupStatus::Values(v), info_hash)) => {
+            LookupStatus::Values(v) => {
                 // Add values to handshaker
                 for addr in v {
                     self.event_tx
@@ -769,25 +672,10 @@ impl DhtHandler {
         }
     }
 
-    async fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
-        match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(TableAction::Refresh(refresh)) => {
-                refresh
-                    .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
-                    .await
-            }
-            Some(TableAction::Lookup(_)) => {
-                error!("Resolved a TransactionID to a check table refresh but TableLookup found");
-            }
-            Some(TableAction::Bootstrap(_, _)) => {
-                error!(
-                    "Resolved a TransactionID to a check table refresh but TableBootstrap found"
-                );
-            }
-            None => {
-                error!("Resolved a TransactionID to a check table refresh but no action found");
-            }
-        };
+    async fn handle_check_table_refresh(&mut self) {
+        self.refresh
+            .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
+            .await
     }
 
     fn shutdown(&mut self) {
@@ -835,17 +723,9 @@ impl DhtHandler {
 
 // ----------------------------------------------------------------------------//
 
-/// Number of good nodes in the RoutingTable.
-fn num_good_nodes(table: &RoutingTable) -> usize {
-    table
-        .closest_nodes(table.node_id())
-        .filter(|n| n.status() == NodeStatus::Good)
-        .count()
-}
-
 /// We should rebootstrap if we have a low number of nodes.
 fn should_rebootstrap(table: &RoutingTable) -> bool {
-    num_good_nodes(table) <= BOOTSTRAP_GOOD_NODE_THRESHOLD
+    table.num_good_nodes() <= BOOTSTRAP_GOOD_NODE_THRESHOLD
 }
 
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
@@ -869,7 +749,7 @@ async fn attempt_rebootstrap(
 
         // Check if we reached the maximum bootstrap attempts
         if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
-            if num_good_nodes(routing_table) == 0 {
+            if routing_table.num_good_nodes() == 0 {
                 // Failed to get any nodes in the rebootstrap attempts, shut down
                 return None;
             } else {
@@ -881,11 +761,7 @@ async fn attempt_rebootstrap(
                 .await;
 
             match bootstrap_status {
-                BootstrapStatus::Idle => return Some(false),
-                BootstrapStatus::Bootstrapping => return Some(true),
-                BootstrapStatus::Failed => {
-                    return None;
-                }
+                BootstrapStatus::Ongoing => return Some(true),
                 BootstrapStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
                         return Some(false);

@@ -7,7 +7,7 @@ use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
-use crate::transaction::{MIDGenerator, TransactionID};
+use crate::transaction::{ActionID, MIDGenerator, TransactionID};
 use crate::{id::NodeId, routing::node::NodeHandle};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -20,14 +20,10 @@ const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum BootstrapStatus {
-    /// Bootstrap has been finished.
-    Idle,
     /// Bootstrap is in progress.
-    Bootstrapping,
+    Ongoing,
     /// Bootstrap just finished.
     Completed,
-    /// Bootstrap failed in a fatal way.
-    Failed,
 }
 
 pub(crate) struct TableBootstrap {
@@ -113,10 +109,14 @@ impl TableBootstrap {
         }
 
         if self.initial_responses_expected > 0 {
-            self.current_bootstrap_status()
+            BootstrapStatus::Ongoing
         } else {
-            BootstrapStatus::Failed
+            BootstrapStatus::Completed
         }
+    }
+
+    pub fn action_id(&self) -> ActionID {
+        self.id_generator.action_id()
     }
 
     pub fn is_router(&self, addr: &SocketAddr) -> bool {
@@ -136,7 +136,7 @@ impl TableBootstrap {
             *t
         } else {
             warn!("Received expired/unsolicited node response for an active table bootstrap");
-            return self.current_bootstrap_status();
+            return BootstrapStatus::Ongoing;
         };
 
         // In the initial round all the messages have the same transaction id so clear it only after
@@ -156,10 +156,10 @@ impl TableBootstrap {
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, socket, timer).await;
+            self.bootstrap_next_bucket(table, socket, timer).await
+        } else {
+            BootstrapStatus::Ongoing
         }
-
-        self.current_bootstrap_status()
     }
 
     pub async fn recv_timeout(
@@ -171,18 +171,17 @@ impl TableBootstrap {
     ) -> BootstrapStatus {
         if self.active_messages.remove(trans_id).is_none() {
             warn!("Received expired/unsolicited node timeout for an active table bootstrap");
-            return self.current_bootstrap_status();
+            return BootstrapStatus::Ongoing;
         }
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
-            return self.bootstrap_next_bucket(table, socket, timer).await;
+            self.bootstrap_next_bucket(table, socket, timer).await
+        } else {
+            BootstrapStatus::Ongoing
         }
-
-        self.current_bootstrap_status()
     }
 
-    // Returns true if there are more buckets to bootstrap, false otherwise
     async fn bootstrap_next_bucket(
         &mut self,
         table: &mut RoutingTable,
@@ -190,6 +189,10 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> BootstrapStatus {
         loop {
+            if self.curr_bootstrap_bucket >= table::MAX_BUCKETS {
+                return BootstrapStatus::Completed;
+            }
+
             let target_id = table.node_id().flip_bit(self.curr_bootstrap_bucket);
 
             // Get the optimal iterator to bootstrap the current bucket
@@ -235,20 +238,21 @@ impl TableBootstrap {
                         .collect()
                 };
 
-            let status = self
-                .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
-                .await;
+            self.curr_bootstrap_bucket += 1;
 
-            // If `Failed`, proceed to the next bucket.
-            if status != BootstrapStatus::Failed {
-                return status;
+            // If we failed to send any message, try again on the next bucket.
+            if self
+                .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
+                .await
+            {
+                return BootstrapStatus::Ongoing;
             }
         }
     }
 
-    // If this returns `Failed` status it means the request wasn't sent to any node (either because
-    // there were no nodes or because all the sends failed). We should proceed to the next bucket
-    // in that case.
+    // If this returns `false` it means the request wasn't sent to any node (either because there
+    // were no nodes or because all the sends failed). We should proceed to the next bucket in that
+    // case.
     async fn send_bootstrap_requests(
         &mut self,
         nodes: &[NodeHandle],
@@ -256,12 +260,7 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus {
-        info!(
-            "bip_dht: bootstrap::send_bootstrap_requests {}",
-            self.curr_bootstrap_bucket
-        );
-
+    ) -> bool {
         let mut messages_sent = 0;
 
         for node in nodes {
@@ -300,21 +299,6 @@ impl TableBootstrap {
             messages_sent += 1;
         }
 
-        self.curr_bootstrap_bucket += 1;
-        if self.curr_bootstrap_bucket == table::MAX_BUCKETS {
-            BootstrapStatus::Completed
-        } else if messages_sent > 0 {
-            BootstrapStatus::Bootstrapping
-        } else {
-            BootstrapStatus::Failed
-        }
-    }
-
-    fn current_bootstrap_status(&self) -> BootstrapStatus {
-        if self.curr_bootstrap_bucket == table::MAX_BUCKETS || self.active_messages.is_empty() {
-            BootstrapStatus::Idle
-        } else {
-            BootstrapStatus::Bootstrapping
-        }
+        messages_sent > 0
     }
 }

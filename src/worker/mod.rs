@@ -23,7 +23,7 @@ pub(crate) enum OneshotTask {
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum ScheduledTaskCheck {
     /// Check the progress of the bucket refresh.
-    TableRefresh(TransactionID),
+    TableRefresh,
     /// Check the progress of the current bootstrap.
     BootstrapTimeout(TransactionID),
     /// Check the progress of a current lookup.

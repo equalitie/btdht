@@ -2,7 +2,7 @@ use super::{socket::Socket, timer::Timer, ScheduledTaskCheck};
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
-use crate::transaction::MIDGenerator;
+use crate::transaction::{ActionID, MIDGenerator};
 use std::time::Duration;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
@@ -18,6 +18,10 @@ impl TableRefresh {
             id_generator,
             curr_refresh_bucket: 0,
         }
+    }
+
+    pub fn action_id(&self) -> ActionID {
+        self.id_generator.action_id()
     }
 
     pub async fn continue_refresh(
@@ -67,14 +71,8 @@ impl TableRefresh {
             }
         }
 
-        // Generate a dummy transaction id (only the action id will be used)
-        let trans_id = self.id_generator.generate();
-
         // Start a timer for the next refresh
-        timer.schedule_in(
-            REFRESH_INTERVAL_TIMEOUT,
-            ScheduledTaskCheck::TableRefresh(trans_id),
-        );
+        timer.schedule_in(REFRESH_INTERVAL_TIMEOUT, ScheduledTaskCheck::TableRefresh);
 
         self.curr_refresh_bucket += 1;
     }

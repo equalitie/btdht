@@ -33,7 +33,7 @@ type DistanceToBeat = Id;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LookupStatus {
-    Searching,
+    Ongoing,
     Values(Vec<SocketAddr>),
     Completed,
 }
@@ -302,7 +302,7 @@ impl TableLookup {
 
     fn current_lookup_status(&self) -> LookupStatus {
         if self.in_endgame || !self.active_lookups.is_empty() {
-            LookupStatus::Searching
+            LookupStatus::Ongoing
         } else {
             LookupStatus::Completed
         }
@@ -363,7 +363,7 @@ impl TableLookup {
             self.active_lookups.clear();
             LookupStatus::Completed
         } else {
-            LookupStatus::Searching
+            LookupStatus::Ongoing
         }
     }
 
@@ -421,7 +421,7 @@ impl TableLookup {
             }
         }
 
-        LookupStatus::Searching
+        LookupStatus::Ongoing
     }
 }
 
