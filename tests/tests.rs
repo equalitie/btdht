@@ -2,15 +2,11 @@ use btdht::{DhtEvent, InfoHash, MainlineDht};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::net::UdpSocket;
 
-// FIXME: fix first node bootstrap
-#[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn announce_and_lookup_v4() {
     announce_and_lookup(AddrFamily::V4).await;
 }
 
-// FIXME: fix first node bootstrap
-#[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn announce_and_lookup_v6() {
     announce_and_lookup(AddrFamily::V6).await;
@@ -18,17 +14,18 @@ async fn announce_and_lookup_v6() {
 
 async fn announce_and_lookup(addr_family: AddrFamily) {
     // Start the router node for the other nodes to bootstrap against.
-    let router_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
-    let router_addr = router_socket.local_addr().unwrap();
-    let (_router, mut router_events) = MainlineDht::builder()
+    let bootstrap_node_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
+    let bootstrap_node_addr = bootstrap_node_socket.local_addr().unwrap();
+    let (_node, mut bootstrap_node_events) = MainlineDht::builder()
         .set_read_only(false)
-        .start(router_socket);
-    let mut router_started = false;
+        .start(bootstrap_node_socket);
+    let mut bootstrap_node_started = false;
 
-    while let Some(event) = router_events.recv().await {
+    while let Some(event) = bootstrap_node_events.recv().await {
         match event {
             DhtEvent::BootstrapCompleted => {
-                router_started = true;
+                bootstrap_node_started = true;
+                break;
             }
             DhtEvent::BootstrapFailed | DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..) => {
                 panic!("unexpected event {:?}", event)
@@ -36,27 +33,27 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
         }
     }
 
-    assert!(router_started);
+    assert!(bootstrap_node_started);
 
     // Start node A
     let a_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
     let a_addr = a_socket.local_addr().unwrap();
     let (a_node, mut a_events) = MainlineDht::builder()
-        .add_router(router_addr)
+        .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(a_socket);
 
     // Start node B
     let b_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
     let (b_node, mut b_events) = MainlineDht::builder()
-        .add_router(router_addr)
+        .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(b_socket);
 
     let the_info_hash = InfoHash::sha1(b"foo");
 
     // Perform a lookup with announce by A. It should not return any peers initially but it should
-    // make B aware that A has the infohash.
+    // make the network aware that A has the infohash.
     a_node.search(the_info_hash, true);
 
     let mut lookup_completed = false;
