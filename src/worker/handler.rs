@@ -4,7 +4,7 @@ use super::{
     refresh::TableRefresh,
     socket::Socket,
     timer::Timer,
-    {DhtEvent, OneshotTask, ScheduledTaskCheck},
+    DhtEvent, OneshotTask, ScheduledTaskCheck, WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -134,8 +134,10 @@ impl DhtHandler {
             }
             message = self.socket.recv() => {
                 match message {
-                    Ok((buffer, addr)) => self.handle_incoming(&buffer, addr).await,
-                    Err(error) => warn!("Failed to receive incoming message: {}", error),
+                    Ok((buffer, addr)) => if let Err(error) = self.handle_incoming(&buffer, addr).await {
+                        error!("Failed to handle incoming message: {}", error);
+                    }
+                    Err(error) => error!("Failed to receive incoming message: {}", error),
                 }
             }
         }
@@ -169,46 +171,19 @@ impl DhtHandler {
         }
     }
 
-    async fn handle_incoming(&mut self, buffer: &[u8], addr: SocketAddr) {
-        let message = match Message::decode(buffer) {
-            Ok(message) => message,
-            Err(error) => {
-                warn!("Received invalid bencode data: {}", error);
-                return;
-            }
-        };
-
-        // Validate response
-        if let MessageBody::Response(response) = &message.body {
-            // Check if we can interpret the response transaction id as one of ours.
-            let trans_id =
-                if let Some(trans_id) = TransactionID::from_bytes(&message.transaction_id) {
-                    trans_id
-                } else {
-                    warn!("Received response with invalid transaction id");
-                    return;
-                };
-
-            // Match the response action id with our current actions
-            match (self.table_actions.get(&trans_id.action_id()), response) {
-                (Some(TableAction::Lookup(_)), Response::GetPeers(_))
-                | (Some(TableAction::Refresh(_)), Response::Other(_))
-                | (Some(TableAction::Bootstrap(..)), Response::Other(_)) => (),
-                _ => {
-                    warn!("Received unsolicited response");
-                    return;
-                }
-            }
-        }
+    async fn handle_incoming(
+        &mut self,
+        buffer: &[u8],
+        addr: SocketAddr,
+    ) -> Result<(), WorkerError> {
+        let message = Message::decode(buffer).map_err(WorkerError::InvalidBencode)?;
 
         // Do not process requests if we are read only
         // TODO: Add read only flags to messages we send it we are read only!
         // Also, check for read only flags on responses we get before adding nodes
         // to our RoutingTable.
-        if self.read_only {
-            if let MessageBody::Request(_) = message.body {
-                return;
-            }
+        if self.read_only && matches!(message.body, MessageBody::Request(_)) {
+            return Ok(());
         }
 
         // Process the given message
@@ -233,9 +208,7 @@ impl DhtHandler {
                 };
                 let ping_msg = ping_msg.encode();
 
-                if let Err(error) = self.socket.send(&ping_msg, addr).await {
-                    error!("Failed to send a ping response: {}", error);
-                }
+                self.socket.send(&ping_msg, addr).await?
             }
             MessageBody::Request(Request::FindNode(f)) => {
                 info!("Received a FindNodeRequest");
@@ -246,12 +219,7 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                let (nodes_v4, nodes_v6) =
-                    if let Some(nodes) = self.find_closest_nodes(f.target, f.want) {
-                        nodes
-                    } else {
-                        return;
-                    };
+                let (nodes_v4, nodes_v6) = self.find_closest_nodes(f.target, f.want)?;
 
                 let find_node_rsp = OtherResponse {
                     id: self.routing_table.node_id(),
@@ -264,9 +232,7 @@ impl DhtHandler {
                 };
                 let find_node_msg = find_node_msg.encode();
 
-                if let Err(error) = self.socket.send(&find_node_msg, addr).await {
-                    error!("Failed to send a find node response: {}", error);
-                }
+                self.socket.send(&find_node_msg, addr).await?
             }
             MessageBody::Request(Request::GetPeers(g)) => {
                 info!("Received a GetPeersRequest");
@@ -296,13 +262,7 @@ impl DhtHandler {
                     .collect();
 
                 // Grab the closest nodes
-                let (nodes_v4, nodes_v6) =
-                    if let Some(nodes) = self.find_closest_nodes(g.info_hash, g.want) {
-                        nodes
-                    } else {
-                        return;
-                    };
-
+                let (nodes_v4, nodes_v6) = self.find_closest_nodes(g.info_hash, g.want)?;
                 let token = self.token_store.checkout(addr.ip());
 
                 let get_peers_rsp = GetPeersResponse {
@@ -318,9 +278,7 @@ impl DhtHandler {
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
-                if let Err(error) = self.socket.send(&get_peers_msg, addr).await {
-                    error!("Failed to send a get peers response: {}", error);
-                }
+                self.socket.send(&get_peers_msg, addr).await?
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
                 info!("Received an AnnouncePeerRequest");
@@ -385,22 +343,17 @@ impl DhtHandler {
                     .encode()
                 };
 
-                if let Err(error) = self.socket.send(&response_msg, addr).await {
-                    error!("Failed to send an announce peer response: {}", error);
-                }
+                self.socket.send(&response_msg, addr).await?
             }
             MessageBody::Response(Response::Other(f)) => {
                 info!("Received a OtherResponse");
-                let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+                let trans_id = TransactionID::from_bytes(&message.transaction_id)
+                    .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(f.id, addr);
 
-                let nodes = match self.socket.local_addr() {
-                    Ok(SocketAddr::V4(_)) => f.nodes_v4,
-                    Ok(SocketAddr::V6(_)) => f.nodes_v6,
-                    Err(error) => {
-                        error!("Failed to retrieve local socket address: {}", error);
-                        return;
-                    }
+                let nodes = match self.socket.local_addr()? {
+                    SocketAddr::V4(_) => f.nodes_v4,
+                    SocketAddr::V6(_) => f.nodes_v6,
                 };
 
                 // Add the payload nodes as questionable
@@ -421,15 +374,8 @@ impl DhtHandler {
                             }
                             Some((bootstrap, attempts))
                         }
-                        Some(TableAction::Lookup(_)) => {
-                            error!("Resolved a OtherResponse ActionID to a TableLookup");
-                            None
-                        }
-                        None => {
-                            error!(
-                                "Resolved a TransactionID to a OtherResponse but no action found"
-                            );
-                            None
+                        Some(TableAction::Lookup(_)) | None => {
+                            return Err(WorkerError::UnsolicitedResponse)
                         }
                     };
 
@@ -502,55 +448,42 @@ impl DhtHandler {
                 }
             }
             MessageBody::Response(Response::GetPeers(g)) => {
-                // info!("bip_dht: Received a GetPeersResponse...");
-                let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
+                info!("Received a GetPeersResponse");
+
+                let trans_id = TransactionID::from_bytes(&message.transaction_id)
+                    .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(g.id, addr);
 
                 self.routing_table.add_node(node.clone());
 
-                let opt_lookup = {
-                    match self.table_actions.get_mut(&trans_id.action_id()) {
-                        Some(TableAction::Lookup(lookup)) => Some(lookup),
-                        Some(TableAction::Refresh(_)) => {
-                            error!("Resolved a GetPeersResponse ActionID to a TableRefresh");
-                            None
-                        }
-                        Some(TableAction::Bootstrap(_, _)) => {
-                            error!("Resolved a GetPeersResponse ActionID to a TableBootstrap");
-                            None
-                        }
-                        None => {
-                            error!(
-                                "Resolved a TransactionID to a GetPeersResponse but no action found"
-                            );
-                            None
-                        }
+                let lookup = match self.table_actions.get_mut(&trans_id.action_id()) {
+                    Some(TableAction::Lookup(lookup)) => lookup,
+                    Some(TableAction::Refresh(_)) | Some(TableAction::Bootstrap(_, _)) | None => {
+                        return Err(WorkerError::UnsolicitedResponse)
                     }
                 };
 
-                if let Some(lookup) = opt_lookup {
-                    match lookup
-                        .recv_response(
-                            node,
-                            &trans_id,
-                            g,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await
-                    {
-                        LookupStatus::Searching => (),
-                        LookupStatus::Completed => self
-                            .event_tx
-                            .send(DhtEvent::LookupCompleted(lookup.info_hash()))
-                            .unwrap_or(()),
-                        LookupStatus::Values(values) => {
-                            for addr in values {
-                                self.event_tx
-                                    .send(DhtEvent::PeerFound(lookup.info_hash(), addr))
-                                    .unwrap_or(());
-                            }
+                match lookup
+                    .recv_response(
+                        node,
+                        &trans_id,
+                        g,
+                        &mut self.routing_table,
+                        &self.socket,
+                        &mut self.timer,
+                    )
+                    .await
+                {
+                    LookupStatus::Searching => (),
+                    LookupStatus::Completed => self
+                        .event_tx
+                        .send(DhtEvent::LookupCompleted(lookup.info_hash()))
+                        .unwrap_or(()),
+                    LookupStatus::Values(values) => {
+                        for addr in values {
+                            self.event_tx
+                                .send(DhtEvent::PeerFound(lookup.info_hash(), addr))
+                                .unwrap_or(());
                         }
                     }
                 }
@@ -559,6 +492,8 @@ impl DhtHandler {
                 warn!("Received an ErrorMessage from {}: {:?}", addr, e);
             }
         }
+
+        Ok(())
     }
 
     async fn handle_start_bootstrap(
@@ -859,21 +794,16 @@ impl DhtHandler {
         self.running = false;
     }
 
-    // TODO: return `Result`, not `Option`.
     fn find_closest_nodes(
         &self,
         target: InfoHash,
         want: Option<Want>,
-    ) -> Option<(Vec<NodeHandle>, Vec<NodeHandle>)> {
+    ) -> Result<(Vec<NodeHandle>, Vec<NodeHandle>), WorkerError> {
         let want = match want {
             Some(want) => want,
-            None => match self.socket.local_addr() {
-                Ok(SocketAddr::V4(_)) => Want::V4,
-                Ok(SocketAddr::V6(_)) => Want::V6,
-                Err(error) => {
-                    error!("Failed to retrieve local socket address: {}", error);
-                    return None;
-                }
+            None => match self.socket.local_addr()? {
+                SocketAddr::V4(_) => Want::V4,
+                SocketAddr::V6(_) => Want::V6,
             },
         };
 
@@ -899,7 +829,7 @@ impl DhtHandler {
             vec![]
         };
 
-        Some((nodes_v4, nodes_v6))
+        Ok((nodes_v4, nodes_v6))
     }
 }
 
@@ -933,7 +863,7 @@ async fn attempt_rebootstrap(
         *attempts += 1;
 
         warn!(
-            "bip_dht: Bootstrap attempt {} failed, attempting a rebootstrap...",
+            "Bootstrap attempt {} failed, attempting a rebootstrap",
             *attempts
         );
 
