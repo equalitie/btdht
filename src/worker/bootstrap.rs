@@ -7,7 +7,7 @@ use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
 use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
-use crate::transaction::{MIDGenerator, TransactionID};
+use crate::transaction::{ActionID, MIDGenerator, TransactionID};
 use crate::{id::NodeId, routing::node::NodeHandle};
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
@@ -117,6 +117,10 @@ impl TableBootstrap {
         } else {
             BootstrapStatus::Failed
         }
+    }
+
+    pub fn action_id(&self) -> ActionID {
+        self.id_generator.action_id()
     }
 
     pub fn is_router(&self, addr: &SocketAddr) -> bool {
