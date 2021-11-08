@@ -24,8 +24,6 @@ pub(crate) enum BootstrapStatus {
     Bootstrapping,
     /// Bootstrap just finished.
     Completed,
-    /// Bootstrap failed in a fatal way.
-    Failed,
 }
 
 pub(crate) struct TableBootstrap {
@@ -113,7 +111,7 @@ impl TableBootstrap {
         if self.initial_responses_expected > 0 {
             BootstrapStatus::Bootstrapping
         } else {
-            BootstrapStatus::Failed
+            BootstrapStatus::Completed
         }
     }
 

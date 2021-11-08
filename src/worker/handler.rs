@@ -361,11 +361,6 @@ impl DhtHandler {
                         .await
                     {
                         BootstrapStatus::Bootstrapping => false,
-                        BootstrapStatus::Failed => {
-                            self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                            self.shutdown();
-                            false
-                        }
                         BootstrapStatus::Completed => {
                             if should_rebootstrap(&self.routing_table) {
                                 match attempt_rebootstrap(
@@ -379,6 +374,7 @@ impl DhtHandler {
                                 {
                                     Some(bootstrap_started) => !bootstrap_started,
                                     None => {
+                                        self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
                                         self.shutdown();
                                         false
                                     }
@@ -487,11 +483,6 @@ impl DhtHandler {
 
         let bootstrap_complete = match bootstrap_status {
             BootstrapStatus::Bootstrapping => false,
-            BootstrapStatus::Failed => {
-                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                self.shutdown();
-                false
-            }
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
@@ -506,6 +497,7 @@ impl DhtHandler {
                     {
                         Some(bootstrap_started) => !bootstrap_started,
                         None => {
+                            self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
                             self.shutdown();
                             false
                         }
@@ -544,11 +536,6 @@ impl DhtHandler {
 
         let bootstrap_complete = match bootstrap_status {
             BootstrapStatus::Bootstrapping => false,
-            BootstrapStatus::Failed => {
-                self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
-                self.shutdown();
-                false
-            }
             BootstrapStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
@@ -563,6 +550,7 @@ impl DhtHandler {
                     {
                         Some(bootstrap_started) => !bootstrap_started,
                         None => {
+                            self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
                             self.shutdown();
                             false
                         }
@@ -774,7 +762,6 @@ async fn attempt_rebootstrap(
 
             match bootstrap_status {
                 BootstrapStatus::Bootstrapping => return Some(true),
-                BootstrapStatus::Failed => return None,
                 BootstrapStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
                         return Some(false);
