@@ -360,7 +360,6 @@ impl DhtHandler {
                         )
                         .await
                     {
-                        BootstrapStatus::Idle => true,
                         BootstrapStatus::Bootstrapping => false,
                         BootstrapStatus::Failed => {
                             self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
@@ -487,7 +486,6 @@ impl DhtHandler {
         let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Idle => true,
             BootstrapStatus::Bootstrapping => false,
             BootstrapStatus::Failed => {
                 self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
@@ -545,7 +543,6 @@ impl DhtHandler {
             .await;
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Idle => true,
             BootstrapStatus::Bootstrapping => false,
             BootstrapStatus::Failed => {
                 self.event_tx.send(DhtEvent::BootstrapFailed).unwrap_or(());
@@ -776,11 +773,8 @@ async fn attempt_rebootstrap(
                 .await;
 
             match bootstrap_status {
-                BootstrapStatus::Idle => return Some(false),
                 BootstrapStatus::Bootstrapping => return Some(true),
-                BootstrapStatus::Failed => {
-                    return None;
-                }
+                BootstrapStatus::Failed => return None,
                 BootstrapStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
                         return Some(false);
