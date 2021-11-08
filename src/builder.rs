@@ -10,6 +10,14 @@ use tokio::{net::UdpSocket, sync::mpsc, task};
 ///
 /// This type is cheaply cloneable where each clone refers to the same underlying DHT instance. This
 /// is useful to be able to issue DHT operations from multiple tasks/threads.
+///
+/// # IPv6
+///
+/// This implementation supports IPv6 as per [BEP32](https://www.bittorrent.org/beps/bep_0032.html).
+/// To enable dual-stack DHT (use both IPv4 and IPv6), one needs to create two separate
+/// `MainlineDht` instances, one bound to an IPv4 and the other to an IPv6 address. It is
+/// recommended that both instances use the same node id ([`DhtBuilder::set_node_id`]). Any lookup
+/// should then be performed on both instances and their results aggregated.
 #[derive(Clone)]
 pub struct MainlineDht {
     send: mpsc::UnboundedSender<OneshotTask>,
