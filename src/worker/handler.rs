@@ -731,17 +731,9 @@ impl DhtHandler {
 
 // ----------------------------------------------------------------------------//
 
-/// Number of good nodes in the RoutingTable.
-fn num_good_nodes(table: &RoutingTable) -> usize {
-    table
-        .closest_nodes(table.node_id())
-        .filter(|n| n.status() == NodeStatus::Good)
-        .count()
-}
-
 /// We should rebootstrap if we have a low number of nodes.
 fn should_rebootstrap(table: &RoutingTable) -> bool {
-    num_good_nodes(table) <= BOOTSTRAP_GOOD_NODE_THRESHOLD
+    table.num_good_nodes() <= BOOTSTRAP_GOOD_NODE_THRESHOLD
 }
 
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
@@ -765,7 +757,7 @@ async fn attempt_rebootstrap(
 
         // Check if we reached the maximum bootstrap attempts
         if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
-            if num_good_nodes(routing_table) == 0 {
+            if routing_table.num_good_nodes() == 0 {
                 // Failed to get any nodes in the rebootstrap attempts, shut down
                 return None;
             } else {
