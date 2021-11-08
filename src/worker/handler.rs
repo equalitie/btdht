@@ -36,8 +36,6 @@ const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 enum TableAction {
     /// Lookup action.
     Lookup(TableLookup),
-    /// Refresh action.
-    Refresh(TableRefresh),
 }
 
 /// Actions that we want to perform on our RoutingTable after bootstrapping finishes.
@@ -45,8 +43,6 @@ enum TableAction {
 enum PostBootstrapAction {
     /// Future lookup action.
     Lookup(InfoHash, bool),
-    /// Future refresh action.
-    Refresh(TableRefresh, TransactionID),
 }
 
 /// Storage for our EventLoop to invoke actions upon.
@@ -65,9 +61,11 @@ pub(crate) struct DhtHandler {
     // since we will always spin up a table refresh action after bootstrapping.
     future_actions: Vec<PostBootstrapAction>,
     event_tx: mpsc::UnboundedSender<DhtEvent>,
-    table_actions: HashMap<ActionID, TableAction>,
-    // Contains the ongoing bootstrap action and the number of bootstrap attemps.
+    // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attemps.
     bootstrap: Option<(TableBootstrap, usize)>,
+    // TableRefresh action.
+    refresh: TableRefresh,
+    table_actions: HashMap<ActionID, TableAction>,
 }
 
 impl DhtHandler {
@@ -81,14 +79,9 @@ impl DhtHandler {
     ) -> Self {
         let mut aid_generator = AIDGenerator::new();
 
-        // Insert the refresh task to execute after the bootstrap
-        let mut mid_generator = aid_generator.generate();
-        let refresh_trans_id = mid_generator.generate();
+        // The refresh task to execute after the bootstrap
+        let mid_generator = aid_generator.generate();
         let table_refresh = TableRefresh::new(mid_generator);
-        let future_actions = vec![PostBootstrapAction::Refresh(
-            table_refresh,
-            refresh_trans_id,
-        )];
 
         Self {
             running: true,
@@ -101,10 +94,11 @@ impl DhtHandler {
             aid_generator,
             routing_table: table,
             active_stores: AnnounceStorage::new(),
-            future_actions,
+            future_actions: vec![],
             event_tx,
-            table_actions: HashMap::new(),
             bootstrap: None,
+            refresh: table_refresh,
+            table_actions: HashMap::new(),
         }
     }
 
@@ -153,8 +147,8 @@ impl DhtHandler {
 
     async fn handle_timeout(&mut self, token: ScheduledTaskCheck) {
         match token {
-            ScheduledTaskCheck::TableRefresh(trans_id) => {
-                self.handle_check_table_refresh(trans_id).await;
+            ScheduledTaskCheck::TableRefresh => {
+                self.handle_check_table_refresh().await;
             }
             ScheduledTaskCheck::BootstrapTimeout(trans_id) => {
                 self.handle_check_bootstrap_timeout(trans_id).await;
@@ -411,9 +405,7 @@ impl DhtHandler {
                     if bootstrap_complete {
                         self.broadcast_bootstrap_completed().await;
                     }
-                } else if let Some(TableAction::Refresh(_)) =
-                    self.table_actions.get_mut(&trans_id.action_id())
-                {
+                } else if self.refresh.action_id() == trans_id.action_id() {
                     self.routing_table.add_node(node);
                 } else {
                     return Err(WorkerError::UnsolicitedResponse);
@@ -448,9 +440,7 @@ impl DhtHandler {
 
                 let lookup = match self.table_actions.get_mut(&trans_id.action_id()) {
                     Some(TableAction::Lookup(lookup)) => lookup,
-                    Some(TableAction::Refresh(_)) | None => {
-                        return Err(WorkerError::UnsolicitedResponse)
-                    }
+                    None => return Err(WorkerError::UnsolicitedResponse),
                 };
 
                 match lookup
@@ -607,17 +597,15 @@ impl DhtHandler {
         // Indicates we are out of the bootstrapping phase
         self.bootstrap = None;
 
+        // Start the refresh action.
+        self.handle_check_table_refresh().await;
+
         // Start the post bootstrap actions.
         let future_actions = mem::take(&mut self.future_actions);
         for table_action in future_actions {
             match table_action {
                 PostBootstrapAction::Lookup(info_hash, should_announce) => {
                     self.handle_start_lookup(info_hash, should_announce).await;
-                }
-                PostBootstrapAction::Refresh(refresh, trans_id) => {
-                    self.table_actions
-                        .insert(trans_id.action_id(), TableAction::Refresh(refresh));
-                    self.handle_check_table_refresh(trans_id).await;
                 }
             }
         }
@@ -660,10 +648,6 @@ impl DhtHandler {
                     .await,
                 lookup.info_hash(),
             )),
-            Some(TableAction::Refresh(_)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
-                None
-            }
             None => {
                 error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
@@ -695,10 +679,6 @@ impl DhtHandler {
                     .await,
                 lookup.info_hash(),
             )),
-            Some(TableAction::Refresh(_)) => {
-                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
-                None
-            }
             None => {
                 error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
@@ -723,20 +703,10 @@ impl DhtHandler {
         }
     }
 
-    async fn handle_check_table_refresh(&mut self, trans_id: TransactionID) {
-        match self.table_actions.get_mut(&trans_id.action_id()) {
-            Some(TableAction::Refresh(refresh)) => {
-                refresh
-                    .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
-                    .await
-            }
-            Some(TableAction::Lookup(_)) => {
-                error!("Resolved a TransactionID to a check table refresh but TableLookup found");
-            }
-            None => {
-                error!("Resolved a TransactionID to a check table refresh but no action found");
-            }
-        };
+    async fn handle_check_table_refresh(&mut self) {
+        self.refresh
+            .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
+            .await
     }
 
     fn shutdown(&mut self) {
