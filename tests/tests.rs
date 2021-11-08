@@ -9,7 +9,6 @@ async fn announce_and_lookup_v4() {
     announce_and_lookup(a_socket, b_socket).await;
 }
 
-#[ignore] // FIXME: un-ignore this test when ipv6 works
 #[tokio::test(flavor = "multi_thread")]
 async fn announce_and_lookup_v6() {
     let a_socket = UdpSocket::bind((Ipv6Addr::LOCALHOST, 0)).await.unwrap();

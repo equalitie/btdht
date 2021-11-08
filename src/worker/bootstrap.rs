@@ -88,7 +88,7 @@ impl TableBootstrap {
             body: MessageBody::Request(Request::FindNode(FindNodeRequest {
                 id: table_id,
                 target: table_id,
-                want: None,
+                want: None, // we want only contacts of the same address family we have.
             })),
         }
         .encode();

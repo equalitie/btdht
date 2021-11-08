@@ -21,9 +21,12 @@ use crate::{
     transaction::{AIDGenerator, ActionID, TransactionID},
 };
 use futures_util::StreamExt;
-use std::collections::{HashMap, HashSet};
 use std::convert::AsRef;
 use std::net::SocketAddr;
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 use tokio::{select, sync::mpsc};
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
@@ -279,11 +282,15 @@ impl DhtHandler {
                 let values: Vec<_> = self
                     .active_stores
                     .find_items(&g.info_hash)
-                    .filter(|addr| match addr {
-                        SocketAddr::V4(_) => true,
-                        SocketAddr::V6(_) => {
-                            error!("AnnounceStorage contained an IPv6 Address...");
-                            false
+                    .filter(|value_addr| {
+                        // According to the spec (BEP32), `values` should contain only addresses of the
+                        // same family as the address the request came from. The `want` field affects only
+                        // the `nodes` and `nodes6` fields, not the `values` field.
+                        match (addr, value_addr) {
+                            (SocketAddr::V4(_), SocketAddr::V4(_)) => true,
+                            (SocketAddr::V6(_), SocketAddr::V6(_)) => true,
+                            (SocketAddr::V4(_), SocketAddr::V6(_)) => false,
+                            (SocketAddr::V6(_), SocketAddr::V4(_)) => false,
                         }
                     })
                     .collect();
@@ -387,8 +394,17 @@ impl DhtHandler {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id).unwrap();
                 let node = Node::as_good(f.id, addr);
 
+                let nodes = match self.socket.local_addr() {
+                    Ok(SocketAddr::V4(_)) => f.nodes_v4,
+                    Ok(SocketAddr::V6(_)) => f.nodes_v6,
+                    Err(error) => {
+                        error!("Failed to retrieve local socket address: {}", error);
+                        return;
+                    }
+                };
+
                 // Add the payload nodes as questionable
-                for node in f.nodes_v4 {
+                for node in nodes {
                     self.routing_table
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
@@ -496,23 +512,16 @@ impl DhtHandler {
                     match self.table_actions.get_mut(&trans_id.action_id()) {
                         Some(TableAction::Lookup(lookup)) => Some(lookup),
                         Some(TableAction::Refresh(_)) => {
-                            error!(
-                                "bip_dht: Resolved a GetPeersResponse ActionID to a \
-                                TableRefresh..."
-                            );
+                            error!("Resolved a GetPeersResponse ActionID to a TableRefresh");
                             None
                         }
                         Some(TableAction::Bootstrap(_, _)) => {
-                            error!(
-                                "bip_dht: Resolved a GetPeersResponse ActionID to a \
-                                TableBootstrap..."
-                            );
+                            error!("Resolved a GetPeersResponse ActionID to a TableBootstrap");
                             None
                         }
                         None => {
                             error!(
-                                "bip_dht: Resolved a TransactionID to a GetPeersResponse but no \
-                                action found..."
+                                "Resolved a TransactionID to a GetPeersResponse but no action found"
                             );
                             None
                         }
@@ -582,10 +591,8 @@ impl DhtHandler {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
                     let (bootstrap, attempts) = match self.table_actions.get_mut(&action_id) {
-                        Some(&mut TableAction::Bootstrap(ref mut bootstrap, ref mut attempts)) => {
-                            (bootstrap, attempts)
-                        }
-                        _ => panic!("bip_dht: Bug, in DhtHandler..."),
+                        Some(TableAction::Bootstrap(bootstrap, attempts)) => (bootstrap, attempts),
+                        _ => unreachable!(),
                     };
 
                     match attempt_rebootstrap(
@@ -631,22 +638,19 @@ impl DhtHandler {
                 )),
                 Some(TableAction::Lookup(_)) => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but \
-                        TableLookup found..."
+                        "Resolved a TransactionID to a check table bootstrap but TableLookup found"
                     );
                     None
                 }
                 Some(TableAction::Refresh(_)) => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but \
-                        TableRefresh found..."
+                        "Resolved a TransactionID to a check table bootstrap but TableRefresh found"
                     );
                     None
                 }
                 None => {
                     error!(
-                        "bip_dht: Resolved a TransactionID to a check table bootstrap but no \
-                        action found..."
+                        "Resolved a TransactionID to a check table bootstrap but no action found"
                     );
                     None
                 }
@@ -707,8 +711,8 @@ impl DhtHandler {
         self.table_actions.remove(&action_id);
 
         // Start the post bootstrap actions.
-        let mut future_actions = self.future_actions.split_off(0);
-        for table_action in future_actions.drain(..) {
+        let future_actions = mem::take(&mut self.future_actions);
+        for table_action in future_actions {
             match table_action {
                 PostBootstrapAction::Lookup(info_hash, should_announce) => {
                     self.handle_start_lookup(info_hash, should_announce).await;
@@ -716,7 +720,6 @@ impl DhtHandler {
                 PostBootstrapAction::Refresh(refresh, trans_id) => {
                     self.table_actions
                         .insert(trans_id.action_id(), TableAction::Refresh(refresh));
-
                     self.handle_check_table_refresh(trans_id).await;
                 }
             }
@@ -761,24 +764,15 @@ impl DhtHandler {
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableBootstrap \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
                 None
             }
             Some(TableAction::Refresh(_)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableRefresh \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
                 None
             }
             None => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but no action \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
             }
         };
@@ -791,7 +785,6 @@ impl DhtHandler {
                 .send(DhtEvent::LookupCompleted(info_hash))
                 .unwrap_or(()),
             Some((LookupStatus::Values(v), info_hash)) => {
-                // Add values to handshaker
                 for addr in v {
                     self.event_tx
                         .send(DhtEvent::PeerFound(info_hash, addr))
@@ -810,24 +803,15 @@ impl DhtHandler {
                 lookup.info_hash(),
             )),
             Some(TableAction::Bootstrap(_, _)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableBootstrap \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableBootstrap found");
                 None
             }
             Some(TableAction::Refresh(_)) => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but TableRefresh \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but TableRefresh found");
                 None
             }
             None => {
-                error!(
-                    "bip_dht: Resolved a TransactionID to a check table lookup but no action \
-                    found..."
-                );
+                error!("Resolved a TransactionID to a check table lookup but no action found");
                 None
             }
         };

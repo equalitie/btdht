@@ -32,7 +32,7 @@ impl TableRefresh {
         let target_id = table.node_id().flip_bit(self.curr_refresh_bucket);
 
         info!(
-            "bip_dht: Performing a refresh for bucket {}",
+            "Performing a refresh for bucket {}",
             self.curr_refresh_bucket
         );
         // Ping the closest questionable node
