@@ -11,9 +11,12 @@ use crate::routing::bucket;
 use crate::routing::node::{Node, NodeHandle, NodeStatus};
 use crate::routing::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
-use std::collections::{HashMap, HashSet};
-use std::net::{Ipv4Addr, SocketAddr};
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    net::{Ipv4Addr, SocketAddr},
+    time::Duration,
+};
+use tokio::sync::mpsc;
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1500);
 const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -34,7 +37,6 @@ type DistanceToBeat = Id;
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LookupStatus {
     Ongoing,
-    Values(Vec<SocketAddr>),
     Completed,
 }
 
@@ -54,6 +56,8 @@ pub(crate) struct TableLookup {
     // Storing whether or not it has ever been pinged so that we
     // can perform the brute force lookup if the lookup failed
     all_sorted_nodes: Vec<(Distance, NodeHandle, bool)>,
+    // Send the found peers through this channel.
+    tx: mpsc::UnboundedSender<SocketAddr>,
 }
 
 // Gather nodes
@@ -61,8 +65,9 @@ pub(crate) struct TableLookup {
 impl TableLookup {
     pub async fn new(
         target_id: InfoHash,
-        id_generator: MIDGenerator,
         will_announce: bool,
+        tx: mpsc::UnboundedSender<SocketAddr>,
+        id_generator: MIDGenerator,
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
@@ -100,6 +105,7 @@ impl TableLookup {
             announce_tokens: HashMap::new(),
             requested_nodes: HashSet::new(),
             active_lookups: HashMap::with_capacity(INITIAL_PICK_NUM),
+            tx,
         };
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
@@ -107,10 +113,6 @@ impl TableLookup {
             .start_request_round(initial_pick_nodes_filtered, table, socket, timer)
             .await;
         table_lookup
-    }
-
-    pub fn info_hash(&self) -> InfoHash {
-        self.target_id
     }
 
     pub async fn recv_response(
@@ -217,11 +219,11 @@ impl TableLookup {
             }
         }
 
-        if values.is_empty() {
-            self.current_lookup_status()
-        } else {
-            LookupStatus::Values(values)
+        for value in values {
+            self.tx.send(value).unwrap_or(())
         }
+
+        self.current_lookup_status()
     }
 
     pub async fn recv_timeout(
@@ -232,10 +234,7 @@ impl TableLookup {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> LookupStatus {
         if self.active_lookups.remove(trans_id).is_none() {
-            warn!(
-                "bip_dht: Received expired/unsolicited node timeout for an active table \
-                   lookup..."
-            );
+            warn!("Received expired/unsolicited node timeout for an active table lookup");
             return self.current_lookup_status();
         }
 
@@ -254,7 +253,7 @@ impl TableLookup {
         port: Option<u16>,
         table: &mut RoutingTable,
         socket: &Socket,
-    ) -> LookupStatus {
+    ) {
         // Announce if we were told to
         if self.will_announce {
             // Partial borrow so the filter function doesnt capture all of self
@@ -296,8 +295,6 @@ impl TableLookup {
         // This may not be cleared since we didnt set a timeout for each node, any nodes that didnt respond would still be in here.
         self.active_lookups.clear();
         self.in_endgame = false;
-
-        self.current_lookup_status()
     }
 
     fn current_lookup_status(&self) -> LookupStatus {

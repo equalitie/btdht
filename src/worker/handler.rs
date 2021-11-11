@@ -4,7 +4,7 @@ use super::{
     refresh::TableRefresh,
     socket::Socket,
     timer::Timer,
-    DhtEvent, OneshotTask, ScheduledTaskCheck, WorkerError,
+    DhtEvent, OneshotTask, ScheduledTaskCheck, StartLookup, WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -53,7 +53,7 @@ pub(crate) struct DhtHandler {
     lookups: HashMap<ActionID, TableLookup>,
     // Lookups initiated while we were still bootstrapping, to be executed when the bootstrap is
     // complete.
-    future_lookups: Vec<(InfoHash, bool)>,
+    future_lookups: Vec<StartLookup>,
 }
 
 impl DhtHandler {
@@ -127,8 +127,8 @@ impl DhtHandler {
             OneshotTask::StartBootstrap(routers, nodes) => {
                 self.handle_start_bootstrap(routers, nodes).await;
             }
-            OneshotTask::StartLookup(info_hash, should_announce) => {
-                self.handle_start_lookup(info_hash, should_announce).await;
+            OneshotTask::StartLookup(lookup) => {
+                self.handle_start_lookup(lookup).await;
             }
         }
     }
@@ -438,17 +438,7 @@ impl DhtHandler {
                     .await
                 {
                     LookupStatus::Ongoing => (),
-                    LookupStatus::Completed => self
-                        .event_tx
-                        .send(DhtEvent::LookupCompleted(lookup.info_hash()))
-                        .unwrap_or(()),
-                    LookupStatus::Values(values) => {
-                        for addr in values {
-                            self.event_tx
-                                .send(DhtEvent::PeerFound(lookup.info_hash(), addr))
-                                .unwrap_or(());
-                        }
-                    }
+                    LookupStatus::Completed => self.handle_lookup_completed(trans_id).await,
                 }
             }
             MessageBody::Error(e) => {
@@ -581,24 +571,25 @@ impl DhtHandler {
         self.handle_check_table_refresh().await;
 
         // Start the post bootstrap actions.
-        for (info_hash, should_announce) in mem::take(&mut self.future_lookups) {
-            self.handle_start_lookup(info_hash, should_announce).await;
+        for lookup in mem::take(&mut self.future_lookups) {
+            self.handle_start_lookup(lookup).await;
         }
     }
 
-    async fn handle_start_lookup(&mut self, info_hash: InfoHash, should_announce: bool) {
-        let mid_generator = self.aid_generator.generate();
-        let action_id = mid_generator.action_id();
-
+    async fn handle_start_lookup(&mut self, lookup: StartLookup) {
         if self.bootstrap.is_some() {
             // Queue it up if we are currently bootstrapping
-            self.future_lookups.push((info_hash, should_announce));
+            self.future_lookups.push(lookup);
         } else {
             // Start the lookup right now if not bootstrapping
+            let mid_generator = self.aid_generator.generate();
+            let action_id = mid_generator.action_id();
+
             let lookup = TableLookup::new(
-                info_hash,
+                lookup.info_hash,
+                lookup.announce,
+                lookup.tx,
                 mid_generator,
-                should_announce,
                 &mut self.routing_table,
                 &self.socket,
                 &mut self.timer,
@@ -624,52 +615,28 @@ impl DhtHandler {
                 &mut self.timer,
             )
             .await;
-        let info_hash = lookup.info_hash();
 
         match lookup_status {
             LookupStatus::Ongoing => (),
-            LookupStatus::Completed => self
-                .event_tx
-                .send(DhtEvent::LookupCompleted(info_hash))
-                .unwrap_or(()),
-            LookupStatus::Values(v) => {
-                for addr in v {
-                    self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, addr))
-                        .unwrap_or(());
-                }
-            }
+            LookupStatus::Completed => self.handle_lookup_completed(trans_id).await,
         }
     }
 
     async fn handle_check_lookup_endgame(&mut self, trans_id: TransactionID) {
+        self.handle_lookup_completed(trans_id).await
+    }
+
+    async fn handle_lookup_completed(&mut self, trans_id: TransactionID) {
         let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
             lookup
         } else {
-            error!("Resolved a TransactionID to a check table lookup but no action found");
+            error!("Lookup not found");
             return;
         };
 
-        let lookup_status = lookup
+        lookup
             .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
             .await;
-        let info_hash = lookup.info_hash();
-
-        match lookup_status {
-            LookupStatus::Ongoing => (),
-            LookupStatus::Completed => self
-                .event_tx
-                .send(DhtEvent::LookupCompleted(info_hash))
-                .unwrap_or(()),
-            LookupStatus::Values(v) => {
-                // Add values to handshaker
-                for addr in v {
-                    self.event_tx
-                        .send(DhtEvent::PeerFound(info_hash, addr))
-                        .unwrap_or(());
-                }
-            }
-        }
     }
 
     async fn handle_check_table_refresh(&mut self) {

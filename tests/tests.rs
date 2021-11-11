@@ -1,4 +1,5 @@
 use btdht::{DhtEvent, InfoHash, MainlineDht};
+use futures_util::StreamExt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::net::UdpSocket;
 
@@ -27,7 +28,7 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
                 bootstrap_node_started = true;
                 break;
             }
-            DhtEvent::BootstrapFailed | DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..) => {
+            DhtEvent::BootstrapFailed => {
                 panic!("unexpected event {:?}", event)
             }
         }
@@ -38,69 +39,55 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
     // Start node A
     let a_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
     let a_addr = a_socket.local_addr().unwrap();
-    let (a_node, mut a_events) = MainlineDht::builder()
+    let (a_node, a_events) = MainlineDht::builder()
         .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(a_socket);
 
     // Start node B
     let b_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
-    let (b_node, mut b_events) = MainlineDht::builder()
+    let (b_node, b_events) = MainlineDht::builder()
         .add_node(bootstrap_node_addr)
         .set_read_only(false)
         .start(b_socket);
+
+    // Wait for both nodes to bootstrap
+    for mut events in [a_events, b_events] {
+        let mut bootstrapped = false;
+
+        while let Some(event) = events.recv().await {
+            match event {
+                DhtEvent::BootstrapCompleted => {
+                    bootstrapped = true;
+                    break;
+                }
+                DhtEvent::BootstrapFailed => panic!("bootstrap failed"),
+            }
+        }
+
+        assert!(bootstrapped);
+    }
 
     let the_info_hash = InfoHash::sha1(b"foo");
 
     // Perform a lookup with announce by A. It should not return any peers initially but it should
     // make the network aware that A has the infohash.
-    a_node.search(the_info_hash, true);
+    let mut search = a_node.search(the_info_hash, true);
 
-    let mut lookup_completed = false;
-
-    while let Some(event) = a_events.recv().await {
-        match event {
-            DhtEvent::BootstrapCompleted => (),
-            DhtEvent::LookupCompleted(info_hash) => {
-                assert_eq!(info_hash, the_info_hash);
-                lookup_completed = true;
-                break;
-            }
-            DhtEvent::BootstrapFailed | DhtEvent::PeerFound(..) => {
-                panic!("unexpected event {:?}", event)
-            }
-        }
+    while let Some(peer) = search.next().await {
+        panic!("found peer {} but none expected", peer)
     }
 
-    assert!(lookup_completed);
-
     // Now perform the lookup by B. It should find A.
-    b_node.search(the_info_hash, false);
-
+    let mut search = b_node.search(the_info_hash, false);
     let mut peer_found = false;
-    let mut lookup_completed = false;
 
-    while let Some(event) = b_events.recv().await {
-        match event {
-            DhtEvent::BootstrapCompleted => (),
-            DhtEvent::LookupCompleted(info_hash) => {
-                assert_eq!(info_hash, the_info_hash);
-                lookup_completed = true;
-                break;
-            }
-            DhtEvent::PeerFound(info_hash, addr) => {
-                assert_eq!(info_hash, the_info_hash);
-                assert_eq!(addr, a_addr);
-                peer_found = true;
-            }
-            DhtEvent::BootstrapFailed => {
-                panic!("unexpected event {:?}", event)
-            }
-        }
+    while let Some(addr) = search.next().await {
+        assert_eq!(addr, a_addr);
+        peer_found = true;
     }
 
     assert!(peer_found);
-    assert!(lookup_completed);
 }
 
 #[derive(Copy, Clone)]

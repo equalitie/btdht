@@ -1,4 +1,5 @@
 use btdht::{router, DhtEvent, InfoHash, LengthError, MainlineDht};
+use futures_util::StreamExt;
 use std::{
     collections::HashSet,
     convert::TryFrom,
@@ -9,7 +10,6 @@ use std::{
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{self, UdpSocket},
-    sync::mpsc,
 };
 
 #[tokio::main]
@@ -28,30 +28,23 @@ async fn main() {
     println!("bootstrapping...");
     let start = Instant::now();
 
-    loop {
-        let event = events.recv().await.unwrap();
-        match event {
-            DhtEvent::BootstrapCompleted => {
-                let elapsed = start.elapsed();
-                println!(
-                    "bootstrap completed in {}.{:03} seconds",
-                    elapsed.as_secs(),
-                    elapsed.subsec_millis()
-                );
-                break;
-            }
-            DhtEvent::BootstrapFailed => {
-                let elapsed = start.elapsed();
-                println!(
-                    "bootstrap failed in {}.{:03} seconds",
-                    elapsed.as_secs(),
-                    elapsed.subsec_millis()
-                );
-                return;
-            }
-            event @ (DhtEvent::LookupCompleted(_) | DhtEvent::PeerFound(..)) => {
-                println!("unexpected event: {:?}", event);
-            }
+    match events.recv().await.unwrap() {
+        DhtEvent::BootstrapCompleted => {
+            let elapsed = start.elapsed();
+            println!(
+                "bootstrap completed in {}.{:03} seconds",
+                elapsed.as_secs(),
+                elapsed.subsec_millis()
+            );
+        }
+        DhtEvent::BootstrapFailed => {
+            let elapsed = start.elapsed();
+            println!(
+                "bootstrap failed in {}.{:03} seconds",
+                elapsed.as_secs(),
+                elapsed.subsec_millis()
+            );
+            return;
         }
     }
 
@@ -66,7 +59,7 @@ async fn main() {
         line.clear();
 
         if stdin.read_line(&mut line).await.unwrap() > 0 {
-            if !handle_command(&dht, &mut events, &line).await.unwrap() {
+            if !handle_command(&dht, &line).await.unwrap() {
                 break;
             }
         } else {
@@ -75,11 +68,7 @@ async fn main() {
     }
 }
 
-async fn handle_command(
-    dht: &MainlineDht,
-    events: &mut mpsc::UnboundedReceiver<DhtEvent>,
-    command: &str,
-) -> io::Result<bool> {
+async fn handle_command(dht: &MainlineDht, command: &str) -> io::Result<bool> {
     match command.parse() {
         Ok(Command::Help) => {
             println!("    h               shows this help message");
@@ -107,37 +96,26 @@ async fn handle_command(
                 println!("searching for {:?}...", info_hash)
             }
 
-            dht.search(info_hash, announce);
-
-            let start = Instant::now();
             let mut peers = HashSet::new();
+            let start = Instant::now();
 
-            while let Some(event) = events.recv().await {
-                match event {
-                    DhtEvent::PeerFound(event_info_hash, addr) if event_info_hash == info_hash => {
-                        if peers.insert(addr) {
-                            println!("peer found: {}", addr);
-                        }
-                    }
-                    DhtEvent::LookupCompleted(event_info_hash) if event_info_hash == info_hash => {
-                        let elapsed = start.elapsed();
-                        println!(
-                            "search completed: found {} peers in {}.{:03} seconds",
-                            peers.len(),
-                            elapsed.as_secs(),
-                            elapsed.subsec_millis()
-                        );
-                        return Ok(true);
-                    }
-                    DhtEvent::BootstrapCompleted
-                    | DhtEvent::BootstrapFailed
-                    | DhtEvent::PeerFound(..)
-                    | DhtEvent::LookupCompleted(_) => println!("unexpected event: {:?}", event),
+            let mut search = dht.search(info_hash, announce);
+
+            while let Some(addr) = search.next().await {
+                if peers.insert(addr) {
+                    println!("peer found: {}", addr);
                 }
             }
 
-            println!("unexpected shutdown");
-            Ok(false)
+            let elapsed = start.elapsed();
+            println!(
+                "search completed: found {} peers in {}.{:03} seconds",
+                peers.len(),
+                elapsed.as_secs(),
+                elapsed.subsec_millis()
+            );
+
+            Ok(true)
         }
         Ok(Command::Quit) => Ok(false),
         Err(_) => {

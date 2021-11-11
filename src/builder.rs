@@ -1,9 +1,15 @@
 use crate::{
     id::{InfoHash, NodeId},
     routing::table::RoutingTable,
-    worker::{DhtEvent, DhtHandler, OneshotTask, Socket},
+    worker::{DhtEvent, DhtHandler, OneshotTask, Socket, StartLookup},
 };
-use std::{collections::HashSet, net::SocketAddr};
+use futures_util::Stream;
+use std::{
+    collections::HashSet,
+    net::SocketAddr,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use tokio::{net::UdpSocket, sync::mpsc, task};
 
 /// Maintains a Distributed Hash (Routing) Table.
@@ -76,14 +82,34 @@ impl MainlineDht {
     ///
     /// If the initial bootstrap has not finished, the search will be queued and executed once
     /// the bootstrap has completed.
-    pub fn search(&self, hash: InfoHash, announce: bool) {
+    pub fn search(&self, info_hash: InfoHash, announce: bool) -> SearchStream {
+        let (tx, rx) = mpsc::unbounded_channel();
+
         if self
             .send
-            .send(OneshotTask::StartLookup(hash, announce))
+            .send(OneshotTask::StartLookup(StartLookup {
+                info_hash,
+                announce,
+                tx,
+            }))
             .is_err()
         {
             error!("failed to start search - DhtHandler has shut down");
         }
+
+        SearchStream(rx)
+    }
+}
+
+/// Stream returned from [`MainlineDht::search()`]
+#[must_use = "streams do nothing unless polled"]
+pub struct SearchStream(mpsc::UnboundedReceiver<SocketAddr>);
+
+impl Stream for SearchStream {
+    type Item = SocketAddr;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0).poll_recv(cx)
     }
 }
 

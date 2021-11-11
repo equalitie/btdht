@@ -2,6 +2,7 @@ pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, io, net::SocketAddr};
 use thiserror::Error;
+use tokio::sync::mpsc;
 
 mod bootstrap;
 mod handler;
@@ -11,12 +12,17 @@ mod socket;
 mod timer;
 
 /// Task that our DHT will execute immediately.
-#[derive(Clone)]
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
     /// Start a lookup for the given InfoHash.
-    StartLookup(InfoHash, bool),
+    StartLookup(StartLookup),
+}
+
+pub(crate) struct StartLookup {
+    pub info_hash: InfoHash,
+    pub announce: bool,
+    pub tx: mpsc::UnboundedSender<SocketAddr>,
 }
 
 /// Task that our DHT will execute some time later.
@@ -39,10 +45,6 @@ pub enum DhtEvent {
     BootstrapCompleted,
     /// The bootstrap failed.
     BootstrapFailed,
-    /// Lookup operation for the given InfoHash found a peer.
-    PeerFound(InfoHash, SocketAddr),
-    /// Lookup operation for the given InfoHash completed.
-    LookupCompleted(InfoHash),
 }
 
 #[derive(Error, Debug)]
