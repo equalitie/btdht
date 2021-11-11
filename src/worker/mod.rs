@@ -2,6 +2,7 @@ pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, io, net::SocketAddr};
 use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
 
 mod bootstrap;
 mod handler;
@@ -11,12 +12,19 @@ mod socket;
 mod timer;
 
 /// Task that our DHT will execute immediately.
-#[derive(Clone)]
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
+    /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
+    CheckBootstrap(oneshot::Sender<bool>),
     /// Start a lookup for the given InfoHash.
-    StartLookup(InfoHash, bool),
+    StartLookup(StartLookup),
+}
+
+pub(crate) struct StartLookup {
+    pub info_hash: InfoHash,
+    pub announce: bool,
+    pub tx: mpsc::UnboundedSender<SocketAddr>,
 }
 
 /// Task that our DHT will execute some time later.
@@ -32,19 +40,6 @@ pub(crate) enum ScheduledTaskCheck {
     LookupEndGame(TransactionID),
 }
 
-/// Event that occured within the DHT which clients may be interested in.
-#[derive(Copy, Clone, Debug)]
-pub enum DhtEvent {
-    /// DHT completed the bootstrap.
-    BootstrapCompleted,
-    /// The bootstrap failed.
-    BootstrapFailed,
-    /// Lookup operation for the given InfoHash found a peer.
-    PeerFound(InfoHash, SocketAddr),
-    /// Lookup operation for the given InfoHash completed.
-    LookupCompleted(InfoHash),
-}
-
 #[derive(Error, Debug)]
 pub(crate) enum WorkerError {
     #[error("invalid bencode data")]
@@ -55,4 +50,12 @@ pub(crate) enum WorkerError {
     UnsolicitedResponse,
     #[error("socket error")]
     SocketError(#[from] io::Error),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ActionStatus {
+    /// Action is in progress
+    Ongoing,
+    /// Action completed
+    Completed,
 }
