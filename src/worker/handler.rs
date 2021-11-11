@@ -1,10 +1,7 @@
 use super::{
-    bootstrap::{BootstrapStatus, TableBootstrap},
-    lookup::{LookupStatus, TableLookup},
-    refresh::TableRefresh,
-    socket::Socket,
-    timer::Timer,
-    DhtEvent, OneshotTask, ScheduledTaskCheck, StartLookup, WorkerError,
+    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
+    timer::Timer, ActionStatus, DhtEvent, OneshotTask, ScheduledTaskCheck, StartLookup,
+    WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -360,8 +357,8 @@ impl DhtHandler {
                         )
                         .await
                     {
-                        BootstrapStatus::Ongoing => false,
-                        BootstrapStatus::Completed => {
+                        ActionStatus::Ongoing => false,
+                        ActionStatus::Completed => {
                             if should_rebootstrap(&self.routing_table) {
                                 match attempt_rebootstrap(
                                     bootstrap,
@@ -437,8 +434,8 @@ impl DhtHandler {
                     )
                     .await
                 {
-                    LookupStatus::Ongoing => (),
-                    LookupStatus::Completed => self.handle_lookup_completed(trans_id).await,
+                    ActionStatus::Ongoing => (),
+                    ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
                 }
             }
             MessageBody::Error(e) => {
@@ -472,8 +469,8 @@ impl DhtHandler {
         let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Ongoing => false,
-            BootstrapStatus::Completed => {
+            ActionStatus::Ongoing => false,
+            ActionStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
                     match attempt_rebootstrap(
@@ -525,8 +522,8 @@ impl DhtHandler {
             .await;
 
         let bootstrap_complete = match bootstrap_status {
-            BootstrapStatus::Ongoing => false,
-            BootstrapStatus::Completed => {
+            ActionStatus::Ongoing => false,
+            ActionStatus::Completed => {
                 // Check if our bootstrap was actually good
                 if should_rebootstrap(&self.routing_table) {
                     match attempt_rebootstrap(
@@ -617,8 +614,8 @@ impl DhtHandler {
             .await;
 
         match lookup_status {
-            LookupStatus::Ongoing => (),
-            LookupStatus::Completed => self.handle_lookup_completed(trans_id).await,
+            ActionStatus::Ongoing => (),
+            ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
         }
     }
 
@@ -728,8 +725,8 @@ async fn attempt_rebootstrap(
                 .await;
 
             match bootstrap_status {
-                BootstrapStatus::Ongoing => return Some(true),
-                BootstrapStatus::Completed => {
+                ActionStatus::Ongoing => return Some(true),
+                ActionStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
                         return Some(false);
                     }

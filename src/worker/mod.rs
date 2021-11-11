@@ -58,3 +58,11 @@ pub(crate) enum WorkerError {
     #[error("socket error")]
     SocketError(#[from] io::Error),
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ActionStatus {
+    /// Action is in progress
+    Ongoing,
+    /// Action completed
+    Completed,
+}

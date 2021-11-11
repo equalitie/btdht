@@ -1,7 +1,7 @@
 use super::{
     socket::Socket,
     timer::{Timeout, Timer},
-    ScheduledTaskCheck,
+    ActionStatus, ScheduledTaskCheck,
 };
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
@@ -9,22 +9,16 @@ use crate::routing::node::NodeStatus;
 use crate::routing::table::{self, RoutingTable};
 use crate::transaction::{ActionID, MIDGenerator, TransactionID};
 use crate::{id::NodeId, routing::node::NodeHandle};
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    time::Duration,
+};
 
 const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
 
 const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BootstrapStatus {
-    /// Bootstrap is in progress.
-    Ongoing,
-    /// Bootstrap just finished.
-    Completed,
-}
 
 pub(crate) struct TableBootstrap {
     id_generator: MIDGenerator,
@@ -58,7 +52,7 @@ impl TableBootstrap {
         table_id: NodeId,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus {
+    ) -> ActionStatus {
         // Reset the bootstrap state
         self.active_messages.clear();
         self.curr_bootstrap_bucket = 0;
@@ -109,9 +103,9 @@ impl TableBootstrap {
         }
 
         if self.initial_responses_expected > 0 {
-            BootstrapStatus::Ongoing
+            ActionStatus::Ongoing
         } else {
-            BootstrapStatus::Completed
+            ActionStatus::Completed
         }
     }
 
@@ -130,13 +124,13 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus {
+    ) -> ActionStatus {
         // Process the message transaction id
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
             warn!("Received expired/unsolicited node response for an active table bootstrap");
-            return BootstrapStatus::Ongoing;
+            return ActionStatus::Ongoing;
         };
 
         // In the initial round all the messages have the same transaction id so clear it only after
@@ -158,7 +152,7 @@ impl TableBootstrap {
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            BootstrapStatus::Ongoing
+            ActionStatus::Ongoing
         }
     }
 
@@ -168,17 +162,17 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus {
+    ) -> ActionStatus {
         if self.active_messages.remove(trans_id).is_none() {
             warn!("Received expired/unsolicited node timeout for an active table bootstrap");
-            return BootstrapStatus::Ongoing;
+            return ActionStatus::Ongoing;
         }
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            BootstrapStatus::Ongoing
+            ActionStatus::Ongoing
         }
     }
 
@@ -187,10 +181,10 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> BootstrapStatus {
+    ) -> ActionStatus {
         loop {
             if self.curr_bootstrap_bucket >= table::MAX_BUCKETS {
-                return BootstrapStatus::Completed;
+                return ActionStatus::Completed;
             }
 
             let target_id = table.node_id().flip_bit(self.curr_bootstrap_bucket);
@@ -245,7 +239,7 @@ impl TableBootstrap {
                 .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
                 .await
             {
-                return BootstrapStatus::Ongoing;
+                return ActionStatus::Ongoing;
             }
         }
     }

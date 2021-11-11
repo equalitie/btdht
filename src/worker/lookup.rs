@@ -1,7 +1,7 @@
 use super::{
     socket::Socket,
     timer::{Timeout, Timer},
-    ScheduledTaskCheck,
+    ActionStatus, ScheduledTaskCheck,
 };
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
@@ -33,12 +33,6 @@ const ANNOUNCE_PICK_NUM: usize = 8; // # Announces
 
 type Distance = Id;
 type DistanceToBeat = Id;
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum LookupStatus {
-    Ongoing,
-    Completed,
-}
 
 pub(crate) struct TableLookup {
     target_id: InfoHash,
@@ -123,7 +117,7 @@ impl TableLookup {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> LookupStatus {
+    ) -> ActionStatus {
         // Process the message transaction id
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
@@ -232,7 +226,7 @@ impl TableLookup {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> LookupStatus {
+    ) -> ActionStatus {
         if self.active_lookups.remove(trans_id).is_none() {
             warn!("Received expired/unsolicited node timeout for an active table lookup");
             return self.current_lookup_status();
@@ -297,11 +291,11 @@ impl TableLookup {
         self.in_endgame = false;
     }
 
-    fn current_lookup_status(&self) -> LookupStatus {
+    fn current_lookup_status(&self) -> ActionStatus {
         if self.in_endgame || !self.active_lookups.is_empty() {
-            LookupStatus::Ongoing
+            ActionStatus::Ongoing
         } else {
-            LookupStatus::Completed
+            ActionStatus::Completed
         }
     }
 
@@ -311,7 +305,7 @@ impl TableLookup {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> LookupStatus
+    ) -> ActionStatus
     where
         I: Iterator<Item = (&'a NodeHandle, DistanceToBeat)>,
     {
@@ -358,9 +352,9 @@ impl TableLookup {
 
         if messages_sent == 0 {
             self.active_lookups.clear();
-            LookupStatus::Completed
+            ActionStatus::Completed
         } else {
-            LookupStatus::Ongoing
+            ActionStatus::Ongoing
         }
     }
 
@@ -369,7 +363,7 @@ impl TableLookup {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> LookupStatus {
+    ) -> ActionStatus {
         // Entering the endgame phase
         self.in_endgame = true;
 
@@ -418,7 +412,7 @@ impl TableLookup {
             }
         }
 
-        LookupStatus::Ongoing
+        ActionStatus::Ongoing
     }
 }
 
