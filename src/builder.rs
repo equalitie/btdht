@@ -1,7 +1,7 @@
 use crate::{
     id::{InfoHash, NodeId},
     routing::table::RoutingTable,
-    worker::{DhtEvent, DhtHandler, OneshotTask, Socket, StartLookup},
+    worker::{DhtHandler, OneshotTask, Socket, StartLookup},
 };
 use futures_util::Stream;
 use std::{
@@ -10,7 +10,11 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::{net::UdpSocket, sync::mpsc, task};
+use tokio::{
+    net::UdpSocket,
+    sync::{mpsc, oneshot},
+    task,
+};
 
 /// Maintains a Distributed Hash (Routing) Table.
 ///
@@ -42,12 +46,8 @@ impl MainlineDht {
     }
 
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(
-        builder: DhtBuilder,
-        socket: UdpSocket,
-    ) -> (Self, mpsc::UnboundedReceiver<DhtEvent>) {
+    fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
-        let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         // TODO: Utilize the security extension.
         let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
@@ -57,7 +57,6 @@ impl MainlineDht {
             builder.read_only,
             builder.announce_port,
             command_rx,
-            event_tx,
         );
 
         if command_tx
@@ -71,7 +70,20 @@ impl MainlineDht {
 
         task::spawn(handler.run());
 
-        (Self { send: command_tx }, event_rx)
+        Self { send: command_tx }
+    }
+
+    /// Waits until the DHT bootstrap completes, or returns immediately if it already completed.
+    /// Returns whether the bootstrap was successful.
+    pub async fn bootstrapped(&self) -> bool {
+        let (tx, rx) = oneshot::channel();
+
+        if self.send.send(OneshotTask::CheckBootstrap(tx)).is_err() {
+            // handler has shut down, consider this as bootstrap failure.
+            false
+        } else {
+            rx.await.unwrap_or(false)
+        }
     }
 
     /// Perform a search for the given InfoHash with an optional announce on the closest nodes.
@@ -178,7 +190,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(self, socket: UdpSocket) -> (MainlineDht, mpsc::UnboundedReceiver<DhtEvent>) {
+    pub fn start(self, socket: UdpSocket) -> MainlineDht {
         MainlineDht::with_builder(self, socket)
     }
 }

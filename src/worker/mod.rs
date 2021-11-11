@@ -2,7 +2,7 @@ pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, io, net::SocketAddr};
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 mod bootstrap;
 mod handler;
@@ -15,6 +15,8 @@ mod timer;
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
+    /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
+    CheckBootstrap(oneshot::Sender<bool>),
     /// Start a lookup for the given InfoHash.
     StartLookup(StartLookup),
 }
@@ -36,15 +38,6 @@ pub(crate) enum ScheduledTaskCheck {
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
     LookupEndGame(TransactionID),
-}
-
-/// Event that occured within the DHT which clients may be interested in.
-#[derive(Copy, Clone, Debug)]
-pub enum DhtEvent {
-    /// DHT completed the bootstrap.
-    BootstrapCompleted,
-    /// The bootstrap failed.
-    BootstrapFailed,
 }
 
 #[derive(Error, Debug)]

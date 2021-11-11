@@ -1,4 +1,4 @@
-use btdht::{router, DhtEvent, InfoHash, LengthError, MainlineDht};
+use btdht::{router, InfoHash, LengthError, MainlineDht};
 use futures_util::StreamExt;
 use std::{
     collections::HashSet,
@@ -19,7 +19,7 @@ async fn main() {
     let addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0));
     let socket = UdpSocket::bind(addr).await.unwrap();
 
-    let (dht, mut events) = MainlineDht::builder()
+    let dht = MainlineDht::builder()
         .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
         .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
         .set_read_only(false)
@@ -27,25 +27,22 @@ async fn main() {
 
     println!("bootstrapping...");
     let start = Instant::now();
+    let status = dht.bootstrapped().await;
+    let elapsed = start.elapsed();
 
-    match events.recv().await.unwrap() {
-        DhtEvent::BootstrapCompleted => {
-            let elapsed = start.elapsed();
-            println!(
-                "bootstrap completed in {}.{:03} seconds",
-                elapsed.as_secs(),
-                elapsed.subsec_millis()
-            );
-        }
-        DhtEvent::BootstrapFailed => {
-            let elapsed = start.elapsed();
-            println!(
-                "bootstrap failed in {}.{:03} seconds",
-                elapsed.as_secs(),
-                elapsed.subsec_millis()
-            );
-            return;
-        }
+    if status {
+        println!(
+            "bootstrap completed in {}.{:03} seconds",
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
+    } else {
+        println!(
+            "bootstrap failed in {}.{:03} seconds",
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
+        return;
     }
 
     let mut stdout = io::stdout();
