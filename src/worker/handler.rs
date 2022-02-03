@@ -388,8 +388,11 @@ impl DhtHandler {
                     return Err(WorkerError::UnsolicitedResponse);
                 }
 
-                if log_enabled!(log::Level::Info) {
+                trace!("{}", {
+                    use std::fmt::Write;
+
                     let mut total = 0;
+                    let mut buffer = String::new();
 
                     for (index, bucket) in self.routing_table.buckets().enumerate() {
                         let num_nodes = bucket
@@ -399,12 +402,14 @@ impl DhtHandler {
                         total += num_nodes;
 
                         if num_nodes != 0 {
-                            print!("Bucket {}: {} | ", index, num_nodes);
+                            write!(&mut buffer, "Bucket {}: {} | ", index, num_nodes).ok();
                         }
                     }
 
-                    print!("\nTotal: {}\n\n\n", total);
-                }
+                    write!(&mut buffer, "Total: {}", total).ok();
+
+                    buffer
+                });
             }
             MessageBody::Response(Response::GetPeers(g)) => {
                 info!("Received a GetPeersResponse");
