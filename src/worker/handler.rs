@@ -17,11 +17,11 @@ use crate::{
     transaction::{AIDGenerator, ActionID, TransactionID},
 };
 use futures_util::StreamExt;
-use std::convert::AsRef;
-use std::net::SocketAddr;
 use std::{
     collections::{HashMap, HashSet},
-    mem,
+    convert::AsRef,
+    io, mem,
+    net::SocketAddr,
 };
 use tokio::{
     select,
@@ -131,6 +131,7 @@ impl DhtHandler {
             OneshotTask::StartLookup(lookup) => {
                 self.handle_start_lookup(lookup).await;
             }
+            OneshotTask::GetLocalAddr(tx) => self.handle_get_local_addr(tx),
         }
     }
 
@@ -597,6 +598,10 @@ impl DhtHandler {
             .await;
             self.lookups.insert(action_id, lookup);
         }
+    }
+
+    fn handle_get_local_addr(&self, tx: oneshot::Sender<io::Result<SocketAddr>>) {
+        tx.send(self.socket.local_addr()).unwrap_or(())
     }
 
     async fn handle_check_lookup_timeout(&mut self, trans_id: TransactionID) {

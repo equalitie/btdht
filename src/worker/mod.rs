@@ -19,6 +19,8 @@ pub(crate) enum OneshotTask {
     CheckBootstrap(oneshot::Sender<bool>),
     /// Start a lookup for the given InfoHash.
     StartLookup(StartLookup),
+    /// Get the local address the socket is bound to.
+    GetLocalAddr(oneshot::Sender<io::Result<SocketAddr>>),
 }
 
 pub(crate) struct StartLookup {

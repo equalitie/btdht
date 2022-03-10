@@ -6,6 +6,7 @@ use crate::{
 use futures_util::Stream;
 use std::{
     collections::HashSet,
+    io,
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
@@ -110,6 +111,21 @@ impl MainlineDht {
         }
 
         SearchStream(rx)
+    }
+
+    /// Get the local address this DHT instance is bound to
+    pub async fn local_addr(&self) -> io::Result<SocketAddr> {
+        let (tx, rx) = oneshot::channel();
+
+        fn error() -> io::Error {
+            io::Error::new(io::ErrorKind::Other, "DhtHandler has shut down")
+        }
+
+        self.send
+            .send(OneshotTask::GetLocalAddr(tx))
+            .map_err(|_| error())?;
+
+        rx.await.map_err(|_| error())?
     }
 }
 
