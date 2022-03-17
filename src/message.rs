@@ -10,7 +10,7 @@ use serde::{
 };
 use std::{fmt, net::SocketAddr};
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Message {
     #[serde(rename = "t", with = "serde_bytes")]
     pub transaction_id: Vec<u8>,
@@ -32,7 +32,28 @@ impl Message {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Message")
+            .field("transaction_id", &HexFmt(&self.transaction_id))
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+struct HexFmt<'a>(&'a [u8]);
+
+impl fmt::Debug for HexFmt<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for b in self.0 {
+            write!(f, "{:02x}", b)?;
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "y")]
 pub(crate) enum MessageBody {
     #[serde(rename = "q")]
@@ -41,6 +62,20 @@ pub(crate) enum MessageBody {
     Response(Response),
     #[serde(rename = "e", with = "unflatten::error")]
     Error(Error),
+}
+
+impl fmt::Debug for MessageBody {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Request(Request::Ping(r)) => r.fmt(f),
+            Self::Request(Request::FindNode(r)) => r.fmt(f),
+            Self::Request(Request::GetPeers(r)) => r.fmt(f),
+            Self::Request(Request::AnnouncePeer(r)) => r.fmt(f),
+            Self::Response(Response::GetPeers(r)) => r.fmt(f),
+            Self::Response(Response::Other(r)) => r.fmt(f),
+            Self::Error(e) => e.fmt(f),
+        }
+    }
 }
 
 // Opposite of `serde(flatten)` - artificially add one level of nesting to a field.

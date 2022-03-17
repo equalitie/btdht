@@ -35,7 +35,7 @@ impl TableRefresh {
         }
         let target_id = table.node_id().flip_bit(self.curr_refresh_bucket);
 
-        info!(
+        log::info!(
             "Performing a refresh for bucket {}",
             self.curr_refresh_bucket
         );
@@ -62,7 +62,7 @@ impl TableRefresh {
 
             // Send the message
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {
-                error!("TableRefresh failed to send a refresh message: {}", error);
+                log::error!("TableRefresh failed to send a refresh message: {}", error);
             }
 
             // Mark that we requested from the node

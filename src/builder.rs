@@ -107,7 +107,7 @@ impl MainlineDht {
             }))
             .is_err()
         {
-            error!("failed to start search - DhtHandler has shut down");
+            log::error!("failed to start search - DhtHandler has shut down");
         }
 
         SearchStream(rx)

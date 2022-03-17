@@ -138,6 +138,31 @@ impl RoutingTable {
     }
 }
 
+// fn log_routing_table_stats(&self) {
+//     log::trace!("{}", {
+//         use std::fmt::Write;
+
+//         let mut total = 0;
+//         let mut buffer = String::new();
+
+//         for (index, bucket) in self.routing_table.buckets().enumerate() {
+//             let num_nodes = bucket
+//                 .iter()
+//                 .filter(|n| n.status() == NodeStatus::Good)
+//                 .count();
+//             total += num_nodes;
+
+//             if num_nodes != 0 {
+//                 write!(&mut buffer, "Bucket {}: {} | ", index, num_nodes).ok();
+//             }
+//         }
+
+//         write!(&mut buffer, "Total: {}", total).ok();
+
+//         buffer
+//     });
+// }
+
 /// Returns true if the bucket can be split.
 fn can_split_bucket(num_buckets: usize, bucket_index: usize) -> bool {
     bucket_index == num_buckets - 1 && bucket_index != MAX_BUCKETS - 1
