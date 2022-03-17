@@ -9,7 +9,7 @@ use crate::{
         Response, Want,
     },
     routing::{
-        node::{Node, NodeHandle, NodeStatus},
+        node::{Node, NodeHandle},
         table::RoutingTable,
     },
     storage::AnnounceStorage,
@@ -22,6 +22,7 @@ use std::{
     convert::AsRef,
     io, mem,
     net::SocketAddr,
+    time::Duration,
 };
 use tokio::{
     select,
@@ -30,6 +31,7 @@ use tokio::{
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
+const LOG_TABLE_STATS_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
@@ -69,10 +71,13 @@ impl DhtHandler {
         let mid_generator = aid_generator.generate();
         let table_refresh = TableRefresh::new(mid_generator);
 
+        let mut timer = Timer::new();
+        timer.schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
+
         Self {
             running: true,
             command_rx,
-            timer: Timer::new(),
+            timer,
             read_only,
             announce_port,
             socket,
@@ -112,9 +117,9 @@ impl DhtHandler {
             message = self.socket.recv() => {
                 match message {
                     Ok((buffer, addr)) => if let Err(error) = self.handle_incoming(&buffer, addr).await {
-                        error!("Failed to handle incoming message: {}", error);
+                        log::warn!("Failed to handle incoming message: {}", error);
                     }
-                    Err(error) => error!("Failed to receive incoming message: {}", error),
+                    Err(error) => log::warn!("Failed to receive incoming message: {}", error),
                 }
             }
         }
@@ -149,6 +154,9 @@ impl DhtHandler {
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 self.handle_check_lookup_endgame(trans_id).await;
             }
+            ScheduledTaskCheck::LogTableStats => {
+                self.handle_log_table_stats();
+            }
         }
     }
 
@@ -167,10 +175,11 @@ impl DhtHandler {
             return Ok(());
         }
 
+        log::trace!("Received {:?}", message);
+
         // Process the given message
         match message.body {
             MessageBody::Request(Request::Ping(p)) => {
-                info!("Received a PingRequest");
                 let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -192,7 +201,6 @@ impl DhtHandler {
                 self.socket.send(&ping_msg, addr).await?
             }
             MessageBody::Request(Request::FindNode(f)) => {
-                info!("Received a FindNodeRequest");
                 let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -216,7 +224,6 @@ impl DhtHandler {
                 self.socket.send(&find_node_msg, addr).await?
             }
             MessageBody::Request(Request::GetPeers(g)) => {
-                info!("Received a GetPeersRequest");
                 let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -262,7 +269,6 @@ impl DhtHandler {
                 self.socket.send(&get_peers_msg, addr).await?
             }
             MessageBody::Request(Request::AnnouncePeer(a)) => {
-                info!("Received an AnnouncePeerRequest");
                 let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
@@ -289,7 +295,7 @@ impl DhtHandler {
                 // Resolve type of response we are going to send
                 let response_msg = if !is_valid {
                     // Node gave us an invalid token
-                    warn!("Remote node sent us an invalid token for an AnnounceRequest");
+                    log::warn!("Remote node sent us an invalid token for an AnnounceRequest");
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Error(Error {
@@ -312,7 +318,9 @@ impl DhtHandler {
                 } else {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
-                    warn!("AnnounceStorage failed to store contact information because it is full");
+                    log::warn!(
+                        "AnnounceStorage failed to store contact information because it is full"
+                    );
 
                     Message {
                         transaction_id: message.transaction_id,
@@ -327,7 +335,6 @@ impl DhtHandler {
                 self.socket.send(&response_msg, addr).await?
             }
             MessageBody::Response(Response::Other(f)) => {
-                info!("Received a OtherResponse");
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(f.id, addr);
@@ -388,33 +395,8 @@ impl DhtHandler {
                 } else {
                     return Err(WorkerError::UnsolicitedResponse);
                 }
-
-                trace!("{}", {
-                    use std::fmt::Write;
-
-                    let mut total = 0;
-                    let mut buffer = String::new();
-
-                    for (index, bucket) in self.routing_table.buckets().enumerate() {
-                        let num_nodes = bucket
-                            .iter()
-                            .filter(|n| n.status() == NodeStatus::Good)
-                            .count();
-                        total += num_nodes;
-
-                        if num_nodes != 0 {
-                            write!(&mut buffer, "Bucket {}: {} | ", index, num_nodes).ok();
-                        }
-                    }
-
-                    write!(&mut buffer, "Total: {}", total).ok();
-
-                    buffer
-                });
             }
             MessageBody::Response(Response::GetPeers(g)) => {
-                info!("Received a GetPeersResponse");
-
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(g.id, addr);
@@ -441,9 +423,7 @@ impl DhtHandler {
                     ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
                 }
             }
-            MessageBody::Error(e) => {
-                warn!("Received an ErrorMessage from {}: {:?}", addr, e);
-            }
+            MessageBody::Error(_) => (),
         }
 
         Ok(())
@@ -512,7 +492,7 @@ impl DhtHandler {
         {
             bootstrap
         } else {
-            error!("Bootstrap timeout expired but no bootstrap is in progress");
+            log::error!("Bootstrap timeout expired but no bootstrap is in progress");
             return;
         };
 
@@ -608,7 +588,7 @@ impl DhtHandler {
         let lookup = if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
             lookup
         } else {
-            error!("Resolved a TransactionID to a check table lookup but no action found");
+            log::error!("Resolved a TransactionID to a check table lookup but no action found");
             return;
         };
 
@@ -635,7 +615,7 @@ impl DhtHandler {
         let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
             lookup
         } else {
-            error!("Lookup not found");
+            log::error!("Lookup not found");
             return;
         };
 
@@ -648,6 +628,12 @@ impl DhtHandler {
         self.refresh
             .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             .await
+    }
+
+    fn handle_log_table_stats(&mut self) {
+        self.routing_table.log_stats();
+        self.timer
+            .schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
     }
 
     fn shutdown(&mut self) {
@@ -714,7 +700,7 @@ async fn attempt_rebootstrap(
         // Increment the bootstrap counter
         *attempts += 1;
 
-        warn!(
+        log::warn!(
             "Bootstrap attempt {} failed, attempting a rebootstrap",
             *attempts
         );

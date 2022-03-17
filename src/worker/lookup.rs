@@ -122,7 +122,7 @@ impl TableLookup {
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
         } else {
-            warn!("Received expired/unsolicited node response for an active table lookup");
+            log::warn!("Received expired/unsolicited node response for an active table lookup");
             return self.current_lookup_status();
         };
 
@@ -138,7 +138,7 @@ impl TableLookup {
             Ok(SocketAddr::V4(_)) => msg.nodes_v4,
             Ok(SocketAddr::V6(_)) => msg.nodes_v6,
             Err(error) => {
-                error!("Failed to retreive local socket address: {}", error);
+                log::error!("Failed to retreive local socket address: {}", error);
                 vec![]
             }
         };
@@ -228,7 +228,7 @@ impl TableLookup {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
         if self.active_lookups.remove(trans_id).is_none() {
-            warn!("Received expired/unsolicited node timeout for an active table lookup");
+            log::warn!("Received expired/unsolicited node timeout for an active table lookup");
             return self.current_lookup_status();
         }
 
@@ -281,7 +281,9 @@ impl TableLookup {
                             n.local_request()
                         }
                     }
-                    Err(error) => error!("TableLookup announce request failed to send: {}", error),
+                    Err(error) => {
+                        log::error!("TableLookup announce request failed to send: {}", error)
+                    }
                 }
             }
         }
@@ -335,7 +337,7 @@ impl TableLookup {
             .encode();
 
             if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                error!("Could not send a lookup message: {}", error);
+                log::error!("Could not send a lookup message: {}", error);
                 continue;
             }
 
@@ -398,7 +400,7 @@ impl TableLookup {
                 .encode();
 
                 if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                    error!("Could not send an endgame message: {}", error);
+                    log::error!("Could not send an endgame message: {}", error);
                     continue;
                 }
 

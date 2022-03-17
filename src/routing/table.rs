@@ -45,6 +45,13 @@ impl RoutingTable {
             .count()
     }
 
+    /// Number of questionable nodes in the RoutingTable.
+    pub fn num_questionable_nodes(&self) -> usize {
+        self.closest_nodes(self.node_id())
+            .filter(|n| n.status() == NodeStatus::Questionable)
+            .count()
+    }
+
     /// Iterator over all buckets in the routing table.
     pub fn buckets(&self) -> impl Iterator<Item = &Bucket> + ExactSizeIterator {
         self.buckets.iter()
@@ -135,6 +142,14 @@ impl RoutingTable {
         }
 
         true
+    }
+
+    pub fn log_stats(&self) {
+        log::debug!(
+            "Nodes: {} good + {} questionable",
+            self.num_good_nodes(),
+            self.num_questionable_nodes()
+        )
     }
 }
 

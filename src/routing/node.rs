@@ -156,7 +156,7 @@ impl Debug for Node {
 }
 
 /// Node id + its socket address.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct NodeHandle {
     pub id: NodeId,
     pub addr: SocketAddr,
@@ -165,6 +165,12 @@ pub struct NodeHandle {
 impl NodeHandle {
     pub fn new(id: NodeId, addr: SocketAddr) -> Self {
         Self { id, addr }
+    }
+}
+
+impl Debug for NodeHandle {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{:?}@{:?}", self.id, self.addr)
     }
 }
 

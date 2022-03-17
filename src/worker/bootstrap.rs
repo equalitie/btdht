@@ -98,7 +98,7 @@ impl TableBootstrap {
                         self.initial_responses_expected += 1
                     }
                 }
-                Err(error) => error!("Failed to send bootstrap message to router: {}", error),
+                Err(error) => log::error!("Failed to send bootstrap message to router: {}", error),
             }
         }
 
@@ -129,7 +129,7 @@ impl TableBootstrap {
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
-            warn!("Received expired/unsolicited node response for an active table bootstrap");
+            log::warn!("Received expired/unsolicited node response for an active table bootstrap");
             return ActionStatus::Ongoing;
         };
 
@@ -164,7 +164,7 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
         if self.active_messages.remove(trans_id).is_none() {
-            warn!("Received expired/unsolicited node timeout for an active table bootstrap");
+            log::warn!("Received expired/unsolicited node timeout for an active table bootstrap");
             return ActionStatus::Ongoing;
         }
 
@@ -278,7 +278,7 @@ impl TableBootstrap {
 
             // Send the message to the node
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {
-                error!("Could not send a bootstrap message: {}", error);
+                log::error!("Could not send a bootstrap message: {}", error);
                 continue;
             }
 
