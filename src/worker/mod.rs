@@ -40,6 +40,8 @@ pub(crate) enum ScheduledTaskCheck {
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
     LookupEndGame(TransactionID),
+    /// Log routing table stats
+    LogTableStats,
 }
 
 #[derive(Error, Debug)]

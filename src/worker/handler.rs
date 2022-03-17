@@ -22,6 +22,7 @@ use std::{
     convert::AsRef,
     io, mem,
     net::SocketAddr,
+    time::Duration,
 };
 use tokio::{
     select,
@@ -30,6 +31,7 @@ use tokio::{
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
+const LOG_TABLE_STATS_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
@@ -69,10 +71,13 @@ impl DhtHandler {
         let mid_generator = aid_generator.generate();
         let table_refresh = TableRefresh::new(mid_generator);
 
+        let mut timer = Timer::new();
+        timer.schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
+
         Self {
             running: true,
             command_rx,
-            timer: Timer::new(),
+            timer,
             read_only,
             announce_port,
             socket,
@@ -148,6 +153,9 @@ impl DhtHandler {
             }
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 self.handle_check_lookup_endgame(trans_id).await;
+            }
+            ScheduledTaskCheck::LogTableStats => {
+                self.handle_log_table_stats();
             }
         }
     }
@@ -620,6 +628,12 @@ impl DhtHandler {
         self.refresh
             .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             .await
+    }
+
+    fn handle_log_table_stats(&mut self) {
+        self.routing_table.log_stats();
+        self.timer
+            .schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
     }
 
     fn shutdown(&mut self) {

@@ -45,6 +45,13 @@ impl RoutingTable {
             .count()
     }
 
+    /// Number of questionable nodes in the RoutingTable.
+    pub fn num_questionable_nodes(&self) -> usize {
+        self.closest_nodes(self.node_id())
+            .filter(|n| n.status() == NodeStatus::Questionable)
+            .count()
+    }
+
     /// Iterator over all buckets in the routing table.
     pub fn buckets(&self) -> impl Iterator<Item = &Bucket> + ExactSizeIterator {
         self.buckets.iter()
@@ -136,32 +143,15 @@ impl RoutingTable {
 
         true
     }
+
+    pub fn log_stats(&self) {
+        log::debug!(
+            "Nodes: {} good + {} questionable",
+            self.num_good_nodes(),
+            self.num_questionable_nodes()
+        )
+    }
 }
-
-// fn log_routing_table_stats(&self) {
-//     log::trace!("{}", {
-//         use std::fmt::Write;
-
-//         let mut total = 0;
-//         let mut buffer = String::new();
-
-//         for (index, bucket) in self.routing_table.buckets().enumerate() {
-//             let num_nodes = bucket
-//                 .iter()
-//                 .filter(|n| n.status() == NodeStatus::Good)
-//                 .count();
-//             total += num_nodes;
-
-//             if num_nodes != 0 {
-//                 write!(&mut buffer, "Bucket {}: {} | ", index, num_nodes).ok();
-//             }
-//         }
-
-//         write!(&mut buffer, "Total: {}", total).ok();
-
-//         buffer
-//     });
-// }
 
 /// Returns true if the bucket can be split.
 fn can_split_bucket(num_buckets: usize, bucket_index: usize) -> bool {
