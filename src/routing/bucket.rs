@@ -35,7 +35,6 @@ impl Bucket {
     }
 
     /// Iterator over all good nodes in the bucket.
-    #[cfg(test)]
     pub fn good_nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes
             .iter()
