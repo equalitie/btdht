@@ -45,6 +45,7 @@ pub(crate) struct DhtHandler {
     aid_generator: AIDGenerator,
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
+    routers: HashSet<SocketAddr>,
     // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attempts.
     bootstrap: Option<(TableBootstrap, usize)>,
     bootstrap_txs: Vec<oneshot::Sender<bool>>,
@@ -85,6 +86,7 @@ impl DhtHandler {
             aid_generator,
             routing_table: table,
             active_stores: AnnounceStorage::new(),
+            routers: HashSet::new(),
             bootstrap: None,
             bootstrap_txs: Vec::new(),
             refresh: table_refresh,
@@ -352,12 +354,14 @@ impl DhtHandler {
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
 
+                let routers = &self.routers;
+
                 if let Some((bootstrap, attempts)) = self
                     .bootstrap
                     .as_mut()
                     .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
                 {
-                    if !bootstrap.is_router(&node.addr()) {
+                    if !routers.contains(&node.addr()) {
                         self.routing_table.add_node(node);
                     }
 
@@ -380,6 +384,7 @@ impl DhtHandler {
                                     &self.routing_table,
                                     &self.socket,
                                     &mut self.timer,
+                                    &self.routers,
                                 )
                                 .await
                                 {
@@ -439,19 +444,21 @@ impl DhtHandler {
         routers: HashSet<SocketAddr>,
         nodes: HashSet<SocketAddr>,
     ) {
+        self.routers = routers;
+
         // If we have no bootstrap contacts it means we are the first node in the network and
         // other would bootstrap against us. We consider this node as already bootstrapped.
-        if routers.is_empty() && nodes.is_empty() {
+        if self.routers.is_empty() && nodes.is_empty() {
             self.handle_bootstrap_success().await;
             return;
         }
 
         let mid_generator = self.aid_generator.generate();
-        let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes, routers);
+        let mut table_bootstrap = TableBootstrap::new(mid_generator, nodes);
 
         // Begin the bootstrap operation
         let bootstrap_status = table_bootstrap
-            .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer)
+            .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer, &self.routers)
             .await;
 
         let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
@@ -467,6 +474,7 @@ impl DhtHandler {
                         &self.routing_table,
                         &self.socket,
                         &mut self.timer,
+                        &self.routers,
                     )
                     .await
                     {
@@ -521,6 +529,7 @@ impl DhtHandler {
                         &self.routing_table,
                         &self.socket,
                         &mut self.timer,
+                        &self.routers,
                     )
                     .await
                     {
@@ -700,6 +709,7 @@ async fn attempt_rebootstrap(
     routing_table: &RoutingTable,
     socket: &Socket,
     timer: &mut Timer<ScheduledTaskCheck>,
+    routers: &HashSet<SocketAddr>,
 ) -> Option<bool> {
     loop {
         // Increment the bootstrap counter
@@ -720,7 +730,7 @@ async fn attempt_rebootstrap(
             }
         } else {
             let bootstrap_status = bootstrap
-                .start_bootstrap(routing_table.node_id(), socket, timer)
+                .start_bootstrap(routing_table.node_id(), socket, timer, routers)
                 .await;
 
             match bootstrap_status {
