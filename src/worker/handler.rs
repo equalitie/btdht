@@ -334,6 +334,7 @@ impl DhtHandler {
 
                 self.socket.send(&response_msg, addr).await?
             }
+            // `Other` is for responses from `ping`, `announce_peer` or `find_node` requests.
             MessageBody::Response(Response::Other(f)) => {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
@@ -346,6 +347,7 @@ impl DhtHandler {
 
                 // Add the payload nodes as questionable
                 for node in nodes {
+                    // XXX Not checking if solicited
                     self.routing_table
                         .add_node(Node::as_questionable(node.id, node.addr));
                 }
@@ -401,6 +403,9 @@ impl DhtHandler {
                     .ok_or(WorkerError::InvalidTransactionId)?;
                 let node = Node::as_good(g.id, addr);
 
+                // XXX: (1) This accept unsolicited responses.
+                // XXX: (2) This does not add payload nodes to the table (not even inside
+                // recv_response)
                 self.routing_table.add_node(node.clone());
 
                 let lookup = self
