@@ -305,11 +305,7 @@ pub(crate) struct Response {
     pub nodes_v6: Vec<NodeHandle>,
 
     // Only present in responses to GetPeers
-    #[serde(
-        with = "serde_bytes",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(with = "serde_bytes", default, skip_serializing_if = "Option::is_none")]
     pub token: Option<Vec<u8>>,
 }
 
@@ -536,7 +532,8 @@ mod tests {
                             0x6162, 0x6364, 0x6566, 0x6768, 0x696a, 0x6b6c, 0x6d6e, 0x6f70,
                         ),
                         11893,
-                    ).into(),
+                    )
+                        .into(),
                 }],
                 token: None,
             }),

@@ -30,10 +30,7 @@ pub(crate) struct TableBootstrap {
 }
 
 impl TableBootstrap {
-    pub fn new(
-        id_generator: MIDGenerator,
-        nodes: HashSet<SocketAddr>,
-    ) -> TableBootstrap {
+    pub fn new(id_generator: MIDGenerator, nodes: HashSet<SocketAddr>) -> TableBootstrap {
         TableBootstrap {
             id_generator,
             starting_nodes: nodes,
@@ -85,10 +82,7 @@ impl TableBootstrap {
         self.initial_responses_expected = 0;
         self.initial_responses.clear();
 
-        for addr in starting_routers
-            .iter()
-            .chain(self.starting_nodes.iter())
-        {
+        for addr in starting_routers.iter().chain(self.starting_nodes.iter()) {
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {

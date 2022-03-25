@@ -5,7 +5,7 @@ use super::{
 };
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
-    AnnouncePeerRequest, GetPeersRequest, Response, Message, MessageBody, Request,
+    AnnouncePeerRequest, GetPeersRequest, Message, MessageBody, Request, Response,
 };
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeHandle, NodeStatus};

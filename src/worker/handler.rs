@@ -4,10 +4,7 @@ use super::{
 };
 use crate::{
     id::InfoHash,
-    message::{
-        error_code, Error, Message, MessageBody, Request,
-        Response, Want,
-    },
+    message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     routing::{
         node::{Node, NodeHandle},
         table::RoutingTable,
@@ -441,7 +438,12 @@ impl DhtHandler {
 
         // Begin the bootstrap operation
         let bootstrap_status = table_bootstrap
-            .start_bootstrap(self.routing_table.node_id(), &self.socket, &mut self.timer, &self.routers)
+            .start_bootstrap(
+                self.routing_table.node_id(),
+                &self.socket,
+                &mut self.timer,
+                &self.routers,
+            )
             .await;
 
         let (table_bootstrap, attempts) = self.bootstrap.insert((table_bootstrap, 0));
@@ -728,7 +730,12 @@ async fn attempt_rebootstrap(
     }
 }
 
-fn add_nodes(table: &mut RoutingTable, node: &Node, nodes: &Vec<NodeHandle>, routers: &HashSet<SocketAddr>) {
+fn add_nodes(
+    table: &mut RoutingTable,
+    node: &Node,
+    nodes: &Vec<NodeHandle>,
+    routers: &HashSet<SocketAddr>,
+) {
     if !routers.contains(&node.addr()) {
         table.add_node(node.clone());
     }
