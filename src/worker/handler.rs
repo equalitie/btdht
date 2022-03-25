@@ -339,81 +339,90 @@ impl DhtHandler {
 
                 self.socket.send(&response_msg, addr).await?
             }
-            // `Other` is for responses from `ping`, `announce_peer` or `find_node` requests.
             MessageBody::Response(rsp) => {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
-
-                let node = Node::as_good(rsp.id, addr);
-
-                let nodes = match self.socket.local_addr()? {
-                    SocketAddr::V4(_) => &rsp.nodes_v4,
-                    SocketAddr::V6(_) => &rsp.nodes_v6,
-                };
-
-                if let Some((bootstrap, attempts)) = self
-                    .bootstrap
-                    .as_mut()
-                    .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
-                {
-                    add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
-
-                    match bootstrap
-                        .recv_response(
-                            addr,
-                            &trans_id,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await
-                    {
-                        ActionStatus::Ongoing => (),
-                        ActionStatus::Completed => {
-                            if should_rebootstrap(&self.routing_table) {
-                                match attempt_rebootstrap(
-                                    bootstrap,
-                                    attempts,
-                                    &self.routing_table,
-                                    &self.socket,
-                                    &mut self.timer,
-                                    &self.routers,
-                                )
-                                .await
-                                {
-                                    Some(true) => (),
-                                    Some(false) => self.handle_bootstrap_success().await,
-                                    None => self.handle_bootstrap_failure(),
-                                }
-                            } else {
-                                self.handle_bootstrap_success().await
-                            }
-                        }
-                    }
-                } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
-                    add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
-
-                    match lookup
-                        .recv_response(
-                            node,
-                            &trans_id,
-                            rsp,
-                            &mut self.routing_table,
-                            &self.socket,
-                            &mut self.timer,
-                        )
-                        .await
-                    {
-                        ActionStatus::Ongoing => (),
-                        ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
-                    }
-                } else if self.refresh.action_id() == trans_id.action_id() {
-                    add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
-                } else {
-                    return Err(WorkerError::UnsolicitedResponse);
-                }
+                self.handle_incoming_response(trans_id, addr, rsp).await?;
             }
             MessageBody::Error(_) => (),
+        }
+
+        Ok(())
+    }
+
+    async fn handle_incoming_response(
+        &mut self,
+        trans_id: TransactionID,
+        addr: SocketAddr,
+        rsp: Response,
+    ) -> Result<(), WorkerError> {
+        let node = Node::as_good(rsp.id, addr);
+
+        let nodes = match self.socket.local_addr()? {
+            SocketAddr::V4(_) => &rsp.nodes_v4,
+            SocketAddr::V6(_) => &rsp.nodes_v6,
+        };
+
+        if let Some((bootstrap, attempts)) = self
+            .bootstrap
+            .as_mut()
+            .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
+        {
+            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+
+            match bootstrap
+                .recv_response(
+                    addr,
+                    &trans_id,
+                    &mut self.routing_table,
+                    &self.socket,
+                    &mut self.timer,
+                )
+                .await
+            {
+                ActionStatus::Ongoing => (),
+                ActionStatus::Completed => {
+                    if should_rebootstrap(&self.routing_table) {
+                        match attempt_rebootstrap(
+                            bootstrap,
+                            attempts,
+                            &self.routing_table,
+                            &self.socket,
+                            &mut self.timer,
+                            &self.routers,
+                        )
+                        .await
+                        {
+                            Some(true) => (),
+                            Some(false) => self.handle_bootstrap_success().await,
+                            None => self.handle_bootstrap_failure(),
+                        }
+                    } else {
+                        self.handle_bootstrap_success().await
+                    }
+                }
+            }
+        } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
+            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+
+            match lookup
+                .recv_response(
+                    node,
+                    &trans_id,
+                    rsp,
+                    &mut self.routing_table,
+                    &self.socket,
+                    &mut self.timer,
+                )
+                .await
+            {
+                ActionStatus::Ongoing => (),
+                ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
+            }
+        } else if self.refresh.action_id() == trans_id.action_id() {
+            add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
+        } else {
+            return Err(WorkerError::UnsolicitedResponse);
         }
 
         Ok(())
