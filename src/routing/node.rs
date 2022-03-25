@@ -37,6 +37,7 @@ pub struct Node {
     handle: NodeHandle,
     last_request: Option<Instant>,
     last_response: Option<Instant>,
+    last_local_request: Option<Instant>,
     refresh_requests: usize,
 }
 
@@ -47,6 +48,7 @@ impl Node {
             handle: NodeHandle { id, addr },
             last_response: Some(Instant::now()),
             last_request: None,
+            last_local_request: None,
             refresh_requests: 0,
         }
     }
@@ -60,6 +62,7 @@ impl Node {
             handle: NodeHandle { id, addr },
             last_response: Some(last_response),
             last_request: None,
+            last_local_request: None,
             refresh_requests: 0,
         }
     }
@@ -70,12 +73,15 @@ impl Node {
             handle: NodeHandle { id, addr },
             last_response: None,
             last_request: None,
+            last_local_request: None,
             refresh_requests: 0,
         }
     }
 
     /// Record that we sent the node a request.
     pub fn local_request(&mut self) {
+        self.last_local_request = Some(Instant::now());
+
         if self.status() != NodeStatus::Good {
             self.refresh_requests = self.refresh_requests.saturating_add(1);
         }
@@ -91,6 +97,16 @@ impl Node {
     pub fn remote_response(&mut self) {
         self.last_response = Some(Instant::now());
         self.refresh_requests = 0;
+    }
+
+    /// Return true if we have sent this node a request recently.
+    pub fn recently_requested_from(&self) -> bool {
+        if let Some(time) = self.last_local_request {
+            // TODO: I made the 30 seconds up, seems reasonable.
+            time > Instant::now() - Duration::from_secs(30)
+        } else {
+            false
+        }
     }
 
     pub fn id(&self) -> NodeId {
