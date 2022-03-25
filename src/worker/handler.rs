@@ -748,6 +748,7 @@ fn add_nodes(
     if !routers.contains(&node.addr()) {
         table.add_node(node.clone());
     }
+
     // Add the payload nodes as questionable
     for node in nodes {
         if !routers.contains(&node.addr) {

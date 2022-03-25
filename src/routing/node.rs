@@ -118,17 +118,46 @@ impl Node {
     }
 
     /// Current status of the node.
+    ///
+    /// The specification says:
+    ///
+    /// https://www.bittorrent.org/beps/bep_0005.html
+    ///
+    /// A good node is a node has responded to one of our queries within the last 15 minutes. A node is also good
+    /// if it has ever responded to one of our queries and has sent us a query within the last 15 minutes.
+    /// After 15 minutes of inactivity, a node becomes questionable. Nodes become bad when they fail to respond to
+    /// multiple queries in a row.
     pub fn status(&self) -> NodeStatus {
         let curr_time = Instant::now();
 
-        match recently_responded(self, curr_time) {
-            NodeStatus::Good => return NodeStatus::Good,
-            NodeStatus::Bad => return NodeStatus::Bad,
-            NodeStatus::Questionable => (),
+        // Check if node has ever responded to us
+        let since_response = match self.last_response {
+            Some(response_time) => curr_time - response_time,
+            None => return NodeStatus::Bad,
         };
 
-        recently_requested(self, curr_time)
+        // Check if node has recently responded to us
+        if since_response < Duration::from_secs(MAX_LAST_SEEN_MINS * 60) {
+            return NodeStatus::Good
+        }
+
+        // Check if we have request from node multiple times already without response
+        if self.refresh_requests >= MAX_REFRESH_REQUESTS {
+            return NodeStatus::Bad
+        }
+
+        // Check if the node has recently requested from us
+        if let Some(request_time) = self.last_request {
+            let since_request = curr_time - request_time;
+
+            if since_request < Duration::from_secs(MAX_LAST_SEEN_MINS * 60) {
+                return NodeStatus::Good;
+            }
+        }
+
+        return NodeStatus::Questionable;
     }
+
 
     /// Is node good or questionable?
     pub fn is_pingable(&self) -> bool {
@@ -187,56 +216,6 @@ impl NodeHandle {
 impl Debug for NodeHandle {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{:?}@{:?}", self.id, self.addr)
-    }
-}
-
-// TODO: Verify the two scenarios follow the specification as some cases seem questionable (pun intended), ie, a node
-// responds to us once, and then requests from us but never responds to us for the duration of the session. This means they
-// could stay marked as a good node even though they could ignore our requests and just sending us periodic requests
-// to keep their node marked as good in our routing table...
-
-/// First scenario where a node is good is if it has responded to one of our requests recently.
-///
-/// Returns the status of the node where a Questionable status means the node has responded
-/// to us before, but not recently.
-fn recently_responded(node: &Node, curr_time: Instant) -> NodeStatus {
-    // Check if node has ever responded to us
-    let since_response = match node.last_response {
-        Some(response_time) => curr_time - response_time,
-        None => return NodeStatus::Bad,
-    };
-
-    // Check if node has recently responded to us
-    let max_last_response = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
-    if since_response < max_last_response {
-        NodeStatus::Good
-    } else {
-        NodeStatus::Questionable
-    }
-}
-
-/// Second scenario where a node has ever responded to one of our requests and is good if it
-/// has sent us a request recently.
-///
-/// Returns the final status of the node given that the first scenario found the node to be
-/// Questionable.
-fn recently_requested(node: &Node, curr_time: Instant) -> NodeStatus {
-    let max_last_request = Duration::from_secs(MAX_LAST_SEEN_MINS * 60);
-
-    // Check if the node has recently request from us
-    if let Some(request_time) = node.last_request {
-        let since_request = curr_time - request_time;
-
-        if since_request < max_last_request {
-            return NodeStatus::Good;
-        }
-    }
-
-    // Check if we have request from node multiple times already without response
-    if node.refresh_requests < MAX_REFRESH_REQUESTS {
-        NodeStatus::Questionable
-    } else {
-        NodeStatus::Bad
     }
 }
 
