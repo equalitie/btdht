@@ -5,7 +5,7 @@ use super::{
 use crate::{
     id::InfoHash,
     message::{
-        error_code, Error, GetPeersResponse, Message, MessageBody, OtherResponse, Request,
+        error_code, Error, Message, MessageBody, Request,
         Response, Want,
     },
     routing::{
@@ -189,14 +189,16 @@ impl DhtHandler {
                     n.remote_request()
                 }
 
-                let ping_rsp = OtherResponse {
+                let ping_rsp = Response {
                     id: self.routing_table.node_id(),
+                    values: vec![],
                     nodes_v4: vec![],
                     nodes_v6: vec![],
+                    token: None,
                 };
                 let ping_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::Other(ping_rsp)),
+                    body: MessageBody::Response(ping_rsp),
                 };
                 let ping_msg = ping_msg.encode();
 
@@ -212,14 +214,16 @@ impl DhtHandler {
 
                 let (nodes_v4, nodes_v6) = self.find_closest_nodes(f.target, f.want)?;
 
-                let find_node_rsp = OtherResponse {
+                let find_node_rsp = Response {
                     id: self.routing_table.node_id(),
+                    values: vec![],
                     nodes_v4,
                     nodes_v6,
+                    token: None,
                 };
                 let find_node_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::Other(find_node_rsp)),
+                    body: MessageBody::Response(find_node_rsp),
                 };
                 let find_node_msg = find_node_msg.encode();
 
@@ -255,16 +259,16 @@ impl DhtHandler {
                 let (nodes_v4, nodes_v6) = self.find_closest_nodes(g.info_hash, g.want)?;
                 let token = self.token_store.checkout(addr.ip());
 
-                let get_peers_rsp = GetPeersResponse {
+                let get_peers_rsp = Response {
                     id: self.routing_table.node_id(),
                     values,
                     nodes_v4,
                     nodes_v6,
-                    token: token.as_ref().to_vec(),
+                    token: Some(token.as_ref().to_vec()),
                 };
                 let get_peers_msg = Message {
                     transaction_id: message.transaction_id,
-                    body: MessageBody::Response(Response::GetPeers(get_peers_rsp)),
+                    body: MessageBody::Response(get_peers_rsp),
                 };
                 let get_peers_msg = get_peers_msg.encode();
 
@@ -310,11 +314,13 @@ impl DhtHandler {
                     // Node successfully stored the value with us, send an announce response
                     Message {
                         transaction_id: message.transaction_id,
-                        body: MessageBody::Response(Response::Other(OtherResponse {
+                        body: MessageBody::Response(Response {
                             id: self.routing_table.node_id(),
+                            values: vec![],
                             nodes_v4: vec![],
                             nodes_v6: vec![],
-                        })),
+                            token: None,
+                        }),
                     }
                     .encode()
                 } else {
@@ -337,15 +343,15 @@ impl DhtHandler {
                 self.socket.send(&response_msg, addr).await?
             }
             // `Other` is for responses from `ping`, `announce_peer` or `find_node` requests.
-            MessageBody::Response(Response::Other(f)) => {
+            MessageBody::Response(rsp) => {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
 
-                let node = Node::as_good(f.id, addr);
+                let node = Node::as_good(rsp.id, addr);
 
                 let nodes = match self.socket.local_addr()? {
-                    SocketAddr::V4(_) => f.nodes_v4,
-                    SocketAddr::V6(_) => f.nodes_v6,
+                    SocketAddr::V4(_) => &rsp.nodes_v4,
+                    SocketAddr::V6(_) => &rsp.nodes_v6,
                 };
 
                 if let Some((bootstrap, attempts)) = self
@@ -353,7 +359,7 @@ impl DhtHandler {
                     .as_mut()
                     .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
                 {
-                    add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
+                    add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
 
                     match bootstrap
                         .recv_response(
@@ -387,43 +393,27 @@ impl DhtHandler {
                             }
                         }
                     }
+                } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
+                    add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+
+                    match lookup
+                        .recv_response(
+                            node,
+                            &trans_id,
+                            rsp,
+                            &mut self.routing_table,
+                            &self.socket,
+                            &mut self.timer,
+                        )
+                        .await
+                    {
+                        ActionStatus::Ongoing => (),
+                        ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
+                    }
                 } else if self.refresh.action_id() == trans_id.action_id() {
                     add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
                 } else {
                     return Err(WorkerError::UnsolicitedResponse);
-                }
-            }
-            MessageBody::Response(Response::GetPeers(g)) => {
-                let trans_id = TransactionID::from_bytes(&message.transaction_id)
-                    .ok_or(WorkerError::InvalidTransactionId)?;
-
-                let node = Node::as_good(g.id, addr);
-
-                let nodes = match self.socket.local_addr()? {
-                    SocketAddr::V4(_) => &g.nodes_v4,
-                    SocketAddr::V6(_) => &g.nodes_v6,
-                };
-
-                let lookup = self
-                    .lookups
-                    .get_mut(&trans_id.action_id())
-                    .ok_or(WorkerError::UnsolicitedResponse)?;
-
-                add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
-
-                match lookup
-                    .recv_response(
-                        node,
-                        &trans_id,
-                        g,
-                        &mut self.routing_table,
-                        &self.socket,
-                        &mut self.timer,
-                    )
-                    .await
-                {
-                    ActionStatus::Ongoing => (),
-                    ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
                 }
             }
             MessageBody::Error(_) => (),

@@ -5,7 +5,7 @@ use super::{
 };
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
-    AnnouncePeerRequest, GetPeersRequest, GetPeersResponse, Message, MessageBody, Request,
+    AnnouncePeerRequest, GetPeersRequest, Response, Message, MessageBody, Request,
 };
 use crate::routing::bucket;
 use crate::routing::node::{Node, NodeHandle, NodeStatus};
@@ -113,7 +113,7 @@ impl TableLookup {
         &mut self,
         node: Node,
         trans_id: &TransactionID,
-        msg: GetPeersResponse,
+        msg: Response,
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
@@ -131,8 +131,10 @@ impl TableLookup {
             timer.cancel(timeout);
         }
 
-        // Add the announce token to our list of tokens
-        self.announce_tokens.insert(*node.handle(), msg.token);
+        if let Some(token) = msg.token {
+            // Add the announce token to our list of tokens
+            self.announce_tokens.insert(*node.handle(), token);
+        }
 
         let nodes = match socket.local_addr() {
             Ok(SocketAddr::V4(_)) => msg.nodes_v4,
