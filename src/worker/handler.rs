@@ -340,6 +340,7 @@ impl DhtHandler {
             MessageBody::Response(Response::Other(f)) => {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
+
                 let node = Node::as_good(f.id, addr);
 
                 let nodes = match self.socket.local_addr()? {
@@ -347,23 +348,12 @@ impl DhtHandler {
                     SocketAddr::V6(_) => f.nodes_v6,
                 };
 
-                // Add the payload nodes as questionable
-                for node in nodes {
-                    // XXX Not checking if solicited
-                    self.routing_table
-                        .add_node(Node::as_questionable(node.id, node.addr));
-                }
-
-                let routers = &self.routers;
-
                 if let Some((bootstrap, attempts)) = self
                     .bootstrap
                     .as_mut()
                     .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
                 {
-                    if !routers.contains(&node.addr()) {
-                        self.routing_table.add_node(node);
-                    }
+                    add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
 
                     match bootstrap
                         .recv_response(
@@ -398,7 +388,7 @@ impl DhtHandler {
                         }
                     }
                 } else if self.refresh.action_id() == trans_id.action_id() {
-                    self.routing_table.add_node(node);
+                    add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
                 } else {
                     return Err(WorkerError::UnsolicitedResponse);
                 }
@@ -406,17 +396,20 @@ impl DhtHandler {
             MessageBody::Response(Response::GetPeers(g)) => {
                 let trans_id = TransactionID::from_bytes(&message.transaction_id)
                     .ok_or(WorkerError::InvalidTransactionId)?;
+
                 let node = Node::as_good(g.id, addr);
 
-                // XXX: (1) This accept unsolicited responses.
-                // XXX: (2) This does not add payload nodes to the table (not even inside
-                // recv_response)
-                self.routing_table.add_node(node.clone());
+                let nodes = match self.socket.local_addr()? {
+                    SocketAddr::V4(_) => &g.nodes_v4,
+                    SocketAddr::V6(_) => &g.nodes_v6,
+                };
 
                 let lookup = self
                     .lookups
                     .get_mut(&trans_id.action_id())
                     .ok_or(WorkerError::UnsolicitedResponse)?;
+
+                add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
 
                 match lookup
                     .recv_response(
@@ -741,6 +734,18 @@ async fn attempt_rebootstrap(
                     }
                 }
             }
+        }
+    }
+}
+
+fn add_nodes(table: &mut RoutingTable, node: &Node, nodes: &Vec<NodeHandle>, routers: &HashSet<SocketAddr>) {
+    if !routers.contains(&node.addr()) {
+        table.add_node(node.clone());
+    }
+    // Add the payload nodes as questionable
+    for node in nodes {
+        if !routers.contains(&node.addr) {
+            table.add_node(Node::as_questionable(node.id, node.addr));
         }
     }
 }
