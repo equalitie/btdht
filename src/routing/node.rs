@@ -78,6 +78,39 @@ impl Node {
         }
     }
 
+    pub fn update(&mut self, other: Node) {
+        assert_eq!(self.handle, other.handle);
+
+        let self_status = self.status();
+        let other_status = other.status();
+
+        match (self_status, other_status) {
+            (NodeStatus::Good, NodeStatus::Good) => {
+                *self = Self {
+                    handle: self.handle,
+                    last_response: other.last_response,
+                    last_request: self.last_request,
+                    last_local_request: self.last_local_request,
+                    refresh_requests: 0,
+                };
+            },
+            (NodeStatus::Good, NodeStatus::Questionable) => {},
+            (NodeStatus::Good, NodeStatus::Bad) => {},
+            (NodeStatus::Questionable, NodeStatus::Good) => {
+                *self = other;
+            },
+            (NodeStatus::Questionable, NodeStatus::Questionable) => {},
+            (NodeStatus::Questionable, NodeStatus::Bad) => {},
+            (NodeStatus::Bad, NodeStatus::Good) => {
+                *self = other;
+            },
+            (NodeStatus::Bad, NodeStatus::Questionable) => {
+                *self = other;
+            },
+            (NodeStatus::Bad, NodeStatus::Bad) => {},
+        }
+    }
+
     /// Record that we sent the node a request.
     pub fn local_request(&mut self) {
         self.last_local_request = Some(Instant::now());
@@ -90,13 +123,6 @@ impl Node {
     /// Record that the node sent us a request.
     pub fn remote_request(&mut self) {
         self.last_request = Some(Instant::now());
-    }
-
-    /// Record that the node sent us a response.
-    #[allow(unused)] // TODO: find out why is this unused
-    pub fn remote_response(&mut self) {
-        self.last_response = Some(Instant::now());
-        self.refresh_requests = 0;
     }
 
     /// Return true if we have sent this node a request recently.
