@@ -35,7 +35,6 @@ impl Bucket {
     }
 
     /// Iterator over all good nodes in the bucket.
-    #[cfg(test)]
     pub fn good_nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes
             .iter()
@@ -80,11 +79,9 @@ impl Bucket {
         // See if this node is already in the table, in that case replace it if it
         // has a higher or equal status to the current node.
         if let Some(index) = self.nodes.iter().position(|node| *node == new_node) {
-            let other_node_status = self.nodes[index].status();
-
-            if new_node_status >= other_node_status {
-                self.nodes[index] = new_node;
-            }
+            // Note, we can't just compare the status and if it's better or equal then replace the
+            // old node with the new one. Doing so would erase information already stored locally.
+            self.nodes[index].update(new_node);
 
             return true;
         }

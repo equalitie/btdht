@@ -146,10 +146,22 @@ impl RoutingTable {
 
     pub fn log_stats(&self) {
         log::debug!(
-            "Nodes: {} good + {} questionable",
+            "Nodes: {} good + {} questionable; Bucket count: {}",
             self.num_good_nodes(),
-            self.num_questionable_nodes()
-        )
+            self.num_questionable_nodes(),
+            self.buckets.len(),
+        );
+        let mut s = String::new();
+        for (i, b) in self.buckets.iter().enumerate() {
+            let good = b.good_nodes().count();
+            let questionable = b.pingable_nodes().count() - good;
+            if s.is_empty() {
+                s = format!("{}:({}, {})", i, good, questionable);
+            } else {
+                s = format!("{} {}:({}, {})", s, i, good, questionable);
+            }
+        }
+        log::debug!("Buckets: {}", s);
     }
 }
 

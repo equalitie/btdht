@@ -6,6 +6,7 @@ use crate::transaction::{ActionID, MIDGenerator};
 use std::time::Duration;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
+const REFRESH_CONCURRENCY: usize = 4;
 
 pub(crate) struct TableRefresh {
     id_generator: MIDGenerator,
@@ -39,11 +40,17 @@ impl TableRefresh {
             "Performing a refresh for bucket {}",
             self.curr_refresh_bucket
         );
-        // Ping the closest questionable node
-        if let Some(node) = table
+
+        let nodes = table
             .closest_nodes(target_id)
-            .find(|n| n.status() == NodeStatus::Questionable)
+            .filter(|n| n.status() == NodeStatus::Questionable)
+            .filter(|n| !n.recently_requested_from())
+            .take(REFRESH_CONCURRENCY)
             .map(|node| *node.handle())
+            .collect::<Vec<_>>();
+
+        // Ping the closest questionable nodes
+        for node in nodes
         {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();

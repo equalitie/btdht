@@ -23,7 +23,6 @@ const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 pub(crate) struct TableBootstrap {
     id_generator: MIDGenerator,
     starting_nodes: HashSet<SocketAddr>,
-    starting_routers: HashSet<SocketAddr>,
     active_messages: HashMap<TransactionID, Timeout>,
     curr_bootstrap_bucket: usize,
     initial_responses: HashSet<SocketAddr>,
@@ -31,15 +30,10 @@ pub(crate) struct TableBootstrap {
 }
 
 impl TableBootstrap {
-    pub fn new(
-        id_generator: MIDGenerator,
-        nodes: HashSet<SocketAddr>,
-        routers: HashSet<SocketAddr>,
-    ) -> TableBootstrap {
+    pub fn new(id_generator: MIDGenerator, nodes: HashSet<SocketAddr>) -> TableBootstrap {
         TableBootstrap {
             id_generator,
             starting_nodes: nodes,
-            starting_routers: routers,
             active_messages: HashMap::new(),
             curr_bootstrap_bucket: 0,
             initial_responses: HashSet::new(),
@@ -52,6 +46,7 @@ impl TableBootstrap {
         table_id: NodeId,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
+        starting_routers: &HashSet<SocketAddr>,
     ) -> ActionStatus {
         // Reset the bootstrap state
         self.active_messages.clear();
@@ -87,11 +82,7 @@ impl TableBootstrap {
         self.initial_responses_expected = 0;
         self.initial_responses.clear();
 
-        for addr in self
-            .starting_routers
-            .iter()
-            .chain(self.starting_nodes.iter())
-        {
+        for addr in starting_routers.iter().chain(self.starting_nodes.iter()) {
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {
@@ -111,10 +102,6 @@ impl TableBootstrap {
 
     pub fn action_id(&self) -> ActionID {
         self.id_generator.action_id()
-    }
-
-    pub fn is_router(&self, addr: &SocketAddr) -> bool {
-        self.starting_routers.contains(addr)
     }
 
     pub async fn recv_response(
