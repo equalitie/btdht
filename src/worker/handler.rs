@@ -70,7 +70,7 @@ impl DhtHandler {
         let table_refresh = TableRefresh::new(mid_generator);
 
         let mut timer = Timer::new();
-        timer.schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
+        timer.schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogStats);
 
         Self {
             running: true,
@@ -153,8 +153,8 @@ impl DhtHandler {
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 self.handle_check_lookup_endgame(trans_id).await;
             }
-            ScheduledTaskCheck::LogTableStats => {
-                self.handle_log_table_stats();
+            ScheduledTaskCheck::LogStats => {
+                self.handle_log_stats();
             }
         }
     }
@@ -638,10 +638,19 @@ impl DhtHandler {
             .await
     }
 
-    fn handle_log_table_stats(&mut self) {
+    fn handle_log_stats(&mut self) {
+        if let Some((bootstrap, attempts)) = &self.bootstrap {
+            log::debug!(
+                "Bootstrapping in progress: Attempt: {}, Active message count: {}",
+                attempts,
+                bootstrap.active_message_count()
+            );
+        } else {
+            log::debug!("Not bootstrapping");
+        }
         self.routing_table.log_stats();
         self.timer
-            .schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogTableStats);
+            .schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogStats);
     }
 
     fn shutdown(&mut self) {

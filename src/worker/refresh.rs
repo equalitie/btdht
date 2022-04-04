@@ -50,8 +50,7 @@ impl TableRefresh {
             .collect::<Vec<_>>();
 
         // Ping the closest questionable nodes
-        for node in nodes
-        {
+        for node in nodes {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();
 

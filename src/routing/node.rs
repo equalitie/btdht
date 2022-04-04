@@ -93,21 +93,21 @@ impl Node {
                     last_local_request: self.last_local_request,
                     refresh_requests: 0,
                 };
-            },
-            (NodeStatus::Good, NodeStatus::Questionable) => {},
-            (NodeStatus::Good, NodeStatus::Bad) => {},
+            }
+            (NodeStatus::Good, NodeStatus::Questionable) => {}
+            (NodeStatus::Good, NodeStatus::Bad) => {}
             (NodeStatus::Questionable, NodeStatus::Good) => {
                 *self = other;
-            },
-            (NodeStatus::Questionable, NodeStatus::Questionable) => {},
-            (NodeStatus::Questionable, NodeStatus::Bad) => {},
+            }
+            (NodeStatus::Questionable, NodeStatus::Questionable) => {}
+            (NodeStatus::Questionable, NodeStatus::Bad) => {}
             (NodeStatus::Bad, NodeStatus::Good) => {
                 *self = other;
-            },
+            }
             (NodeStatus::Bad, NodeStatus::Questionable) => {
                 *self = other;
-            },
-            (NodeStatus::Bad, NodeStatus::Bad) => {},
+            }
+            (NodeStatus::Bad, NodeStatus::Bad) => {}
         }
     }
 
@@ -164,12 +164,12 @@ impl Node {
 
         // Check if node has recently responded to us
         if since_response < Duration::from_secs(MAX_LAST_SEEN_MINS * 60) {
-            return NodeStatus::Good
+            return NodeStatus::Good;
         }
 
         // Check if we have request from node multiple times already without response
         if self.refresh_requests >= MAX_REFRESH_REQUESTS {
-            return NodeStatus::Bad
+            return NodeStatus::Bad;
         }
 
         // Check if the node has recently requested from us
@@ -183,7 +183,6 @@ impl Node {
 
         return NodeStatus::Questionable;
     }
-
 
     /// Is node good or questionable?
     pub fn is_pingable(&self) -> bool {
