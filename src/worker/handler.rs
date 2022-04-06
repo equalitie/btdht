@@ -639,11 +639,13 @@ impl DhtHandler {
     }
 
     fn handle_log_stats(&mut self) {
+        log::debug!("Local address: {:?}", self.socket.local_addr());
         if let Some((bootstrap, attempts)) = &self.bootstrap {
             log::debug!(
-                "Bootstrapping in progress: Attempt: {}, Active message count: {}",
+                "Bootstrapping in progress: Attempt: {}, Active message count: {}, Running: {:?}",
                 attempts,
-                bootstrap.active_message_count()
+                bootstrap.active_message_count(),
+                self.running,
             );
         } else {
             log::debug!("Not bootstrapping");
