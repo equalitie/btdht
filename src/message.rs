@@ -636,9 +636,6 @@ mod tests {
     #[track_caller]
     fn assert_serialize_deserialize(encoded: &str, decoded: &Message) {
         assert_eq!(serde_bencode::to_string(decoded).unwrap(), encoded);
-        assert_eq!(
-            serde_bencode::from_str::<Message>(encoded).unwrap(),
-            *decoded
-        );
+        assert_eq!(Message::decode(encoded.as_bytes()).unwrap(), *decoded);
     }
 }
