@@ -420,7 +420,7 @@ impl DhtHandler {
                 ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
             }
         } else if self.refresh.action_id() == trans_id.action_id() {
-            add_nodes(&mut self.routing_table, &node, &nodes, &self.routers);
+            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
         } else {
             return Err(WorkerError::UnsolicitedResponse);
         }
@@ -753,7 +753,7 @@ async fn attempt_rebootstrap(
 fn add_nodes(
     table: &mut RoutingTable,
     node: &Node,
-    nodes: &Vec<NodeHandle>,
+    nodes: &[NodeHandle],
     routers: &HashSet<SocketAddr>,
 ) {
     if !routers.contains(&node.addr()) {

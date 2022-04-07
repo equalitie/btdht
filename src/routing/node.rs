@@ -181,7 +181,7 @@ impl Node {
             }
         }
 
-        return NodeStatus::Questionable;
+        NodeStatus::Questionable
     }
 
     /// Is node good or questionable?
@@ -268,15 +268,6 @@ mod tests {
     #[test]
     fn positive_as_good() {
         let node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
-
-        assert_eq!(node.status(), NodeStatus::Good);
-    }
-
-    #[test]
-    fn positive_response_renewal() {
-        let mut node = Node::as_questionable(test::dummy_node_id(), test::dummy_socket_addr_v4());
-
-        node.remote_response();
 
         assert_eq!(node.status(), NodeStatus::Good);
     }
