@@ -1,4 +1,5 @@
 use super::{
+    DebugState,
     bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
     timer::Timer, ActionStatus, OneshotTask, ScheduledTaskCheck, StartLookup, WorkerError,
 };
@@ -133,6 +134,7 @@ impl DhtHandler {
                 self.handle_start_lookup(lookup).await;
             }
             OneshotTask::GetLocalAddr(tx) => self.handle_get_local_addr(tx),
+            OneshotTask::GetDebugState(tx) => self.handle_get_debug_state(tx),
         }
     }
 
@@ -580,6 +582,17 @@ impl DhtHandler {
             .await;
             self.lookups.insert(action_id, lookup);
         }
+    }
+
+    fn handle_get_debug_state(&self, tx: oneshot::Sender<DebugState>) {
+        tx.send(DebugState {
+           is_running: self.running,
+           bootstrapped: self.bootstrap.is_none(),
+           good_node_count: self.routing_table.num_good_nodes(),
+           questionable_node_count: self.routing_table.num_questionable_nodes(),
+           bucket_count: self.routing_table.buckets().count(),
+        })
+        .unwrap_or(())
     }
 
     fn handle_get_local_addr(&self, tx: oneshot::Sender<io::Result<SocketAddr>>) {
