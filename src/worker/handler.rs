@@ -19,7 +19,6 @@ use std::{
     convert::AsRef,
     io, mem,
     net::SocketAddr,
-    time::Duration,
 };
 use tokio::{
     select,
@@ -28,7 +27,6 @@ use tokio::{
 
 const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
-const LOG_TABLE_STATS_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
@@ -69,8 +67,7 @@ impl DhtHandler {
         let mid_generator = aid_generator.generate();
         let table_refresh = TableRefresh::new(mid_generator);
 
-        let mut timer = Timer::new();
-        timer.schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogStats);
+        let timer = Timer::new();
 
         Self {
             running: true,
@@ -152,9 +149,6 @@ impl DhtHandler {
             }
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 self.handle_check_lookup_endgame(trans_id).await;
-            }
-            ScheduledTaskCheck::LogStats => {
-                self.handle_log_stats();
             }
         }
     }
@@ -636,23 +630,6 @@ impl DhtHandler {
         self.refresh
             .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             .await
-    }
-
-    fn handle_log_stats(&mut self) {
-        log::debug!("Local address: {:?}", self.socket.local_addr());
-        if let Some((bootstrap, attempts)) = &self.bootstrap {
-            log::debug!(
-                "Bootstrapping in progress: Attempt: {}, Active message count: {}, Running: {:?}",
-                attempts,
-                bootstrap.active_message_count(),
-                self.running,
-            );
-        } else {
-            log::debug!("Not bootstrapping");
-        }
-        self.routing_table.log_stats();
-        self.timer
-            .schedule_in(LOG_TABLE_STATS_INTERVAL, ScheduledTaskCheck::LogStats);
     }
 
     fn shutdown(&mut self) {

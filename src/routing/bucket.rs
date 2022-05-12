@@ -34,13 +34,6 @@ impl Bucket {
         }
     }
 
-    /// Iterator over all good nodes in the bucket.
-    pub fn good_nodes(&self) -> impl Iterator<Item = &Node> {
-        self.nodes
-            .iter()
-            .filter(|node| node.status() == NodeStatus::Good)
-    }
-
     /// Iterator over all good nodes and questionable nodes in the bucket.
     pub fn pingable_nodes(&self) -> impl Iterator<Item = &Node> {
         self.nodes.iter().filter(|node| node.is_pingable())
