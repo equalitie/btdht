@@ -282,8 +282,4 @@ impl TableBootstrap {
 
         messages_sent > 0
     }
-
-    pub fn active_message_count(&self) -> usize {
-        self.active_messages.len()
-    }
 }

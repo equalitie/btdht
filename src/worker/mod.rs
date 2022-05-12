@@ -11,6 +11,15 @@ mod refresh;
 mod socket;
 mod timer;
 
+#[derive(Copy, Clone, Debug)]
+pub struct DebugState {
+    pub is_running: bool,
+    pub bootstrapped: bool,
+    pub good_node_count: usize,
+    pub questionable_node_count: usize,
+    pub bucket_count: usize,
+}
+
 /// Task that our DHT will execute immediately.
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
@@ -21,6 +30,8 @@ pub(crate) enum OneshotTask {
     StartLookup(StartLookup),
     /// Get the local address the socket is bound to.
     GetLocalAddr(oneshot::Sender<io::Result<SocketAddr>>),
+    /// Retrieve debug information.
+    GetDebugState(oneshot::Sender<DebugState>),
 }
 
 pub(crate) struct StartLookup {
@@ -40,8 +51,6 @@ pub(crate) enum ScheduledTaskCheck {
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
     LookupEndGame(TransactionID),
-    /// Log runtime stats.
-    LogStats,
 }
 
 #[derive(Error, Debug)]
