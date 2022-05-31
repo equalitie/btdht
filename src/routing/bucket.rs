@@ -94,6 +94,14 @@ impl Bucket {
             false
         }
     }
+
+    /// Iterator over all good nodes in the bucket.
+    #[cfg(test)]
+    fn good_nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes
+            .iter()
+            .filter(|node| node.status() == NodeStatus::Good)
+    }
 }
 
 // ----------------------------------------------------------------------------//
