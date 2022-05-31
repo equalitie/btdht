@@ -434,7 +434,8 @@ impl DhtHandler {
         // If we have no bootstrap contacts it means we are the first node in the network and
         // other would bootstrap against us. We consider this node as already bootstrapped.
         if self.routers.is_empty() && nodes.is_empty() {
-            return self.handle_bootstrap_failure();
+            self.handle_bootstrap_success().await;
+            return
         }
 
         let mid_generator = self.aid_generator.generate();
