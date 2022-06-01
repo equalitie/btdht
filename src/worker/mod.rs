@@ -20,7 +20,7 @@ pub struct DebugState {
     pub bucket_count: usize,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum IpVersion { V4, V6 }
 
 /// Task that our DHT will execute immediately.
