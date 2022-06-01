@@ -1,4 +1,5 @@
 use super::{
+    resolve,
     socket::Socket,
     timer::{Timeout, Timer},
     ActionStatus, ScheduledTaskCheck,
@@ -46,7 +47,8 @@ impl TableBootstrap {
         table_id: NodeId,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-        starting_routers: &HashSet<SocketAddr>,
+        starting_routers: &HashSet<String>,
+        resolved_routers: &mut HashSet<SocketAddr>,
     ) -> ActionStatus {
         // Reset the bootstrap state
         self.active_messages.clear();
@@ -82,7 +84,9 @@ impl TableBootstrap {
         self.initial_responses_expected = 0;
         self.initial_responses.clear();
 
-        for addr in starting_routers.iter().chain(self.starting_nodes.iter()) {
+        *resolved_routers = resolve(&starting_routers, socket.ip_version()).await;
+
+        for addr in resolved_routers.iter().chain(self.starting_nodes.iter()) {
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {

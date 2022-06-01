@@ -1,13 +1,15 @@
 //! Helpers to simplify work with UdpSocket.
 
+use super::IpVersion;
 use std::{io, net::SocketAddr};
 use tokio::net::UdpSocket;
 
-pub(crate) struct Socket(UdpSocket);
+pub struct Socket(UdpSocket, SocketAddr);
 
 impl Socket {
-    pub fn new(inner: UdpSocket) -> Self {
-        Self(inner)
+    pub fn new(inner: UdpSocket) -> io::Result<Self> {
+        let local_addr = inner.local_addr()?;
+        Ok(Self(inner, local_addr))
     }
 
     pub(crate) async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
@@ -29,7 +31,14 @@ impl Socket {
         Ok((buffer, addr))
     }
 
-    pub(crate) fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.0.local_addr()
+    pub fn local_addr(&self) -> SocketAddr {
+        self.1
+    }
+
+    pub fn ip_version(&self) -> IpVersion {
+        match self.1 {
+            SocketAddr::V4(_) => IpVersion::V4,
+            SocketAddr::V6(_) => IpVersion::V6,
+        }
     }
 }

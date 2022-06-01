@@ -12,7 +12,6 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    net::UdpSocket,
     sync::{mpsc, oneshot},
     task,
 };
@@ -47,14 +46,14 @@ impl MainlineDht {
     }
 
     /// Start the MainlineDht with the given DhtBuilder.
-    fn with_builder(builder: DhtBuilder, socket: UdpSocket) -> Self {
+    fn with_builder(builder: DhtBuilder, socket: Socket) -> Self {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
 
         // TODO: Utilize the security extension.
         let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
         let handler = DhtHandler::new(
             routing_table,
-            Socket::new(socket),
+            socket,
             builder.read_only,
             builder.announce_port,
             command_rx,
@@ -135,7 +134,7 @@ impl MainlineDht {
             .send(OneshotTask::GetLocalAddr(tx))
             .map_err(|_| error())?;
 
-        rx.await.map_err(|_| error())?
+        rx.await.map_err(|_| error())
     }
 }
 
@@ -157,7 +156,7 @@ impl Stream for SearchStream {
 #[derive(Debug)]
 pub struct DhtBuilder {
     nodes: HashSet<SocketAddr>,
-    routers: HashSet<SocketAddr>,
+    routers: HashSet<String>,
     read_only: bool,
     announce_port: Option<u16>,
     node_id: Option<NodeId>,
@@ -173,17 +172,18 @@ impl DhtBuilder {
     /// Add a router which will let us gather nodes if our routing table is ever empty.
     ///
     /// The difference between routers and nodes is that routers are not added to the routing table.
-    pub fn add_router(mut self, router: SocketAddr) -> DhtBuilder {
+    pub fn add_router(mut self, router: String) -> DhtBuilder {
         self.routers.insert(router);
         self
     }
 
     /// Add routers. Same as calling `add_router` multiple times but more convenient in some cases.
-    pub fn add_routers<I>(mut self, routers: I) -> DhtBuilder
+    pub fn add_routers<I, T>(mut self, routers: I) -> DhtBuilder
     where
-        I: IntoIterator<Item = SocketAddr>,
+        I: IntoIterator<Item = T>,
+        T: Into<String>
     {
-        self.routers.extend(routers);
+        self.routers.extend(routers.into_iter().map(|r| r.into()));
         self
     }
 
@@ -216,7 +216,7 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(self, socket: UdpSocket) -> MainlineDht {
+    pub fn start(self, socket: Socket) -> MainlineDht {
         MainlineDht::with_builder(self, socket)
     }
 }

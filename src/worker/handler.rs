@@ -1,7 +1,8 @@
 use super::{
-    DebugState,
+    resolve, IpVersion,
     bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
-    timer::Timer, ActionStatus, OneshotTask, ScheduledTaskCheck, StartLookup, WorkerError,
+    timer::Timer, ActionStatus, DebugState, OneshotTask, ScheduledTaskCheck, StartLookup,
+    WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -18,7 +19,7 @@ use futures_util::StreamExt;
 use std::{
     collections::{HashMap, HashSet},
     convert::AsRef,
-    io, mem,
+    mem,
     net::SocketAddr,
 };
 use tokio::{
@@ -41,7 +42,8 @@ pub(crate) struct DhtHandler {
     aid_generator: AIDGenerator,
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
-    routers: HashSet<SocketAddr>,
+    routers: HashSet<String>,
+    resolved_routers: HashSet<SocketAddr>,
     // TableBootstrap action (if bootstrap is ongoing) and the number of bootstrap attempts.
     bootstrap: Option<(TableBootstrap, usize)>,
     bootstrap_txs: Vec<oneshot::Sender<bool>>,
@@ -82,6 +84,7 @@ impl DhtHandler {
             routing_table: table,
             active_stores: AnnounceStorage::new(),
             routers: HashSet::new(),
+            resolved_routers: HashSet::new(),
             bootstrap: None,
             bootstrap_txs: Vec::new(),
             refresh: table_refresh,
@@ -354,9 +357,9 @@ impl DhtHandler {
     ) -> Result<(), WorkerError> {
         let node = Node::as_good(rsp.id, addr);
 
-        let nodes = match self.socket.local_addr()? {
-            SocketAddr::V4(_) => &rsp.nodes_v4,
-            SocketAddr::V6(_) => &rsp.nodes_v6,
+        let nodes = match self.socket.ip_version() {
+            IpVersion::V4 => &rsp.nodes_v4,
+            IpVersion::V6 => &rsp.nodes_v6,
         };
 
         if let Some((bootstrap, attempts)) = self
@@ -364,7 +367,7 @@ impl DhtHandler {
             .as_mut()
             .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
         {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
 
             match bootstrap
                 .recv_response(
@@ -386,6 +389,7 @@ impl DhtHandler {
                             &self.socket,
                             &mut self.timer,
                             &self.routers,
+                            &mut self.resolved_routers,
                         )
                         .await
                         {
@@ -399,7 +403,7 @@ impl DhtHandler {
                 }
             }
         } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
 
             match lookup
                 .recv_response(
@@ -416,7 +420,7 @@ impl DhtHandler {
                 ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
             }
         } else if self.refresh.action_id() == trans_id.action_id() {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.routers);
+            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
         } else {
             return Err(WorkerError::UnsolicitedResponse);
         }
@@ -426,7 +430,7 @@ impl DhtHandler {
 
     async fn handle_start_bootstrap(
         &mut self,
-        routers: HashSet<SocketAddr>,
+        routers: HashSet<String>,
         nodes: HashSet<SocketAddr>,
     ) {
         self.routers = routers;
@@ -435,7 +439,14 @@ impl DhtHandler {
         // other would bootstrap against us. We consider this node as already bootstrapped.
         if self.routers.is_empty() && nodes.is_empty() {
             self.handle_bootstrap_success().await;
-            return
+            return;
+        }
+
+        self.resolved_routers = resolve(&self.routers, self.socket.ip_version()).await;
+
+        if self.resolved_routers.is_empty() && !self.routers.is_empty() {
+            self.handle_bootstrap_failure();
+            return;
         }
 
         let mid_generator = self.aid_generator.generate();
@@ -448,6 +459,7 @@ impl DhtHandler {
                 &self.socket,
                 &mut self.timer,
                 &self.routers,
+                &mut self.resolved_routers,
             )
             .await;
 
@@ -465,6 +477,7 @@ impl DhtHandler {
                         &self.socket,
                         &mut self.timer,
                         &self.routers,
+                        &mut self.resolved_routers,
                     )
                     .await
                     {
@@ -520,6 +533,7 @@ impl DhtHandler {
                         &self.socket,
                         &mut self.timer,
                         &self.routers,
+                        &mut self.resolved_routers,
                     )
                     .await
                     {
@@ -586,16 +600,16 @@ impl DhtHandler {
 
     fn handle_get_debug_state(&self, tx: oneshot::Sender<DebugState>) {
         tx.send(DebugState {
-           is_running: self.running,
-           bootstrapped: self.bootstrap.is_none(),
-           good_node_count: self.routing_table.num_good_nodes(),
-           questionable_node_count: self.routing_table.num_questionable_nodes(),
-           bucket_count: self.routing_table.buckets().count(),
+            is_running: self.running,
+            bootstrapped: self.bootstrap.is_none(),
+            good_node_count: self.routing_table.num_good_nodes(),
+            questionable_node_count: self.routing_table.num_questionable_nodes(),
+            bucket_count: self.routing_table.buckets().count(),
         })
         .unwrap_or(())
     }
 
-    fn handle_get_local_addr(&self, tx: oneshot::Sender<io::Result<SocketAddr>>) {
+    fn handle_get_local_addr(&self, tx: oneshot::Sender<SocketAddr>) {
         tx.send(self.socket.local_addr()).unwrap_or(())
     }
 
@@ -656,9 +670,9 @@ impl DhtHandler {
     ) -> Result<(Vec<NodeHandle>, Vec<NodeHandle>), WorkerError> {
         let want = match want {
             Some(want) => want,
-            None => match self.socket.local_addr()? {
-                SocketAddr::V4(_) => Want::V4,
-                SocketAddr::V6(_) => Want::V6,
+            None => match self.socket.ip_version() {
+                IpVersion::V4 => Want::V4,
+                IpVersion::V6 => Want::V6,
             },
         };
 
@@ -704,7 +718,8 @@ async fn attempt_rebootstrap(
     routing_table: &RoutingTable,
     socket: &Socket,
     timer: &mut Timer<ScheduledTaskCheck>,
-    routers: &HashSet<SocketAddr>,
+    routers: &HashSet<String>,
+    resolved_routers: &mut HashSet<SocketAddr>,
 ) -> Option<bool> {
     loop {
         // Increment the bootstrap counter
@@ -725,7 +740,7 @@ async fn attempt_rebootstrap(
             }
         } else {
             let bootstrap_status = bootstrap
-                .start_bootstrap(routing_table.node_id(), socket, timer, routers)
+                .start_bootstrap(routing_table.node_id(), socket, timer, routers, resolved_routers)
                 .await;
 
             match bootstrap_status {
@@ -744,15 +759,15 @@ fn add_nodes(
     table: &mut RoutingTable,
     node: &Node,
     nodes: &[NodeHandle],
-    routers: &HashSet<SocketAddr>,
+    resolved_routers: &HashSet<SocketAddr>,
 ) {
-    if !routers.contains(&node.addr()) {
+    if !resolved_routers.contains(&node.addr()) {
         table.add_node(node.clone());
     }
 
     // Add the payload nodes as questionable
     for node in nodes {
-        if !routers.contains(&node.addr) {
+        if !resolved_routers.contains(&node.addr) {
             table.add_node(Node::as_questionable(node.id, node.addr));
         }
     }

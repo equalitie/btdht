@@ -20,16 +20,19 @@ pub struct DebugState {
     pub bucket_count: usize,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum IpVersion { V4, V6 }
+
 /// Task that our DHT will execute immediately.
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
-    StartBootstrap(HashSet<SocketAddr>, HashSet<SocketAddr>),
+    StartBootstrap(HashSet<String>, HashSet<SocketAddr>),
     /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
     CheckBootstrap(oneshot::Sender<bool>),
     /// Start a lookup for the given InfoHash.
     StartLookup(StartLookup),
     /// Get the local address the socket is bound to.
-    GetLocalAddr(oneshot::Sender<io::Result<SocketAddr>>),
+    GetLocalAddr(oneshot::Sender<SocketAddr>),
     /// Retrieve debug information.
     GetDebugState(oneshot::Sender<DebugState>),
 }
@@ -71,4 +74,17 @@ pub(crate) enum ActionStatus {
     Ongoing,
     /// Action completed
     Completed,
+}
+
+pub(crate) async fn resolve(routers: &HashSet<String>, ip_v: IpVersion) -> HashSet<SocketAddr> {
+    futures_util::future::join_all(routers.iter().map(tokio::net::lookup_host))
+        .await
+        .into_iter()
+        .filter_map(|result| result.ok())
+        .flatten()
+        .filter(|addr| match ip_v {
+            IpVersion::V4 => addr.is_ipv4(),
+            IpVersion::V6 => addr.is_ipv6(),
+        })
+        .collect()
 }

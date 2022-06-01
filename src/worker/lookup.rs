@@ -1,4 +1,5 @@
 use super::{
+    IpVersion,
     socket::Socket,
     timer::{Timeout, Timer},
     ActionStatus, ScheduledTaskCheck,
@@ -136,13 +137,9 @@ impl TableLookup {
             self.announce_tokens.insert(*node.handle(), token);
         }
 
-        let nodes = match socket.local_addr() {
-            Ok(SocketAddr::V4(_)) => msg.nodes_v4,
-            Ok(SocketAddr::V6(_)) => msg.nodes_v6,
-            Err(error) => {
-                log::error!("Failed to retreive local socket address: {}", error);
-                vec![]
-            }
+        let nodes = match socket.ip_version() {
+            IpVersion::V4 => msg.nodes_v4,
+            IpVersion::V6 => msg.nodes_v6,
         };
 
         let values = msg.values;
