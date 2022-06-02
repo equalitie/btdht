@@ -1,8 +1,7 @@
 use super::{
-    resolve, IpVersion,
-    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
-    timer::Timer, ActionStatus, DebugState, OneshotTask, ScheduledTaskCheck, StartLookup,
-    WorkerError,
+    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, resolve, socket::Socket,
+    timer::Timer, ActionStatus, DebugState, IpVersion, OneshotTask, ScheduledTaskCheck,
+    StartLookup, WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -367,7 +366,12 @@ impl DhtHandler {
             .as_mut()
             .filter(|(bootstrap, _)| bootstrap.action_id() == trans_id.action_id())
         {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
+            add_nodes(
+                &mut self.routing_table,
+                &node,
+                nodes,
+                &self.resolved_routers,
+            );
 
             match bootstrap
                 .recv_response(
@@ -393,9 +397,11 @@ impl DhtHandler {
                         )
                         .await
                         {
-                            Some(true) => (),
-                            Some(false) => self.handle_bootstrap_success().await,
-                            None => self.handle_bootstrap_failure(),
+                            RebootstrapResult::BootstrapStarted => (),
+                            RebootstrapResult::BootstrapNotNecessary => {
+                                self.handle_bootstrap_success().await
+                            }
+                            RebootstrapResult::RebootstrapFailed => self.handle_bootstrap_failure(),
                         }
                     } else {
                         self.handle_bootstrap_success().await
@@ -403,7 +409,12 @@ impl DhtHandler {
                 }
             }
         } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
+            add_nodes(
+                &mut self.routing_table,
+                &node,
+                nodes,
+                &self.resolved_routers,
+            );
 
             match lookup
                 .recv_response(
@@ -420,7 +431,12 @@ impl DhtHandler {
                 ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
             }
         } else if self.refresh.action_id() == trans_id.action_id() {
-            add_nodes(&mut self.routing_table, &node, nodes, &self.resolved_routers);
+            add_nodes(
+                &mut self.routing_table,
+                &node,
+                nodes,
+                &self.resolved_routers,
+            );
         } else {
             return Err(WorkerError::UnsolicitedResponse);
         }
@@ -481,9 +497,11 @@ impl DhtHandler {
                     )
                     .await
                     {
-                        Some(true) => (),
-                        Some(false) => self.handle_bootstrap_success().await,
-                        None => self.handle_bootstrap_failure(),
+                        RebootstrapResult::BootstrapStarted => (),
+                        RebootstrapResult::BootstrapNotNecessary => {
+                            self.handle_bootstrap_success().await
+                        }
+                        RebootstrapResult::RebootstrapFailed => self.handle_bootstrap_failure(),
                     }
                 } else {
                     self.handle_bootstrap_success().await
@@ -537,9 +555,11 @@ impl DhtHandler {
                     )
                     .await
                     {
-                        Some(true) => (),
-                        Some(false) => self.handle_bootstrap_success().await,
-                        None => self.handle_bootstrap_failure(),
+                        RebootstrapResult::BootstrapStarted => (),
+                        RebootstrapResult::BootstrapNotNecessary => {
+                            self.handle_bootstrap_success().await
+                        }
+                        RebootstrapResult::RebootstrapFailed => self.handle_bootstrap_failure(),
                     }
                 } else {
                     self.handle_bootstrap_success().await
@@ -709,9 +729,13 @@ fn should_rebootstrap(table: &RoutingTable) -> bool {
     table.num_good_nodes() <= BOOTSTRAP_GOOD_NODE_THRESHOLD
 }
 
+enum RebootstrapResult {
+    BootstrapNotNecessary,
+    BootstrapStarted,
+    RebootstrapFailed,
+}
+
 /// Attempt to rebootstrap or shutdown the dht if we have no nodes after rebootstrapping multiple time.
-/// Returns None if the DHT is shutting down, Some(true) if the rebootstrap process started,
-/// Some(false) if a rebootstrap is not necessary.
 async fn attempt_rebootstrap(
     bootstrap: &mut TableBootstrap,
     attempts: &mut usize,
@@ -720,7 +744,7 @@ async fn attempt_rebootstrap(
     timer: &mut Timer<ScheduledTaskCheck>,
     routers: &HashSet<String>,
     resolved_routers: &mut HashSet<SocketAddr>,
-) -> Option<bool> {
+) -> RebootstrapResult {
     loop {
         // Increment the bootstrap counter
         *attempts += 1;
@@ -734,20 +758,26 @@ async fn attempt_rebootstrap(
         if *attempts >= MAX_BOOTSTRAP_ATTEMPTS {
             if routing_table.num_good_nodes() == 0 {
                 // Failed to get any nodes in the rebootstrap attempts, shut down
-                return None;
+                return RebootstrapResult::RebootstrapFailed;
             } else {
-                return Some(false);
+                return RebootstrapResult::BootstrapNotNecessary;
             }
         } else {
             let bootstrap_status = bootstrap
-                .start_bootstrap(routing_table.node_id(), socket, timer, routers, resolved_routers)
+                .start_bootstrap(
+                    routing_table.node_id(),
+                    socket,
+                    timer,
+                    routers,
+                    resolved_routers,
+                )
                 .await;
 
             match bootstrap_status {
-                ActionStatus::Ongoing => return Some(true),
+                ActionStatus::Ongoing => return RebootstrapResult::BootstrapStarted,
                 ActionStatus::Completed => {
                     if !should_rebootstrap(routing_table) {
-                        return Some(false);
+                        return RebootstrapResult::BootstrapNotNecessary;
                     }
                 }
             }

@@ -21,7 +21,10 @@ pub struct DebugState {
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
-pub enum IpVersion { V4, V6 }
+pub enum IpVersion {
+    V4,
+    V6,
+}
 
 /// Task that our DHT will execute immediately.
 pub(crate) enum OneshotTask {

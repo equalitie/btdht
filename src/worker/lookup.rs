@@ -1,8 +1,7 @@
 use super::{
-    IpVersion,
     socket::Socket,
     timer::{Timeout, Timer},
-    ActionStatus, ScheduledTaskCheck,
+    ActionStatus, IpVersion, ScheduledTaskCheck,
 };
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{

@@ -181,7 +181,7 @@ impl DhtBuilder {
     pub fn add_routers<I, T>(mut self, routers: I) -> DhtBuilder
     where
         I: IntoIterator<Item = T>,
-        T: Into<String>
+        T: Into<String>,
     {
         self.routers.extend(routers.into_iter().map(|r| r.into()));
         self
