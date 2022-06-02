@@ -50,9 +50,6 @@ pub(crate) struct DhtHandler {
     refresh: TableRefresh,
     // Ongoing TableLookups.
     lookups: HashMap<ActionID, TableLookup>,
-    // Lookups initiated while we were still bootstrapping, to be executed when the bootstrap is
-    // complete.
-    future_lookups: Vec<StartLookup>,
 }
 
 impl DhtHandler {
@@ -88,7 +85,6 @@ impl DhtHandler {
             bootstrap_txs: Vec::new(),
             refresh: table_refresh,
             lookups: HashMap::new(),
-            future_lookups: vec![],
         }
     }
 
@@ -577,11 +573,6 @@ impl DhtHandler {
 
         // Start the refresh action.
         self.handle_check_table_refresh().await;
-
-        // Start the post bootstrap actions.
-        for lookup in mem::take(&mut self.future_lookups) {
-            self.handle_start_lookup(lookup).await;
-        }
     }
 
     fn handle_bootstrap_failure(&mut self) {
@@ -596,26 +587,21 @@ impl DhtHandler {
     }
 
     async fn handle_start_lookup(&mut self, lookup: StartLookup) {
-        if self.bootstrap.is_some() {
-            // Queue it up if we are currently bootstrapping
-            self.future_lookups.push(lookup);
-        } else {
-            // Start the lookup right now if not bootstrapping
-            let mid_generator = self.aid_generator.generate();
-            let action_id = mid_generator.action_id();
+        // Start the lookup right now if not bootstrapping
+        let mid_generator = self.aid_generator.generate();
+        let action_id = mid_generator.action_id();
 
-            let lookup = TableLookup::new(
-                lookup.info_hash,
-                lookup.announce,
-                lookup.tx,
-                mid_generator,
-                &mut self.routing_table,
-                &self.socket,
-                &mut self.timer,
-            )
-            .await;
-            self.lookups.insert(action_id, lookup);
-        }
+        let lookup = TableLookup::new(
+            lookup.info_hash,
+            lookup.announce,
+            lookup.tx,
+            mid_generator,
+            &mut self.routing_table,
+            &self.socket,
+            &mut self.timer,
+        )
+        .await;
+        self.lookups.insert(action_id, lookup);
     }
 
     fn handle_get_debug_state(&self, tx: oneshot::Sender<DebugState>) {
