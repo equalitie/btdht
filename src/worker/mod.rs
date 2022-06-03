@@ -29,7 +29,7 @@ pub enum IpVersion {
 /// Task that our DHT will execute immediately.
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
-    StartBootstrap(HashSet<String>, HashSet<SocketAddr>),
+    StartBootstrap(),
     /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
     CheckBootstrap(oneshot::Sender<bool>),
     /// Start a lookup for the given InfoHash.

@@ -22,34 +22,73 @@ const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
 const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
 
 pub(crate) struct TableBootstrap {
+    routers: HashSet<String>,
+    router_addresses: HashSet<SocketAddr>,
     id_generator: MIDGenerator,
     starting_nodes: HashSet<SocketAddr>,
     active_messages: HashMap<TransactionID, Timeout>,
     curr_bootstrap_bucket: usize,
     initial_responses: HashSet<SocketAddr>,
     initial_responses_expected: usize,
+    bootstrapped: bool,
 }
 
 impl TableBootstrap {
-    pub fn new(id_generator: MIDGenerator, nodes: HashSet<SocketAddr>) -> TableBootstrap {
+    pub fn new(id_generator: MIDGenerator, routers: HashSet<String>, nodes: HashSet<SocketAddr>) -> TableBootstrap {
         TableBootstrap {
+            routers,
+            router_addresses: HashSet::new(),
             id_generator,
             starting_nodes: nodes,
             active_messages: HashMap::new(),
             curr_bootstrap_bucket: 0,
             initial_responses: HashSet::new(),
             initial_responses_expected: 0,
+            bootstrapped: false,
         }
     }
 
+    pub fn has_bootstrap_contacts(&self) -> bool {
+        !self.routers.is_empty() || self.starting_nodes.is_empty()
+    }
+
+    pub fn is_router(&self, addr: &SocketAddr) -> bool {
+        self.router_addresses.contains(addr)
+    }
+
+    pub fn router_addresses(&self) -> &HashSet<SocketAddr> {
+        &self.router_addresses
+    }
+
+    pub fn is_bootstrapped(&self) -> bool {
+        self.bootstrapped
+    }
+
+    // Return true if the state has changed.
+    fn mark_bootstrapped(&mut self, bootstrapped: bool) -> bool {
+        if self.bootstrapped == bootstrapped {
+            false
+        }
+        else {
+            self.bootstrapped = bootstrapped;
+            true
+        }
+    }
+
+    /// Return true if the bootstrap state changed.
     pub async fn start_bootstrap(
         &mut self,
         table_id: NodeId,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-        starting_routers: &HashSet<String>,
-        resolved_routers: &mut HashSet<SocketAddr>,
-    ) -> ActionStatus {
+    ) -> bool {
+
+        // If we have no bootstrap contacts it means we are the first node in the network and
+        // other would bootstrap against us. We consider this node as already bootstrapped.
+        if self.routers.is_empty() {
+            return self.mark_bootstrapped(true);
+        }
+
         // Reset the bootstrap state
         self.active_messages.clear();
         self.curr_bootstrap_bucket = 0;
@@ -84,9 +123,13 @@ impl TableBootstrap {
         self.initial_responses_expected = 0;
         self.initial_responses.clear();
 
-        *resolved_routers = resolve(&starting_routers, socket.ip_version()).await;
+        self.router_addresses = resolve(&self.routers, socket.ip_version()).await;
 
-        for addr in resolved_routers.iter().chain(self.starting_nodes.iter()) {
+        if self.router_addresses.is_empty() {
+            return self.mark_bootstrapped(true);
+        }
+
+        for addr in self.router_addresses.iter().chain(self.starting_nodes.iter()) {
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {
@@ -98,9 +141,9 @@ impl TableBootstrap {
         }
 
         if self.initial_responses_expected > 0 {
-            ActionStatus::Ongoing
+            self.mark_bootstrapped(false)
         } else {
-            ActionStatus::Completed
+            self.mark_bootstrapped(true)
         }
     }
 
@@ -108,6 +151,7 @@ impl TableBootstrap {
         self.id_generator.action_id()
     }
 
+    /// Return true if the bootstrap state has changed.
     pub async fn recv_response(
         &mut self,
         addr: SocketAddr,
@@ -115,13 +159,13 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> ActionStatus {
+    ) -> bool {
         // Process the message transaction id
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
             log::warn!("Received expired/unsolicited node response for an active table bootstrap");
-            return ActionStatus::Ongoing;
+            return self.mark_bootstrapped(false);
         };
 
         // In the initial round all the messages have the same transaction id so clear it only after
@@ -143,7 +187,7 @@ impl TableBootstrap {
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            ActionStatus::Ongoing
+            self.mark_bootstrapped(false)
         }
     }
 
@@ -153,17 +197,21 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> ActionStatus {
+    ) -> bool {
+        if self.bootstrapped {
+            return false;
+        }
+
         if self.active_messages.remove(trans_id).is_none() {
             log::warn!("Received expired/unsolicited node timeout for an active table bootstrap");
-            return ActionStatus::Ongoing;
+            return self.mark_bootstrapped(false);
         }
 
         // Check if we need to bootstrap on the next bucket
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            ActionStatus::Ongoing
+            self.mark_bootstrapped(false)
         }
     }
 
@@ -172,10 +220,10 @@ impl TableBootstrap {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> ActionStatus {
+    ) -> bool {
         loop {
             if self.curr_bootstrap_bucket >= table::MAX_BUCKETS {
-                return ActionStatus::Completed;
+                return self.mark_bootstrapped(true);
             }
 
             let target_id = table.node_id().flip_bit(self.curr_bootstrap_bucket);
@@ -230,7 +278,7 @@ impl TableBootstrap {
                 .send_bootstrap_requests(&nodes, target_id, table, socket, timer)
                 .await
             {
-                return ActionStatus::Ongoing;
+                self.mark_bootstrapped(false);
             }
         }
     }

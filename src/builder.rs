@@ -55,12 +55,14 @@ impl MainlineDht {
             routing_table,
             socket,
             builder.read_only,
+            builder.routers,
+            builder.nodes,
             builder.announce_port,
             command_rx,
         );
 
         if command_tx
-            .send(OneshotTask::StartBootstrap(builder.routers, builder.nodes))
+            .send(OneshotTask::StartBootstrap())
             .is_err()
         {
             // `unreachable` is OK here because the corresponding receiver definitely exists at
