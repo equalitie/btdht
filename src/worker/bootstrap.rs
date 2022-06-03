@@ -18,6 +18,7 @@ use std::{
 
 const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
+const BOOTSTRAP_PERIODIC_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
 const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
@@ -95,8 +96,6 @@ impl TableBootstrap {
 
     /// Return true if the bootstrap state changed.
     pub async fn start(&mut self, socket: &Socket, timer: &mut Timer<ScheduledTaskCheck>) -> bool {
-        log::debug!("TableBootstrap::start");
-
         self.bootstrap_attempt += 1;
 
         // If we have no bootstrap contacts it means we are the first node in the network and
@@ -109,7 +108,7 @@ impl TableBootstrap {
         self.router_addresses = resolve(&self.routers, socket.ip_version()).await;
 
         if self.router_addresses.is_empty() {
-            idle_timeout_in(timer, self.calculate_idle_duration());
+            idle_timeout_in(timer, self.calculate_retry_duration());
             return self.set_state(State::IdleBeforeRebootstrap, line!());
         }
 
@@ -163,12 +162,12 @@ impl TableBootstrap {
             self.set_state(State::Bootstrapping, line!())
         } else {
             // Nothing was sent, wait for timeout to restart the bootstrap.
-            idle_timeout_in(timer, self.calculate_idle_duration());
+            idle_timeout_in(timer, self.calculate_retry_duration());
             self.set_state(State::IdleBeforeRebootstrap, line!())
         }
     }
 
-    fn calculate_idle_duration(&self) -> Duration {
+    fn calculate_retry_duration(&self) -> Duration {
         // `bootstrap_attempt` is always assumed to be >= one, but check for it anyway.
         let n = self.bootstrap_attempt.max(1);
         const BASE: u64 = 2;
@@ -189,8 +188,6 @@ impl TableBootstrap {
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> bool {
-        log::debug!("TableBootstrap::recv_response");
-
         // Process the message transaction id
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
@@ -234,19 +231,19 @@ impl TableBootstrap {
 
         match timeout {
             BootstrapTimeout::Transaction(trans_id) => {
-                self.handle_transaction_timeout(table, &trans_id, socket, timer)
+                self.handle_transaction_timeout(table, socket, timer, &trans_id)
                     .await
             }
-            BootstrapTimeout::IdleWakeUp => self.handle_wakeup_timeout(socket, timer).await,
+            BootstrapTimeout::IdleWakeUp => self.handle_wakeup_timeout(table, socket, timer).await,
         }
     }
 
     async fn handle_transaction_timeout(
         &mut self,
         table: &mut RoutingTable,
-        trans_id: &TransactionID,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
+        trans_id: &TransactionID,
     ) -> bool {
         if self.active_messages.remove(trans_id).is_none() {
             log::warn!("Received expired/unsolicited node timeout in table bootstrap");
@@ -261,7 +258,7 @@ impl TableBootstrap {
                 if self.active_messages.is_empty() {
                     self.bootstrap_next_bucket(table, socket, timer).await
                 } else {
-                    self.set_state(State::Bootstrapping, line!())
+                    false
                 }
             }
         }
@@ -269,11 +266,24 @@ impl TableBootstrap {
 
     async fn handle_wakeup_timeout(
         &mut self,
+        table: &RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> bool {
-        // TODO: Check if we need to do this
-        self.start(socket, timer).await
+        match self.state {
+            State::Bootstrapped => {
+                if table.num_good_nodes() < BOOTSTRAP_GOOD_NODE_THRESHOLD {
+                    self.start(socket, timer).await
+                } else {
+                    idle_timeout_in(timer, BOOTSTRAP_PERIODIC_CHECK_TIMEOUT);
+                    false
+                }
+            },
+            State::IdleBeforeRebootstrap => {
+                self.start(socket, timer).await
+            }
+            State::Bootstrapping => false,
+        }
     }
 
     async fn bootstrap_next_bucket(
@@ -291,9 +301,10 @@ impl TableBootstrap {
             if self.curr_bootstrap_bucket >= table::MAX_BUCKETS {
                 if table.num_good_nodes() >= BOOTSTRAP_GOOD_NODE_THRESHOLD {
                     self.bootstrap_attempt = 0;
+                    idle_timeout_in(timer, BOOTSTRAP_PERIODIC_CHECK_TIMEOUT);
                     return self.set_state(State::Bootstrapped, line!());
                 } else {
-                    idle_timeout_in(timer, self.calculate_idle_duration());
+                    idle_timeout_in(timer, self.calculate_retry_duration());
                     return self.set_state(State::IdleBeforeRebootstrap, line!());
                 }
             }
