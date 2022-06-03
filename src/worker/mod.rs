@@ -46,13 +46,20 @@ pub(crate) struct StartLookup {
     pub tx: mpsc::UnboundedSender<SocketAddr>,
 }
 
+/// Signifies what has timed out in the TableBootstrap class.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum BootstrapTimeout {
+    Transaction(TransactionID),
+    IdleWakeUp,
+}
+
 /// Task that our DHT will execute some time later.
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum ScheduledTaskCheck {
     /// Check the progress of the bucket refresh.
     TableRefresh,
     /// Check the progress of the current bootstrap.
-    BootstrapTimeout(TransactionID),
+    BootstrapTimeout(BootstrapTimeout),
     /// Check the progress of a current lookup.
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.

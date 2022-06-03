@@ -1,7 +1,7 @@
 use super::{
-    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, resolve, socket::Socket,
-    timer::Timer, ActionStatus, DebugState, IpVersion, OneshotTask, ScheduledTaskCheck,
-    StartLookup, WorkerError,
+    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
+    timer::Timer, ActionStatus, BootstrapTimeout, DebugState, IpVersion, OneshotTask,
+    ScheduledTaskCheck, StartLookup, WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -18,16 +18,12 @@ use futures_util::StreamExt;
 use std::{
     collections::{HashMap, HashSet},
     convert::AsRef,
-    mem,
     net::SocketAddr,
 };
 use tokio::{
     select,
     sync::{mpsc, oneshot},
 };
-
-const MAX_BOOTSTRAP_ATTEMPTS: usize = 3;
-const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
@@ -66,7 +62,7 @@ impl DhtHandler {
         let table_refresh = TableRefresh::new(mid_generator);
 
         let mid_generator = aid_generator.generate();
-        let mut bootstrap = TableBootstrap::new(mid_generator, routers, nodes);
+        let bootstrap = TableBootstrap::new(table.node_id(), mid_generator, routers, nodes);
 
         let timer = Timer::new();
 
@@ -141,8 +137,8 @@ impl DhtHandler {
             ScheduledTaskCheck::TableRefresh => {
                 self.handle_check_table_refresh().await;
             }
-            ScheduledTaskCheck::BootstrapTimeout(trans_id) => {
-                self.handle_check_bootstrap_timeout(trans_id).await;
+            ScheduledTaskCheck::BootstrapTimeout(timeout) => {
+                self.handle_check_bootstrap_timeout(timeout).await;
             }
             ScheduledTaskCheck::LookupTimeout(trans_id) => {
                 self.handle_check_lookup_timeout(trans_id).await;
@@ -158,7 +154,9 @@ impl DhtHandler {
         buffer: &[u8],
         addr: SocketAddr,
     ) -> Result<(), WorkerError> {
+        log::debug!(">>> parsing...");
         let message = Message::decode(buffer).map_err(WorkerError::InvalidBencode)?;
+        log::debug!(">>> incoming {:?} {:?}", addr, message);
 
         // Do not process requests if we are read only
         // TODO: Add read only flags to messages we send it we are read only!
@@ -357,7 +355,7 @@ impl DhtHandler {
             IpVersion::V6 => &rsp.nodes_v6,
         };
 
-        if !self.bootstrap.is_bootstrapped() && self.bootstrap.action_id() == trans_id.action_id() {
+        if self.bootstrap.action_id() == trans_id.action_id() {
             add_nodes(
                 &mut self.routing_table,
                 &node,
@@ -365,7 +363,8 @@ impl DhtHandler {
                 self.bootstrap.router_addresses(),
             );
 
-            let state_changed = self.bootstrap
+            let state_changed = self
+                .bootstrap
                 .recv_response(
                     addr,
                     &trans_id,
@@ -376,7 +375,8 @@ impl DhtHandler {
                 .await;
 
             if state_changed {
-                self.handle_bootstrap_change(self.bootstrap.is_bootstrapped());
+                self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
+                    .await;
             }
         } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
             add_nodes(
@@ -414,24 +414,10 @@ impl DhtHandler {
         Ok(())
     }
 
-    async fn handle_start_bootstrap(
-        &mut self,
-    ) {
-
-
-
-
-        // Begin the bootstrap operation
-        let state_changed = self.bootstrap
-            .start_bootstrap(
-                self.routing_table.node_id(),
-                &self.socket,
-                &mut self.timer,
-            )
-            .await;
-
-        if state_changed {
-            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped());
+    async fn handle_start_bootstrap(&mut self) {
+        if self.bootstrap.start(&self.socket, &mut self.timer).await {
+            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
+                .await;
         }
     }
 
@@ -443,11 +429,11 @@ impl DhtHandler {
         }
     }
 
-    async fn handle_check_bootstrap_timeout(&mut self, trans_id: TransactionID) {
-
-        let state_changed = self.bootstrap
+    async fn handle_check_bootstrap_timeout(&mut self, timeout: BootstrapTimeout) {
+        let state_changed = self
+            .bootstrap
             .recv_timeout(
-                &trans_id,
+                &timeout,
                 &mut self.routing_table,
                 &self.socket,
                 &mut self.timer,
@@ -455,7 +441,8 @@ impl DhtHandler {
             .await;
 
         if state_changed {
-            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped());
+            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
+                .await;
         }
     }
 
@@ -470,8 +457,6 @@ impl DhtHandler {
     async fn handle_bootstrap_success(&mut self) {
         // Send notification that the bootstrap has completed.
         self.broadcast_bootstrap_completed(true);
-
-        // Indicates we are out of the bootstrapping phase
 
         // Start the refresh action.
         self.handle_check_table_refresh().await;
@@ -611,18 +596,6 @@ impl DhtHandler {
 }
 
 // ----------------------------------------------------------------------------//
-
-/// We should rebootstrap if we have a low number of nodes.
-fn should_rebootstrap(table: &RoutingTable) -> bool {
-    table.num_good_nodes() <= BOOTSTRAP_GOOD_NODE_THRESHOLD
-}
-
-enum RebootstrapResult {
-    BootstrapNotNecessary,
-    BootstrapStarted,
-    RebootstrapFailed,
-}
-
 
 fn add_nodes(
     table: &mut RoutingTable,

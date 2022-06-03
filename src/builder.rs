@@ -61,10 +61,7 @@ impl MainlineDht {
             command_rx,
         );
 
-        if command_tx
-            .send(OneshotTask::StartBootstrap())
-            .is_err()
-        {
+        if command_tx.send(OneshotTask::StartBootstrap()).is_err() {
             // `unreachable` is OK here because the corresponding receiver definitely exists at
             // this point inside `handler`.
             unreachable!()
