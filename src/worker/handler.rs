@@ -154,9 +154,7 @@ impl DhtHandler {
         buffer: &[u8],
         addr: SocketAddr,
     ) -> Result<(), WorkerError> {
-        log::debug!(">>> parsing...");
         let message = Message::decode(buffer).map_err(WorkerError::InvalidBencode)?;
-        log::debug!(">>> incoming {:?} {:?}", addr, message);
 
         // Do not process requests if we are read only
         // TODO: Add read only flags to messages we send it we are read only!

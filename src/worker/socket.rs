@@ -13,14 +13,7 @@ impl Socket {
     }
 
     pub(crate) async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
-        log::debug!("sending to {:?}", addr);
-        let mut bytes_sent = 0;
-
-        while bytes_sent < bytes.len() {
-            let num_sent = self.0.send_to(&bytes[bytes_sent..], addr).await?;
-            bytes_sent += num_sent;
-        }
-
+        self.0.send_to(&bytes, addr).await?;
         Ok(())
     }
 
