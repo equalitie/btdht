@@ -462,7 +462,6 @@ impl DhtHandler {
 
     fn handle_bootstrap_failure(&mut self) {
         self.broadcast_bootstrap_completed(false);
-        self.shutdown();
     }
 
     fn broadcast_bootstrap_completed(&mut self, status: bool) {
