@@ -109,6 +109,10 @@ impl TableBootstrap {
         self.router_addresses = resolve(&self.routers, socket.ip_version()).await;
 
         if self.router_addresses.is_empty() {
+            // This doesn't need to be counted as a failed bootstrap attempt because we have not
+            // yet pinged any of the routers (bootstrap nodes) and thus don't need to do the
+            // exponential backoff so as to not stress them.
+            self.bootstrap_attempt = 0;
             idle_timeout_in(timer, NO_NETWORK_TIMEOUT);
             return self.set_state(State::IdleBeforeRebootstrap, line!());
         }
@@ -163,6 +167,11 @@ impl TableBootstrap {
             self.set_state(State::Bootstrapping, line!())
         } else {
             // Nothing was sent, wait for timeout to restart the bootstrap.
+
+            // This doesn't need to be counted as a failed bootstrap attempt because we have not
+            // yet pinged any of the routers (bootstrap nodes) and thus don't need to do the
+            // exponential backoff so as to not stress them.
+            self.bootstrap_attempt = 0;
             idle_timeout_in(timer, NO_NETWORK_TIMEOUT);
             self.set_state(State::IdleBeforeRebootstrap, line!())
         }
