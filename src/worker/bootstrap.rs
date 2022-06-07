@@ -16,12 +16,13 @@ use std::{
     time::Duration,
 };
 
-const BOOTSTRAP_INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
-const BOOTSTRAP_NODE_TIMEOUT: Duration = Duration::from_millis(500);
-const BOOTSTRAP_PERIODIC_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
-const BOOTSTRAP_GOOD_NODE_THRESHOLD: usize = 10;
+const INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
+const NODE_TIMEOUT: Duration = Duration::from_millis(500);
+const NO_NETWORK_TIMEOUT: Duration = Duration::from_secs(5);
+const PERIODIC_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+const GOOD_NODE_THRESHOLD: usize = 10;
 
-const BOOTSTRAP_PINGS_PER_BUCKET: usize = 8;
+const PINGS_PER_BUCKET: usize = 8;
 
 pub(crate) struct TableBootstrap {
     table_id: NodeId,
@@ -82,7 +83,7 @@ impl TableBootstrap {
             self.state = new_state;
             false
         } else {
-            log::debug!(
+            log::info!(
                 "TableBootstrap state change {:?} -> {:?} (from: {})",
                 self.state,
                 new_state,
@@ -108,7 +109,7 @@ impl TableBootstrap {
         self.router_addresses = resolve(&self.routers, socket.ip_version()).await;
 
         if self.router_addresses.is_empty() {
-            idle_timeout_in(timer, self.calculate_retry_duration());
+            idle_timeout_in(timer, NO_NETWORK_TIMEOUT);
             return self.set_state(State::IdleBeforeRebootstrap, line!());
         }
 
@@ -125,7 +126,7 @@ impl TableBootstrap {
         let trans_id = self.id_generator.generate();
 
         // Set a timer to begin the actual bootstrap
-        let timeout = transaction_timeout_in(timer, BOOTSTRAP_INITIAL_TIMEOUT, trans_id);
+        let timeout = transaction_timeout_in(timer, INITIAL_TIMEOUT, trans_id);
 
         self.active_messages.insert(trans_id, timeout);
 
@@ -150,7 +151,7 @@ impl TableBootstrap {
         {
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
-                    if self.initial_responses_expected < BOOTSTRAP_PINGS_PER_BUCKET {
+                    if self.initial_responses_expected < PINGS_PER_BUCKET {
                         self.initial_responses_expected += 1
                     }
                 }
@@ -162,7 +163,7 @@ impl TableBootstrap {
             self.set_state(State::Bootstrapping, line!())
         } else {
             // Nothing was sent, wait for timeout to restart the bootstrap.
-            idle_timeout_in(timer, self.calculate_retry_duration());
+            idle_timeout_in(timer, NO_NETWORK_TIMEOUT);
             self.set_state(State::IdleBeforeRebootstrap, line!())
         }
     }
@@ -171,8 +172,8 @@ impl TableBootstrap {
         // `bootstrap_attempt` is always assumed to be >= one, but check for it anyway.
         let n = self.bootstrap_attempt.max(1);
         const BASE: u64 = 2;
-        // Max is somewhere around 4.27 mins.
-        Duration::from_secs(BASE.pow(n.min(8) as u32))
+        // Max is somewhere around 8.5 mins.
+        Duration::from_secs(BASE.pow(n.min(9) as u32))
     }
 
     pub fn action_id(&self) -> ActionID {
@@ -227,8 +228,6 @@ impl TableBootstrap {
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> bool {
-        log::debug!("TableBootstrap::recv_timeout state: {:?}", self.state);
-
         match timeout {
             BootstrapTimeout::Transaction(trans_id) => {
                 self.handle_transaction_timeout(table, socket, timer, &trans_id)
@@ -272,10 +271,10 @@ impl TableBootstrap {
     ) -> bool {
         match self.state {
             State::Bootstrapped => {
-                if table.num_good_nodes() < BOOTSTRAP_GOOD_NODE_THRESHOLD {
+                if table.num_good_nodes() < GOOD_NODE_THRESHOLD {
                     self.start(socket, timer).await
                 } else {
-                    idle_timeout_in(timer, BOOTSTRAP_PERIODIC_CHECK_TIMEOUT);
+                    idle_timeout_in(timer, PERIODIC_CHECK_TIMEOUT);
                     false
                 }
             },
@@ -299,9 +298,9 @@ impl TableBootstrap {
         );
         loop {
             if self.curr_bootstrap_bucket >= table::MAX_BUCKETS {
-                if table.num_good_nodes() >= BOOTSTRAP_GOOD_NODE_THRESHOLD {
+                if table.num_good_nodes() >= GOOD_NODE_THRESHOLD {
                     self.bootstrap_attempt = 0;
-                    idle_timeout_in(timer, BOOTSTRAP_PERIODIC_CHECK_TIMEOUT);
+                    idle_timeout_in(timer, PERIODIC_CHECK_TIMEOUT);
                     return self.set_state(State::Bootstrapped, line!());
                 } else {
                     idle_timeout_in(timer, self.calculate_retry_duration());
@@ -317,7 +316,7 @@ impl TableBootstrap {
                     table
                         .closest_nodes(target_id)
                         .filter(|n| n.status() == NodeStatus::Questionable)
-                        .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                        .take(PINGS_PER_BUCKET)
                         .map(|node| *node.handle())
                         .collect()
                 } else {
@@ -349,7 +348,7 @@ impl TableBootstrap {
                         .chain(percent_50_bucket)
                         .chain(percent_100_bucket)
                         .filter(|n| n.status() == NodeStatus::Questionable)
-                        .take(BOOTSTRAP_PINGS_PER_BUCKET)
+                        .take(PINGS_PER_BUCKET)
                         .map(|node| *node.handle())
                         .collect()
                 };
@@ -394,7 +393,7 @@ impl TableBootstrap {
             .encode();
 
             // Add a timeout for the node
-            let timeout = transaction_timeout_in(timer, BOOTSTRAP_NODE_TIMEOUT, trans_id);
+            let timeout = transaction_timeout_in(timer, NODE_TIMEOUT, trans_id);
 
             // Send the message to the node
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {
