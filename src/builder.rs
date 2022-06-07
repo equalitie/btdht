@@ -1,7 +1,7 @@
 use crate::{
     id::{InfoHash, NodeId},
     routing::table::RoutingTable,
-    worker::{DebugState, DhtHandler, OneshotTask, Socket, StartLookup},
+    worker::{State, DhtHandler, OneshotTask, Socket, StartLookup},
 };
 use futures_util::Stream;
 use std::{
@@ -72,10 +72,11 @@ impl MainlineDht {
         Self { send: command_tx }
     }
 
-    pub async fn get_debug_state(&self) -> Option<DebugState> {
+    /// Get the state of the DHT state machine, can be used for debugging.
+    pub async fn get_state(&self) -> Option<State> {
         let (tx, rx) = oneshot::channel();
 
-        if self.send.send(OneshotTask::GetDebugState(tx)).is_err() {
+        if self.send.send(OneshotTask::GetState(tx)).is_err() {
             None
         } else {
             rx.await.ok()

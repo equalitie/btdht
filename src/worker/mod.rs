@@ -12,7 +12,7 @@ mod socket;
 mod timer;
 
 #[derive(Copy, Clone, Debug)]
-pub struct DebugState {
+pub struct State {
     pub is_running: bool,
     pub bootstrapped: bool,
     pub good_node_count: usize,
@@ -37,7 +37,7 @@ pub(crate) enum OneshotTask {
     /// Get the local address the socket is bound to.
     GetLocalAddr(oneshot::Sender<SocketAddr>),
     /// Retrieve debug information.
-    GetDebugState(oneshot::Sender<DebugState>),
+    GetState(oneshot::Sender<State>),
 }
 
 pub(crate) struct StartLookup {

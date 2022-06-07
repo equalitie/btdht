@@ -1,6 +1,6 @@
 use super::{
     bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
-    timer::Timer, ActionStatus, BootstrapTimeout, DebugState, IpVersion, OneshotTask,
+    timer::Timer, ActionStatus, BootstrapTimeout, State, IpVersion, OneshotTask,
     ScheduledTaskCheck, StartLookup, WorkerError,
 };
 use crate::{
@@ -128,7 +128,7 @@ impl DhtHandler {
                 self.handle_start_lookup(lookup).await;
             }
             OneshotTask::GetLocalAddr(tx) => self.handle_get_local_addr(tx),
-            OneshotTask::GetDebugState(tx) => self.handle_get_debug_state(tx),
+            OneshotTask::GetState(tx) => self.handle_get_state(tx),
         }
     }
 
@@ -489,8 +489,8 @@ impl DhtHandler {
         self.lookups.insert(action_id, lookup);
     }
 
-    fn handle_get_debug_state(&self, tx: oneshot::Sender<DebugState>) {
-        tx.send(DebugState {
+    fn handle_get_state(&self, tx: oneshot::Sender<State>) {
+        tx.send(State {
             is_running: self.running,
             bootstrapped: self.bootstrap.is_bootstrapped(),
             good_node_count: self.routing_table.num_good_nodes(),
