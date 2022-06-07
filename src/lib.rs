@@ -29,7 +29,7 @@ mod worker;
 
 pub use crate::builder::{DhtBuilder, MainlineDht};
 pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
-pub use crate::worker::DebugState;
+pub use crate::worker::State;
 
 pub type Socket = crate::worker::Socket;
 pub type IpVersion = crate::worker::IpVersion;
