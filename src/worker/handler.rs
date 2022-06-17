@@ -1,7 +1,7 @@
 use super::{
     bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
-    timer::Timer, ActionStatus, BootstrapTimeout, State, IpVersion, OneshotTask,
-    ScheduledTaskCheck, StartLookup, WorkerError,
+    timer::Timer, ActionStatus, BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck,
+    StartLookup, State, WorkerError,
 };
 use crate::{
     id::InfoHash,
@@ -475,7 +475,7 @@ impl DhtHandler {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
 
-        let lookup = TableLookup::new(
+        let mut lookup = TableLookup::new(
             lookup.info_hash,
             lookup.announce,
             lookup.tx,
@@ -485,7 +485,14 @@ impl DhtHandler {
             &mut self.timer,
         )
         .await;
-        self.lookups.insert(action_id, lookup);
+
+        if lookup.completed() {
+            lookup
+                .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+                .await;
+        } else {
+            self.lookups.insert(action_id, lookup);
+        }
     }
 
     fn handle_get_state(&self, tx: oneshot::Sender<State>) {

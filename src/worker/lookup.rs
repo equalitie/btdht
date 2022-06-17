@@ -106,7 +106,12 @@ impl TableLookup {
         table_lookup
             .start_request_round(initial_pick_nodes_filtered, table, socket, timer)
             .await;
+
         table_lookup
+    }
+
+    pub fn completed(&self) -> bool {
+        self.active_lookups.is_empty()
     }
 
     pub async fn recv_response(
@@ -305,8 +310,7 @@ impl TableLookup {
         table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
-    ) -> ActionStatus
-    where
+    ) where
         I: Iterator<Item = (&'a NodeHandle, DistanceToBeat)>,
     {
         // Loop through the given nodes
@@ -352,9 +356,6 @@ impl TableLookup {
 
         if messages_sent == 0 {
             self.active_lookups.clear();
-            ActionStatus::Completed
-        } else {
-            ActionStatus::Ongoing
         }
     }
 

@@ -1,7 +1,7 @@
 use crate::{
     id::{InfoHash, NodeId},
     routing::table::RoutingTable,
-    worker::{State, DhtHandler, OneshotTask, Socket, StartLookup},
+    worker::{DhtHandler, OneshotTask, Socket, StartLookup, State},
 };
 use futures_util::Stream;
 use std::{

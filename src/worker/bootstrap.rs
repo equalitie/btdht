@@ -286,10 +286,8 @@ impl TableBootstrap {
                     idle_timeout_in(timer, PERIODIC_CHECK_TIMEOUT);
                     false
                 }
-            },
-            State::IdleBeforeRebootstrap => {
-                self.start(socket, timer).await
             }
+            State::IdleBeforeRebootstrap => self.start(socket, timer).await,
             State::Bootstrapping => false,
         }
     }
