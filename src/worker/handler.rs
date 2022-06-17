@@ -19,6 +19,7 @@ use std::{
     collections::{HashMap, HashSet},
     convert::AsRef,
     net::SocketAddr,
+    time::Duration,
 };
 use tokio::{
     select,
@@ -38,7 +39,10 @@ pub(crate) struct DhtHandler {
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
     bootstrap: TableBootstrap,
-    bootstrap_txs: Vec<oneshot::Sender<bool>>,
+
+    next_bootstrap_txs_id: u64,
+    bootstrap_txs: HashMap<u64, oneshot::Sender<bool>>,
+
     // TableRefresh action.
     refresh: TableRefresh,
     // Ongoing TableLookups.
@@ -78,7 +82,8 @@ impl DhtHandler {
             routing_table: table,
             active_stores: AnnounceStorage::new(),
             bootstrap,
-            bootstrap_txs: Vec::new(),
+            next_bootstrap_txs_id: 0,
+            bootstrap_txs: HashMap::new(),
             refresh: table_refresh,
             lookups: HashMap::new(),
         }
@@ -121,8 +126,8 @@ impl DhtHandler {
             OneshotTask::StartBootstrap() => {
                 self.handle_start_bootstrap().await;
             }
-            OneshotTask::CheckBootstrap(tx) => {
-                self.handle_check_bootstrap(tx);
+            OneshotTask::CheckBootstrap(tx, timeout) => {
+                self.handle_check_bootstrap(tx, timeout);
             }
             OneshotTask::StartLookup(lookup) => {
                 self.handle_start_lookup(lookup).await;
@@ -139,6 +144,9 @@ impl DhtHandler {
             }
             ScheduledTaskCheck::BootstrapTimeout(timeout) => {
                 self.handle_check_bootstrap_timeout(timeout).await;
+            }
+            ScheduledTaskCheck::UserBootstrappedTimeout(entry) => {
+                self.handle_check_user_bootstrapped_timeout(entry).await;
             }
             ScheduledTaskCheck::LookupTimeout(trans_id) => {
                 self.handle_check_lookup_timeout(trans_id).await;
@@ -419,11 +427,23 @@ impl DhtHandler {
         }
     }
 
-    fn handle_check_bootstrap(&mut self, tx: oneshot::Sender<bool>) {
+    fn handle_check_bootstrap(&mut self, tx: oneshot::Sender<bool>, timeout: Option<Duration>) {
         if self.bootstrap.is_bootstrapped() {
             tx.send(true).unwrap_or(())
         } else {
-            self.bootstrap_txs.push(tx)
+            let id = self.next_bootstrap_txs_id;
+            self.next_bootstrap_txs_id += 1;
+            self.bootstrap_txs.insert(id, tx);
+
+            if let Some(timeout) = timeout {
+                self.timer.schedule_in(timeout, ScheduledTaskCheck::UserBootstrappedTimeout(id));
+            }
+        }
+    }
+
+    async fn handle_check_user_bootstrapped_timeout(&mut self, id: u64) {
+        if let Some(tx) = self.bootstrap_txs.remove(&id) {
+            tx.send(false).unwrap_or(());
         }
     }
 
@@ -465,7 +485,7 @@ impl DhtHandler {
     }
 
     fn broadcast_bootstrap_completed(&mut self, status: bool) {
-        for tx in self.bootstrap_txs.drain(..) {
+        for (_, tx) in self.bootstrap_txs.drain() {
             tx.send(status).unwrap_or(())
         }
     }

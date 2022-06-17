@@ -1,6 +1,6 @@
 pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
-use std::{collections::HashSet, io, net::SocketAddr};
+use std::{collections::HashSet, time::Duration, io, net::SocketAddr};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -30,8 +30,9 @@ pub enum IpVersion {
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(),
-    /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
-    CheckBootstrap(oneshot::Sender<bool>),
+    /// Check bootstrap status. The given sender will be notified when the bootstrap completed,
+    /// with an optional timeout.
+    CheckBootstrap(oneshot::Sender<bool>, Option<Duration>),
     /// Start a lookup for the given InfoHash.
     StartLookup(StartLookup),
     /// Get the local address the socket is bound to.
@@ -60,6 +61,8 @@ pub(crate) enum ScheduledTaskCheck {
     TableRefresh,
     /// Check the progress of the current bootstrap.
     BootstrapTimeout(BootstrapTimeout),
+    /// Timeout for user waiting to get bootstrapped.
+    UserBootstrappedTimeout(u64),
     /// Check the progress of a current lookup.
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
