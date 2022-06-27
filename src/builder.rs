@@ -2,15 +2,16 @@ use crate::{
     id::{InfoHash, NodeId},
     routing::table::RoutingTable,
     worker::{DhtHandler, OneshotTask, Socket, StartLookup, State},
+    SocketTrait,
 };
 use futures_util::Stream;
 use std::{
     collections::HashSet,
     io,
-    time::Duration,
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 use tokio::{
     sync::{mpsc, oneshot},
@@ -89,7 +90,11 @@ impl MainlineDht {
     pub async fn bootstrapped(&self, timeout: Option<Duration>) -> bool {
         let (tx, rx) = oneshot::channel();
 
-        if self.send.send(OneshotTask::CheckBootstrap(tx, timeout)).is_err() {
+        if self
+            .send
+            .send(OneshotTask::CheckBootstrap(tx, timeout))
+            .is_err()
+        {
             // handler has shut down, consider this as bootstrap failure.
             false
         } else {
@@ -217,7 +222,12 @@ impl DhtBuilder {
     }
 
     /// Start a mainline DHT with the current configuration and bind it to the provided socket.
-    pub fn start(self, socket: Socket) -> MainlineDht {
-        MainlineDht::with_builder(self, socket)
+    /// Fails only if `socket.local_addr()` fails.
+    pub fn start<S: SocketTrait + Send + Sync + 'static>(
+        self,
+        socket: S,
+    ) -> io::Result<MainlineDht> {
+        let socket = Socket::new(socket)?;
+        Ok(MainlineDht::with_builder(self, socket))
     }
 }

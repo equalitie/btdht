@@ -31,5 +31,14 @@ pub use crate::builder::{DhtBuilder, MainlineDht};
 pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
 pub use crate::worker::State;
 
-pub type Socket = crate::worker::Socket;
 pub type IpVersion = crate::worker::IpVersion;
+
+use async_trait::async_trait;
+use std::{io, net::SocketAddr};
+
+#[async_trait]
+pub trait SocketTrait {
+    async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> io::Result<()>;
+    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
+    fn local_addr(&self) -> io::Result<SocketAddr>;
+}

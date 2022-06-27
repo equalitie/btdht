@@ -1,13 +1,16 @@
 //! Helpers to simplify work with UdpSocket.
 
 use super::IpVersion;
+use crate::SocketTrait;
+use async_trait::async_trait;
 use std::{io, net::SocketAddr};
 use tokio::net::UdpSocket;
 
-pub struct Socket(UdpSocket, SocketAddr);
+pub struct Socket(Box<dyn SocketTrait + Send + Sync + 'static>, SocketAddr);
 
 impl Socket {
-    pub fn new(inner: UdpSocket) -> io::Result<Self> {
+    pub fn new<S: SocketTrait + Send + Sync + 'static>(inner: S) -> io::Result<Self> {
+        let inner = Box::new(inner);
         let local_addr = inner.local_addr()?;
         Ok(Self(inner, local_addr))
     }
@@ -16,12 +19,12 @@ impl Socket {
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
-        self.0.send_to(&bytes, addr).await?;
+        self.0.send_to(&bytes, &addr).await?;
         Ok(())
     }
 
     /// This function is cancel safe: https://docs.rs/tokio/1.12.0/tokio/net/struct.UdpSocket.html#cancel-safety-6
-    pub(crate) async fn recv(&self) -> io::Result<(Vec<u8>, SocketAddr)> {
+    pub(crate) async fn recv(&mut self) -> io::Result<(Vec<u8>, SocketAddr)> {
         let mut buffer = vec![0u8; 1500];
         let (size, addr) = self.0.recv_from(&mut buffer).await?;
         buffer.truncate(size);
@@ -37,5 +40,20 @@ impl Socket {
             SocketAddr::V4(_) => IpVersion::V4,
             SocketAddr::V6(_) => IpVersion::V6,
         }
+    }
+}
+
+#[async_trait]
+impl SocketTrait for UdpSocket {
+    async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> io::Result<()> {
+        self.send_to(buf, target).await.map(|_| ())
+    }
+
+    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        self.recv_from(buf).await
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.local_addr()
     }
 }

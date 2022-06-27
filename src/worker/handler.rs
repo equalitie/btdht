@@ -436,7 +436,8 @@ impl DhtHandler {
             self.bootstrap_txs.insert(id, tx);
 
             if let Some(timeout) = timeout {
-                self.timer.schedule_in(timeout, ScheduledTaskCheck::UserBootstrappedTimeout(id));
+                self.timer
+                    .schedule_in(timeout, ScheduledTaskCheck::UserBootstrappedTimeout(id));
             }
         }
     }

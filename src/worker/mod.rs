@@ -1,6 +1,6 @@
 pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
-use std::{collections::HashSet, time::Duration, io, net::SocketAddr};
+use std::{collections::HashSet, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 

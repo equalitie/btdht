@@ -1,12 +1,13 @@
 [package]
 name          = "btdht"
-version       = "0.13.0"
+version       = "0.14.0"
 description   = "Implementation of the bittorrent mainline DHT"
 authors       = ["Andrew <amiller4421@gmail.com>", "Adam Cigánek <adam.ciganek@gmail.com>"]
 license       = "MIT/Apache-2.0"
 edition       = "2018"
 
 [dependencies]
+async-trait   = "0.1.56"
 futures-util  = { version = "0.3.15", default_features = false }
 log           = "0.4.14"
 rand          = "0.8.4"
