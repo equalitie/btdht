@@ -66,7 +66,13 @@ impl DhtHandler {
         let table_refresh = TableRefresh::new(mid_generator);
 
         let mid_generator = aid_generator.generate();
-        let bootstrap = TableBootstrap::new(table.node_id(), mid_generator, routers, nodes);
+        let bootstrap = TableBootstrap::new(
+            socket.ip_version(),
+            table.node_id(),
+            mid_generator,
+            routers,
+            nodes,
+        );
 
         let timer = Timer::new();
 
@@ -87,6 +93,10 @@ impl DhtHandler {
             refresh: table_refresh,
             lookups: HashMap::new(),
         }
+    }
+
+    fn ip_version(&self) -> IpVersion {
+        self.socket.ip_version()
     }
 
     pub async fn run(mut self) {
@@ -113,9 +123,9 @@ impl DhtHandler {
             message = self.socket.recv() => {
                 match message {
                     Ok((buffer, addr)) => if let Err(error) = self.handle_incoming(&buffer, addr).await {
-                        log::warn!("Failed to handle incoming message: {}", error);
+                        log::debug!("{}: Failed to handle incoming message: {}", self.ip_version(), error);
                     }
-                    Err(error) => log::warn!("Failed to receive incoming message: {}", error),
+                    Err(error) => log::warn!("{}: Failed to receive incoming message: {}", self.ip_version(), error),
                 }
             }
         }
@@ -172,7 +182,7 @@ impl DhtHandler {
             return Ok(());
         }
 
-        log::trace!("Received {:?}", message);
+        log::trace!("{}: Received {:?}", self.ip_version(), message);
 
         // Process the given message
         match message.body {
@@ -296,7 +306,10 @@ impl DhtHandler {
                 // Resolve type of response we are going to send
                 let response_msg = if !is_valid {
                     // Node gave us an invalid token
-                    log::warn!("Remote node sent us an invalid token for an AnnounceRequest");
+                    log::debug!(
+                        "{}: Remote node sent us an invalid token for an AnnounceRequest",
+                        self.ip_version()
+                    );
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Error(Error {
@@ -322,7 +335,7 @@ impl DhtHandler {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
                     log::warn!(
-                        "AnnounceStorage failed to store contact information because it is full"
+                        "{}: AnnounceStorage failed to store contact information because it is full", self.ip_version()
                     );
 
                     Message {
@@ -535,7 +548,10 @@ impl DhtHandler {
         let lookup = if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
             lookup
         } else {
-            log::error!("Resolved a TransactionID to a check table lookup but no action found");
+            log::error!(
+                "{}: Resolved a TransactionID to a check table lookup but no action found",
+                self.ip_version()
+            );
             return;
         };
 
@@ -562,7 +578,7 @@ impl DhtHandler {
         let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
             lookup
         } else {
-            log::error!("Lookup not found");
+            log::error!("{}: Lookup not found", self.ip_version());
             return;
         };
 

@@ -1,6 +1,6 @@
 pub(crate) use self::{handler::DhtHandler, socket::Socket};
 use crate::{id::InfoHash, transaction::TransactionID};
-use std::{collections::HashSet, io, net::SocketAddr, time::Duration};
+use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -24,6 +24,15 @@ pub struct State {
 pub enum IpVersion {
     V4,
     V6,
+}
+
+impl fmt::Display for IpVersion {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::V4 => write!(f, "IPv4"),
+            Self::V6 => write!(f, "IPv6"),
+        }
+    }
 }
 
 /// Task that our DHT will execute immediately.

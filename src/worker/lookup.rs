@@ -35,6 +35,7 @@ type Distance = Id;
 type DistanceToBeat = Id;
 
 pub(crate) struct TableLookup {
+    ip_version: IpVersion,
     target_id: InfoHash,
     in_endgame: bool,
     // If we have received any values in the lookup.
@@ -90,6 +91,7 @@ impl TableLookup {
 
         // Construct the lookup table structure
         let mut table_lookup = TableLookup {
+            ip_version: socket.ip_version(),
             target_id,
             in_endgame: false,
             recv_values: false,
@@ -127,7 +129,10 @@ impl TableLookup {
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
         } else {
-            log::warn!("Received expired/unsolicited node response for an active table lookup");
+            log::debug!(
+                "{}: Received expired/unsolicited node response for an active table lookup",
+                self.ip_version
+            );
             return self.current_lookup_status();
         };
 
@@ -231,7 +236,10 @@ impl TableLookup {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
         if self.active_lookups.remove(trans_id).is_none() {
-            log::warn!("Received expired/unsolicited node timeout for an active table lookup");
+            log::warn!(
+                "{}: Received expired/unsolicited node timeout for an active table lookup",
+                self.ip_version
+            );
             return self.current_lookup_status();
         }
 
@@ -285,7 +293,11 @@ impl TableLookup {
                         }
                     }
                     Err(error) => {
-                        log::error!("TableLookup announce request failed to send: {}", error)
+                        log::error!(
+                            "{}: TableLookup announce request failed to send: {}",
+                            self.ip_version,
+                            error
+                        )
                     }
                 }
             }
@@ -339,7 +351,11 @@ impl TableLookup {
             .encode();
 
             if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                log::error!("Could not send a lookup message: {}", error);
+                log::error!(
+                    "{}: Could not send a lookup message: {}",
+                    self.ip_version,
+                    error
+                );
                 continue;
             }
 
@@ -399,7 +415,11 @@ impl TableLookup {
                 .encode();
 
                 if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                    log::error!("Could not send an endgame message: {}", error);
+                    log::error!(
+                        "{}: Could not send an endgame message: {}",
+                        self.ip_version,
+                        error
+                    );
                     continue;
                 }
 

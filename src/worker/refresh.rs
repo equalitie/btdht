@@ -36,7 +36,7 @@ impl TableRefresh {
         }
         let target_id = table.node_id().flip_bit(self.curr_refresh_bucket);
 
-        log::info!(
+        log::debug!(
             "Performing a refresh for bucket {}",
             self.curr_refresh_bucket
         );

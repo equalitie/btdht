@@ -2,7 +2,7 @@ use super::{
     resolve,
     socket::Socket,
     timer::{Timeout, Timer},
-    BootstrapTimeout, ScheduledTaskCheck,
+    BootstrapTimeout, IpVersion, ScheduledTaskCheck,
 };
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::routing::bucket::Bucket;
@@ -25,6 +25,7 @@ const GOOD_NODE_THRESHOLD: usize = 10;
 const PINGS_PER_BUCKET: usize = 8;
 
 pub(crate) struct TableBootstrap {
+    ip_version: IpVersion,
     table_id: NodeId,
     routers: HashSet<String>,
     router_addresses: HashSet<SocketAddr>,
@@ -36,6 +37,7 @@ pub(crate) struct TableBootstrap {
     initial_responses_expected: usize,
     state: State,
     bootstrap_attempt: u64,
+    last_send_error: Option<std::io::ErrorKind>,
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -49,12 +51,14 @@ enum State {
 
 impl TableBootstrap {
     pub fn new(
+        ip_version: IpVersion,
         table_id: NodeId,
         id_generator: MIDGenerator,
         routers: HashSet<String>,
         nodes: HashSet<SocketAddr>,
     ) -> TableBootstrap {
         TableBootstrap {
+            ip_version,
             table_id,
             routers,
             router_addresses: HashSet::new(),
@@ -66,6 +70,7 @@ impl TableBootstrap {
             initial_responses_expected: 0,
             state: State::IdleBeforeRebootstrap,
             bootstrap_attempt: 0,
+            last_send_error: None,
         }
     }
 
@@ -84,7 +89,8 @@ impl TableBootstrap {
             false
         } else {
             log::info!(
-                "TableBootstrap state change {:?} -> {:?} (from: {})",
+                "{}: TableBootstrap state change {:?} -> {:?} (from: {})",
+                self.ip_version,
                 self.state,
                 new_state,
                 from
@@ -159,11 +165,21 @@ impl TableBootstrap {
                         self.initial_responses_expected += 1
                     }
                 }
-                Err(error) => log::error!("Failed to send bootstrap message to router: {}", error),
+                Err(error) => {
+                    if Some(error.kind()) != self.last_send_error {
+                        log::error!(
+                            "{}: Failed to send bootstrap message to router: {}",
+                            self.ip_version,
+                            error
+                        );
+                        self.last_send_error = Some(error.kind());
+                    }
+                }
             }
         }
 
         if self.initial_responses_expected > 0 {
+            self.last_send_error = None;
             self.set_state(State::Bootstrapping, line!())
         } else {
             // Nothing was sent, wait for timeout to restart the bootstrap.
@@ -202,7 +218,10 @@ impl TableBootstrap {
         let timeout = if let Some(t) = self.active_messages.get(trans_id) {
             *t
         } else {
-            log::warn!("Received expired/unsolicited node response for an active table bootstrap");
+            log::debug!(
+                "{}: Received expired/unsolicited node response for an active table bootstrap",
+                self.ip_version
+            );
             // Return that the state has not changed.
             return false;
         };
@@ -254,7 +273,10 @@ impl TableBootstrap {
         trans_id: &TransactionID,
     ) -> bool {
         if self.active_messages.remove(trans_id).is_none() {
-            log::warn!("Received expired/unsolicited node timeout in table bootstrap");
+            log::warn!(
+                "{}: Received expired/unsolicited node timeout in table bootstrap",
+                self.ip_version
+            );
             return false;
         }
 
@@ -299,7 +321,8 @@ impl TableBootstrap {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> bool {
         log::debug!(
-            "TableBootstrap::bootstrap_next_bucket {} {}",
+            "{}: TableBootstrap::bootstrap_next_bucket {} {}",
+            self.ip_version,
             self.curr_bootstrap_bucket,
             table::MAX_BUCKETS
         );
@@ -404,7 +427,11 @@ impl TableBootstrap {
 
             // Send the message to the node
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {
-                log::error!("Could not send a bootstrap message: {}", error);
+                log::error!(
+                    "{}: Could not send a bootstrap message: {}",
+                    self.ip_version,
+                    error
+                );
                 continue;
             }
 
