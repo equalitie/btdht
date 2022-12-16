@@ -46,14 +46,14 @@ impl Socket {
 #[async_trait]
 impl SocketTrait for UdpSocket {
     async fn send_to(&self, buf: &[u8], target: &SocketAddr) -> io::Result<()> {
-        self.send_to(buf, target).await.map(|_| ())
+        UdpSocket::send_to(self, buf, target).await.map(|_| ())
     }
 
     async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        self.recv_from(buf).await
+        UdpSocket::recv_from(self, buf).await
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.local_addr()
+        UdpSocket::local_addr(self)
     }
 }
