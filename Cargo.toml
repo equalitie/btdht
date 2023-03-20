@@ -7,11 +7,11 @@ license       = "MIT/Apache-2.0"
 edition       = "2018"
 
 [dependencies]
-async-trait   = "0.1.56"
+async-trait   = "0.1.67"
 futures-util  = { version = "0.3.27", default_features = false, features = ["alloc"] }
 log           = "0.4.17"
 rand          = "0.8.5"
-serde         = { version = "1.0", features = ["derive"] }
+serde         = { version = "1.0.158", features = ["derive"] }
 # TODO: switch to the crates.io version when it's published
 # NOTE: don't use [patch] for this because apparently it's not transitive (dependent crate won't see it for some reason)
 serde_bencode = { git = "https://github.com/toby/serde-bencode", rev = "553adb4b" }
