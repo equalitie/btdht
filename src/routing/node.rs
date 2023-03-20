@@ -129,7 +129,7 @@ impl Node {
     pub fn recently_requested_from(&self) -> bool {
         if let Some(time) = self.last_local_request {
             // TODO: I made the 30 seconds up, seems reasonable.
-            time > Instant::now() - Duration::from_secs(30)
+            Instant::now() < time + Duration::from_secs(30)
         } else {
             false
         }
@@ -286,7 +286,7 @@ mod tests {
         let mut node = Node::as_good(test::dummy_node_id(), test::dummy_socket_addr_v4());
 
         let time_offset = Duration::from_secs(super::MAX_LAST_SEEN_MINS * 60);
-        let idle_time = Instant::now() - time_offset;
+        let idle_time = Instant::now().checked_sub(time_offset).unwrap();
 
         node.last_response = Some(idle_time);
 

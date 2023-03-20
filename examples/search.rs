@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{self, UdpSocket},
+    net::UdpSocket,
 };
 
 #[tokio::main]
@@ -20,14 +20,14 @@ async fn main() {
     let socket = UdpSocket::bind(addr).await.unwrap();
 
     let dht = MainlineDht::builder()
-        .add_routers(net::lookup_host(router::BITTORRENT_DHT).await.unwrap())
-        .add_routers(net::lookup_host(router::TRANSMISSION_DHT).await.unwrap())
+        .add_routers([router::BITTORRENT_DHT, router::TRANSMISSION_DHT])
         .set_read_only(false)
-        .start(socket);
+        .start(socket)
+        .unwrap();
 
     println!("bootstrapping...");
     let start = Instant::now();
-    let status = dht.bootstrapped().await;
+    let status = dht.bootstrapped(None).await;
     let elapsed = start.elapsed();
 
     if status {
@@ -88,9 +88,9 @@ async fn handle_command(dht: &MainlineDht, command: &str) -> io::Result<bool> {
             announce,
         }) => {
             if announce {
-                println!("announcing {:?}...", info_hash)
+                println!("announcing {info_hash:?}...")
             } else {
-                println!("searching for {:?}...", info_hash)
+                println!("searching for {info_hash:?}...")
             }
 
             let mut peers = HashSet::new();
@@ -100,7 +100,7 @@ async fn handle_command(dht: &MainlineDht, command: &str) -> io::Result<bool> {
 
             while let Some(addr) = search.next().await {
                 if peers.insert(addr) {
-                    println!("peer found: {}", addr);
+                    println!("peer found: {addr}");
                 }
             }
 

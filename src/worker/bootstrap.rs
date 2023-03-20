@@ -245,7 +245,7 @@ impl TableBootstrap {
         if self.active_messages.is_empty() {
             self.bootstrap_next_bucket(table, socket, timer).await
         } else {
-            return false;
+            false
         }
     }
 
@@ -258,7 +258,7 @@ impl TableBootstrap {
     ) -> bool {
         match timeout {
             BootstrapTimeout::Transaction(trans_id) => {
-                self.handle_transaction_timeout(table, socket, timer, &trans_id)
+                self.handle_transaction_timeout(table, socket, timer, trans_id)
                     .await
             }
             BootstrapTimeout::IdleWakeUp => self.handle_wakeup_timeout(table, socket, timer).await,

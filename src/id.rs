@@ -108,7 +108,7 @@ impl Distribution<Id> for Standard {
 impl fmt::LowerHex for Id {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in &self.0 {
-            write!(f, "{:02x}", b)?;
+            write!(f, "{b:02x}")?;
         }
 
         Ok(())
@@ -117,7 +117,7 @@ impl fmt::LowerHex for Id {
 
 impl fmt::Debug for Id {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:x}", self)
+        write!(f, "{self:x}")
     }
 }
 
@@ -140,7 +140,7 @@ mod byte_array {
         let len = buf.len();
 
         buf.try_into().map_err(|_| {
-            let expected = format!("{}", ID_LEN);
+            let expected = format!("{ID_LEN}");
             D::Error::invalid_length(len, &expected.as_ref())
         })
     }

@@ -46,7 +46,7 @@ struct HexFmt<'a>(&'a [u8]);
 impl fmt::Debug for HexFmt<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in self.0 {
-            write!(f, "{:02x}", b)?;
+            write!(f, "{b:02x}")?;
         }
 
         Ok(())

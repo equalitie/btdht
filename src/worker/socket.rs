@@ -19,7 +19,7 @@ impl Socket {
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
-        self.0.send_to(&bytes, &addr).await?;
+        self.0.send_to(bytes, &addr).await?;
         Ok(())
     }
 

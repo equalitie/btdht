@@ -19,9 +19,10 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
     let bootstrap_node_addr = bootstrap_node_socket.local_addr().unwrap();
     let bootstrap_node = MainlineDht::builder()
         .set_read_only(false)
-        .start(bootstrap_node_socket);
+        .start(bootstrap_node_socket)
+        .unwrap();
 
-    assert!(bootstrap_node.bootstrapped().await);
+    assert!(bootstrap_node.bootstrapped(None).await);
 
     // Start node A
     let a_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
@@ -29,18 +30,20 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
     let a_node = MainlineDht::builder()
         .add_node(bootstrap_node_addr)
         .set_read_only(false)
-        .start(a_socket);
+        .start(a_socket)
+        .unwrap();
 
     // Start node B
     let b_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
     let b_node = MainlineDht::builder()
         .add_node(bootstrap_node_addr)
         .set_read_only(false)
-        .start(b_socket);
+        .start(b_socket)
+        .unwrap();
 
     // Wait for both nodes to bootstrap
-    assert!(a_node.bootstrapped().await);
-    assert!(b_node.bootstrapped().await);
+    assert!(a_node.bootstrapped(None).await);
+    assert!(b_node.bootstrapped(None).await);
 
     let the_info_hash = InfoHash::sha1(b"foo");
 

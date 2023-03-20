@@ -8,19 +8,19 @@ edition       = "2018"
 
 [dependencies]
 async-trait   = "0.1.56"
-futures-util  = { version = "0.3.15", default_features = false }
-log           = "0.4.14"
-rand          = "0.8.4"
+futures-util  = { version = "0.3.27", default_features = false, features = ["alloc"] }
+log           = "0.4.17"
+rand          = "0.8.5"
 serde         = { version = "1.0", features = ["derive"] }
 # TODO: switch to the crates.io version when it's published
 # NOTE: don't use [patch] for this because apparently it's not transitive (dependent crate won't see it for some reason)
 serde_bencode = { git = "https://github.com/toby/serde-bencode", rev = "553adb4b" }
 serde_bytes   = "0.11.5"
 sha-1         = "0.9.8"
-tokio         = { version = "1.19.1", default_features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+tokio         = { version = "1.26", default_features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 thiserror     = "1.0.30"
 
 [dev-dependencies]
 hex           = "0.4.3"
 pretty_env_logger = "0.4"
-tokio         = { version = "1.19.1", features = ["io-std", "io-util"] }
+tokio         = { version = "1.26", features = ["io-std", "io-util"] }
