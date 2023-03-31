@@ -7,6 +7,7 @@ use sha1::{Digest, Sha1};
 use std::{
     convert::{TryFrom, TryInto},
     fmt,
+    net::IpAddr,
     ops::BitXor,
 };
 use thiserror::Error;
@@ -20,6 +21,59 @@ pub const ID_LEN: usize = 20;
 pub struct Id(#[serde(with = "byte_array")] [u8; ID_LEN]);
 
 impl Id {
+    /// Generate Id from the IP address as described by BEP42
+    /// https://www.bittorrent.org/beps/bep_0042.html
+    pub fn from_ip(ip: IpAddr) -> Self {
+        let v4_mask: [u8; 8] = [0x03, 0x0f, 0x3f, 0xff, 0, 0, 0, 0];
+        let v6_mask: [u8; 8] = [0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x7f, 0xff];
+
+        let (mut ip, num_octets, mask) = {
+            let mut array = [0; 8];
+            let (mask, num_octets) = match ip {
+                IpAddr::V4(ip) => {
+                    let num = 4;
+                    let octets = ip.octets();
+                    for i in 0..num {
+                        array[i] = octets[i];
+                    }
+                    (v4_mask, num)
+                }
+                IpAddr::V6(ip) => {
+                    let num = 8;
+                    let octets = ip.octets();
+                    for i in 0..num {
+                        array[i] = octets[i];
+                    }
+                    (v6_mask, num)
+                }
+            };
+            (array, num_octets, mask)
+        };
+
+        for i in 0..num_octets {
+            ip[i] &= mask[i];
+        }
+
+        let rand = rand::random::<u8>();
+        ip[0] |= (rand & 0x7) << 5;
+
+        let crc = crc32c::crc32c_append(0, &ip[0..num_octets]);
+
+        let mut node_id: [u8; ID_LEN] = [0; ID_LEN];
+
+        node_id[0] = (crc >> 24).to_le_bytes()[0];
+        node_id[1] = (crc >> 16).to_le_bytes()[0];
+        node_id[2] = (crc >> 8).to_le_bytes()[0] & 0xf8 | (rand::random::<u8>() & 0x7);
+
+        for i in 3..19 {
+            node_id[i] = rand::random::<u8>();
+        }
+
+        node_id[19] = rand;
+
+        Self(node_id)
+    }
+
     /// Create a DhtId by hashing the given bytes using SHA-1.
     pub fn sha1(bytes: &[u8]) -> Self {
         let hash = Sha1::digest(bytes);

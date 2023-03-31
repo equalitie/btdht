@@ -8,6 +8,7 @@ edition       = "2018"
 
 [dependencies]
 async-trait   = "0.1.67"
+crc32c        = "0.6.3"
 futures-util  = { version = "0.3.27", default_features = false, features = ["alloc"] }
 log           = "0.4.17"
 rand          = "0.8.5"
