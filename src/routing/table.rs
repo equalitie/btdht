@@ -3,7 +3,7 @@ use super::{
     node::{Node, NodeHandle, NodeStatus},
 };
 use crate::id::{NodeId, ID_LEN};
-use std::{cmp::Ordering, iter::Filter, slice::Iter};
+use std::{cmp::Ordering, collections::HashSet, iter::Filter, net::SocketAddr, slice::Iter};
 
 pub const MAX_BUCKETS: usize = ID_LEN * 8;
 
@@ -142,6 +142,23 @@ impl RoutingTable {
         }
 
         true
+    }
+
+    pub fn load_contacts(&self) -> (HashSet<SocketAddr>, HashSet<SocketAddr>) {
+        let mut good = HashSet::new();
+        let mut questionable = HashSet::new();
+
+        for bucket in &self.buckets {
+            for node in bucket.iter() {
+                if node.status() == NodeStatus::Good {
+                    good.insert(node.handle().addr);
+                } else if node.status() == NodeStatus::Questionable {
+                    questionable.insert(node.handle().addr);
+                }
+            }
+        }
+
+        (good, questionable)
     }
 }
 

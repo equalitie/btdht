@@ -144,6 +144,7 @@ impl DhtHandler {
             }
             OneshotTask::GetLocalAddr(tx) => self.handle_get_local_addr(tx),
             OneshotTask::GetState(tx) => self.handle_get_state(tx),
+            OneshotTask::LoadContacts(tx) => self.handle_load_contacts(tx),
         }
     }
 
@@ -633,6 +634,13 @@ impl DhtHandler {
         };
 
         Ok((nodes_v4, nodes_v6))
+    }
+
+    fn handle_load_contacts(
+        &self,
+        tx: oneshot::Sender<(HashSet<SocketAddr>, HashSet<SocketAddr>)>,
+    ) {
+        tx.send(self.routing_table.load_contacts()).unwrap_or(());
     }
 }
 

@@ -13,8 +13,6 @@ use crate::id::NodeId;
 // GOOD node churn since after 15 minutes, a long lasting node could potentially be replaced by a short lived good node.
 // This strategy is actually what is vaguely specified in the standard?
 
-// TODO: Should we be storing a SocketAddr instead of a SocketAddrV4?
-
 /// Maximum wait period before a node becomes questionable.
 const MAX_LAST_SEEN_MINS: u64 = 15;
 

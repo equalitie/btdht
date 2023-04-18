@@ -48,6 +48,8 @@ pub(crate) enum OneshotTask {
     GetLocalAddr(oneshot::Sender<SocketAddr>),
     /// Retrieve debug information.
     GetState(oneshot::Sender<State>),
+    /// Retrieve IP:PORT pairs of "good" and "questionable" nodes in the routing table.
+    LoadContacts(oneshot::Sender<(HashSet<SocketAddr>, HashSet<SocketAddr>)>),
 }
 
 pub(crate) struct StartLookup {

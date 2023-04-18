@@ -142,6 +142,21 @@ impl MainlineDht {
 
         rx.await.map_err(|_| error())
     }
+
+    /// Return IP:PORT pairs of "good" and "questionable" nodes from the routing table.
+    pub async fn load_contacts(&self) -> io::Result<(HashSet<SocketAddr>, HashSet<SocketAddr>)> {
+        let (tx, rx) = oneshot::channel();
+
+        fn error() -> io::Error {
+            io::Error::new(io::ErrorKind::Other, "DhtHandler has shut down")
+        }
+
+        self.send
+            .send(OneshotTask::LoadContacts(tx))
+            .map_err(|_| error())?;
+
+        rx.await.map_err(|_| error())
+    }
 }
 
 /// Stream returned from [`MainlineDht::search()`]
