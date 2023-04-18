@@ -15,6 +15,7 @@ use std::{
     net::SocketAddr,
     time::Duration,
 };
+use tokio::time;
 
 const INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const NODE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -154,11 +155,29 @@ impl TableBootstrap {
         self.initial_responses_expected = 0;
         self.initial_responses.clear();
 
-        for addr in self
+        for (addr, is_router) in self
             .router_addresses
             .iter()
-            .chain(self.starting_nodes.iter())
+            .map(|router| (router, true))
+            .chain(
+                self.starting_nodes
+                    .iter()
+                    .map(|starting_node| (starting_node, false)),
+            )
         {
+            if !is_router {
+                // An answer on serverfault.com[1] says the average home router may have from 2^10
+                // to 2^14 NAT entries. To be conservative, and to account for the fact that the
+                // user may be running one IPv4 and one IPv6 `MainlineDht`, let's assume we don't
+                // want to exceed 256 NAT entries by much. A NAT entry stays open up to 20 secods
+                // before it's deleted. Thus let's sleep for 20s/256 so that after 20 seconds if we
+                // contact another node, the first nodes we contacted shall begin being removed
+                // from the NAT.
+                //
+                // [1] https://serverfault.com/a/57903
+                time::sleep(Duration::from_millis(20_000 / 256)).await;
+            }
+
             match socket.send(&find_node_msg, *addr).await {
                 Ok(()) => {
                     if self.initial_responses_expected < PINGS_PER_BUCKET {
