@@ -1,9 +1,10 @@
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::id::NodeId;
+use crate::time::Instant;
 
 // TODO: Should remove as_* functions and replace them with from_requested, from_responded, etc to hide the logic
 // of the nodes initial status.
@@ -244,7 +245,8 @@ impl Debug for NodeHandle {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use crate::time::Instant;
+    use std::time::Duration;
 
     use crate::routing::node::{Node, NodeStatus};
     use crate::test;

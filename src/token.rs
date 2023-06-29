@@ -1,6 +1,7 @@
+use crate::time::Instant;
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::id::{Id, LengthError, ID_LEN};
 
@@ -186,7 +187,8 @@ fn validate_token_from_addr_v6(v6_addr: Ipv6Addr, token: Token, secret: u32) -> 
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use crate::time::Instant;
+    use std::time::Duration;
 
     use crate::test;
     use crate::token::TokenStore;
