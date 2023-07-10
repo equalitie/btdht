@@ -18,7 +18,7 @@ pub mod router;
 mod builder;
 mod compact;
 mod id;
-mod message;
+pub mod message;
 mod routing;
 mod storage;
 #[cfg(test)]

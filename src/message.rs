@@ -11,7 +11,7 @@ use serde::{
 use std::{fmt, net::SocketAddr};
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Message {
+pub struct Message {
     #[serde(rename = "t", with = "serde_bytes")]
     pub transaction_id: Vec<u8>,
     #[serde(flatten)]
@@ -55,7 +55,7 @@ impl fmt::Debug for HexFmt<'_> {
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "y")]
-pub(crate) enum MessageBody {
+pub enum MessageBody {
     #[serde(rename = "q")]
     Request(Request),
     #[serde(rename = "r", with = "unflatten::response")]
@@ -116,7 +116,7 @@ mod unflatten {
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "q", content = "a")]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Request {
+pub enum Request {
     Ping(PingRequest),
     FindNode(FindNodeRequest),
     GetPeers(GetPeersRequest),
@@ -124,12 +124,12 @@ pub(crate) enum Request {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct PingRequest {
+pub struct PingRequest {
     pub id: NodeId,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct FindNodeRequest {
+pub struct FindNodeRequest {
     pub id: NodeId,
     pub target: NodeId,
 
@@ -138,7 +138,7 @@ pub(crate) struct FindNodeRequest {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct GetPeersRequest {
+pub struct GetPeersRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
 
@@ -147,7 +147,7 @@ pub(crate) struct GetPeersRequest {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct AnnouncePeerRequest {
+pub struct AnnouncePeerRequest {
     pub id: NodeId,
     pub info_hash: InfoHash,
     #[serde(with = "port", flatten)]
@@ -157,7 +157,7 @@ pub(crate) struct AnnouncePeerRequest {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub(crate) enum Want {
+pub enum Want {
     // The peer wants only ipv4 contacts
     V4,
     // The peer wants only ipv6 contacts
@@ -277,7 +277,7 @@ mod port {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-pub(crate) struct Response {
+pub struct Response {
     pub id: NodeId,
 
     // Only present in responses to GetPeers
@@ -310,7 +310,7 @@ pub(crate) struct Response {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-pub(crate) struct Error {
+pub struct Error {
     pub code: u8,
     pub message: String,
 }
