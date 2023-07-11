@@ -15,9 +15,9 @@
 
 pub mod router;
 
-mod builder;
 mod compact;
 mod id;
+mod mainline_dht;
 pub mod message;
 mod routing;
 mod storage;
@@ -28,8 +28,8 @@ mod token;
 mod transaction;
 mod worker;
 
-pub use crate::builder::{DhtBuilder, MainlineDht};
 pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
+pub use crate::mainline_dht::{DhtBuilder, MainlineDht};
 pub use crate::worker::State;
 
 pub type IpVersion = crate::worker::IpVersion;
