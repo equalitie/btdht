@@ -109,8 +109,8 @@ impl Bucket {
 #[cfg(test)]
 mod tests {
 
-    use crate::routing::bucket::Bucket;
-    use crate::routing::node::{Node, NodeStatus};
+    use crate::bucket::Bucket;
+    use crate::node::{Node, NodeStatus};
     use crate::test;
 
     #[test]

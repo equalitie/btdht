@@ -199,7 +199,7 @@ fn encode_socket_addr(addr: &SocketAddr) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{id::NodeId, node::NodeHandle};
+    use crate::{info_hash::NodeId, node::NodeHandle};
     use serde::{Deserialize, Serialize};
     use std::{
         fmt::Debug,

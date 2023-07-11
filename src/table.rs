@@ -377,10 +377,10 @@ fn index_is_in_bounds(length: usize, checked_index: Option<usize>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::id::{NodeId, NODE_ID_LEN};
-    use crate::routing::bucket;
-    use crate::routing::node::Node;
-    use crate::routing::table::{self, RoutingTable};
+    use crate::bucket;
+    use crate::info_hash::{NodeId, NODE_ID_LEN};
+    use crate::node::Node;
+    use crate::table::{self, RoutingTable};
     use crate::test;
 
     #[test]

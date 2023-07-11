@@ -248,7 +248,7 @@ mod tests {
     use crate::time::Instant;
     use std::time::Duration;
 
-    use crate::routing::node::{Node, NodeStatus};
+    use crate::node::{Node, NodeStatus};
     use crate::test;
 
     #[test]

@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn serialize_announce_peer_request_with_implied_port() {
-        let encoded = "d1:ad2:id20:abcdefghij012345678912:implied_porti1e9:info_hash20:mnopqrstuvwxyz1234565:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe";
+        let encoded = "d1:ad2:id20:abcdefghij012345678912:implied_porti1e9:info_hash20:mnopqrstuvwxyz1234564:porti0e5:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::AnnouncePeer(AnnouncePeerRequest {

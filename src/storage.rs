@@ -208,7 +208,7 @@ impl Eq for ItemExpiration {}
 mod tests {
     use crate::time::Instant;
 
-    use crate::id::INFO_HASH_LEN;
+    use crate::info_hash::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
     use crate::test;
 
