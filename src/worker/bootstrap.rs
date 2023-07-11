@@ -1,15 +1,11 @@
-use super::{
-    resolve,
-    socket::Socket,
-    timer::{Timeout, Timer},
-    BootstrapTimeout, IpVersion, ScheduledTaskCheck,
-};
+use super::{resolve, BootstrapTimeout, IpVersion, ScheduledTaskCheck, Socket};
+use crate::bucket::Bucket;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
-use crate::routing::bucket::Bucket;
-use crate::routing::node::NodeStatus;
-use crate::routing::table::{self, RoutingTable};
+use crate::node::NodeStatus;
+use crate::table::{self, RoutingTable};
+use crate::timer::{Timeout, Timer};
 use crate::transaction::{ActionID, MIDGenerator, TransactionID};
-use crate::{id::NodeId, routing::node::NodeHandle};
+use crate::{id::NodeId, node::NodeHandle};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,

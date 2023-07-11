@@ -1,16 +1,16 @@
-use super::{
-    socket::Socket,
-    timer::{Timeout, Timer},
-    ActionStatus, IpVersion, ScheduledTaskCheck,
-};
+use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, Message, MessageBody, Request, Response,
 };
-use crate::routing::bucket;
-use crate::routing::node::{Node, NodeHandle, NodeStatus};
-use crate::routing::table::RoutingTable;
+use crate::node::{Node, NodeHandle, NodeStatus};
+use crate::table::RoutingTable;
 use crate::transaction::{MIDGenerator, TransactionID};
+use crate::{
+    bucket,
+    socket::Socket,
+    timer::{Timeout, Timer},
+};
 use std::{
     collections::{HashMap, HashSet},
     net::{Ipv4Addr, SocketAddr},

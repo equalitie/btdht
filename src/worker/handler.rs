@@ -1,16 +1,15 @@
 use super::{
-    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, socket::Socket,
-    timer::Timer, ActionStatus, BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck,
-    StartLookup, State, WorkerError,
+    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, ActionStatus,
+    BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
     id::InfoHash,
     message::{error_code, Error, Message, MessageBody, Request, Response, Want},
-    routing::{
-        node::{Node, NodeHandle},
-        table::RoutingTable,
-    },
+    node::{Node, NodeHandle},
+    socket::Socket,
     storage::AnnounceStorage,
+    table::RoutingTable,
+    timer::Timer,
     token::{Token, TokenStore},
     transaction::{AIDGenerator, ActionID, TransactionID},
 };

@@ -1,7 +1,7 @@
 use crate::{
     compact,
     id::{InfoHash, NodeId},
-    routing::node::NodeHandle,
+    node::NodeHandle,
 };
 use serde::{
     de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},

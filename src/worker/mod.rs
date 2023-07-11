@@ -1,4 +1,5 @@
-pub(crate) use self::{handler::DhtHandler, socket::Socket};
+pub(crate) use self::handler::DhtHandler;
+use crate::socket::Socket;
 use crate::{id::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
@@ -8,8 +9,6 @@ mod bootstrap;
 mod handler;
 mod lookup;
 mod refresh;
-mod socket;
-mod timer;
 
 #[derive(Copy, Clone, Debug)]
 pub struct State {

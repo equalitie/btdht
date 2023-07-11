@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
 
 use crate::id::{NodeId, NODE_ID_LEN};
-use crate::routing::node::{Node, NodeStatus};
+use crate::node::{Node, NodeStatus};
 
 /// Maximum number of nodes that should reside in any bucket.
 pub const MAX_BUCKET_SIZE: usize = 8;

@@ -15,15 +15,19 @@
 
 pub mod router;
 
+mod bucket;
 mod compact;
 mod id;
 mod mainline_dht;
 pub mod message;
-mod routing;
+mod node;
+mod socket;
 mod storage;
+mod table;
 #[cfg(test)]
 mod test;
 mod time;
+mod timer;
 mod token;
 mod transaction;
 mod worker;

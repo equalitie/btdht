@@ -1,8 +1,12 @@
-use super::{socket::Socket, timer::Timer, ScheduledTaskCheck};
-use crate::message::{FindNodeRequest, Message, MessageBody, Request};
-use crate::routing::node::NodeStatus;
-use crate::routing::table::{self, RoutingTable};
+use super::ScheduledTaskCheck;
+use crate::node::NodeStatus;
+use crate::table::{self, RoutingTable};
 use crate::transaction::{ActionID, MIDGenerator};
+use crate::{
+    message::{FindNodeRequest, Message, MessageBody, Request},
+    socket::Socket,
+    timer::Timer,
+};
 use std::time::Duration;
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);

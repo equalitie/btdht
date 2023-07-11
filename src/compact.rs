@@ -64,7 +64,7 @@ pub(crate) mod values {
 
 /// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Specialized for ipv4 addresses.
 pub(crate) mod nodes_v4 {
-    use crate::routing::node::NodeHandle;
+    use crate::node::NodeHandle;
     use serde::{de::Deserializer, ser::Serializer};
 
     pub(crate) fn serialize<S>(nodes: &[NodeHandle], s: S) -> Result<S::Ok, S::Error>
@@ -84,7 +84,7 @@ pub(crate) mod nodes_v4 {
 
 /// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Specialized for ipv6 addresses.
 pub(crate) mod nodes_v6 {
-    use crate::routing::node::NodeHandle;
+    use crate::node::NodeHandle;
     use serde::{de::Deserializer, ser::Serializer};
 
     pub(crate) fn serialize<S>(nodes: &[NodeHandle], s: S) -> Result<S::Ok, S::Error>
@@ -104,7 +104,7 @@ pub(crate) mod nodes_v6 {
 
 /// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Generic over address family.
 mod nodes {
-    use crate::{id::NodeId, routing::node::NodeHandle};
+    use crate::{id::NodeId, node::NodeHandle};
     use serde::{
         de::{Deserialize, Deserializer, Error as _},
         ser::{Error as _, Serializer},
@@ -199,7 +199,7 @@ fn encode_socket_addr(addr: &SocketAddr) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{id::NodeId, routing::node::NodeHandle};
+    use crate::{id::NodeId, node::NodeHandle};
     use serde::{Deserialize, Serialize};
     use std::{
         fmt::Debug,
