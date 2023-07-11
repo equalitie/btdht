@@ -2,13 +2,13 @@ use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
 use crate::id::{Id, InfoHash, NODE_ID_LEN};
 use crate::message::{GetPeersRequest, Message, MessageBody, Request, Response};
 use crate::{
+    action::announce::Announce,
     bucket,
     node::{Node, NodeHandle, NodeStatus},
     socket::Socket,
     table::RoutingTable,
     timer::{Timeout, Timer},
     transaction::{MIDGenerator, TransactionID},
-    worker::announce::Announce,
 };
 use std::{
     collections::{HashMap, HashSet},

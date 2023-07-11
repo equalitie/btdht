@@ -1,8 +1,9 @@
-use super::{
+use crate::action::{
     bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, ActionStatus,
     BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
+    action::announce::Announce,
     id::InfoHash,
     message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     node::{Node, NodeHandle},
@@ -12,7 +13,6 @@ use crate::{
     timer::Timer,
     token::{Token, TokenStore},
     transaction::{AIDGenerator, ActionID, TransactionID},
-    worker::announce::Announce,
 };
 use futures_util::StreamExt;
 use std::{
