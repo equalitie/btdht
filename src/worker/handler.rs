@@ -206,7 +206,6 @@ impl DhtHandler {
                     transaction_id: message.transaction_id,
                     body: MessageBody::Response(ping_rsp),
                 };
-                let ping_msg = ping_msg.encode();
 
                 self.socket.send(&ping_msg, addr).await?
             }
@@ -231,7 +230,6 @@ impl DhtHandler {
                     transaction_id: message.transaction_id,
                     body: MessageBody::Response(find_node_rsp),
                 };
-                let find_node_msg = find_node_msg.encode();
 
                 self.socket.send(&find_node_msg, addr).await?
             }
@@ -276,7 +274,6 @@ impl DhtHandler {
                     transaction_id: message.transaction_id,
                     body: MessageBody::Response(get_peers_rsp),
                 };
-                let get_peers_msg = get_peers_msg.encode();
 
                 self.socket.send(&get_peers_msg, addr).await?
             }
@@ -318,7 +315,6 @@ impl DhtHandler {
                             message: "received an invalid token".to_owned(),
                         }),
                     }
-                    .encode()
                 } else if self.active_stores.add_item(a.info_hash, connect_addr) {
                     // Node successfully stored the value with us, send an announce response
                     Message {
@@ -331,7 +327,6 @@ impl DhtHandler {
                             token: None,
                         }),
                     }
-                    .encode()
                 } else {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
@@ -346,7 +341,6 @@ impl DhtHandler {
                             message: "announce storage is full".to_owned(),
                         }),
                     }
-                    .encode()
                 };
 
                 self.socket.send(&response_msg, addr).await?

@@ -1,7 +1,7 @@
 //! Helpers to simplify work with UdpSocket.
 
 use super::IpVersion;
-use crate::SocketTrait;
+use crate::{message::Message, SocketTrait};
 use async_trait::async_trait;
 use std::{io, net::SocketAddr};
 use tokio::net::UdpSocket;
@@ -15,11 +15,12 @@ impl Socket {
         Ok(Self(inner, local_addr))
     }
 
-    pub(crate) async fn send(&self, bytes: &[u8], addr: SocketAddr) -> io::Result<()> {
+    pub(crate) async fn send(&self, message: &Message, addr: SocketAddr) -> io::Result<()> {
+        log::trace!("Sending to {addr:?} {message:?}");
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
-        self.0.send_to(bytes, &addr).await?;
+        self.0.send_to(&message.encode(), &addr).await?;
         Ok(())
     }
 

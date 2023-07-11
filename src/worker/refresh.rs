@@ -64,7 +64,6 @@ impl TableRefresh {
                 transaction_id: trans_id.as_ref().to_vec(),
                 body: MessageBody::Request(Request::FindNode(find_node_req)),
             };
-            let find_node_msg = find_node_msg.encode();
 
             // Send the message
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {

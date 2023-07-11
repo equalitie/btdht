@@ -283,7 +283,6 @@ impl TableLookup {
                     transaction_id: trans_id.as_ref().to_vec(),
                     body: MessageBody::Request(Request::AnnouncePeer(announce_peer_req)),
                 };
-                let announce_peer_msg = announce_peer_msg.encode();
 
                 match socket.send(&announce_peer_msg, node.addr).await {
                     Ok(()) => {
@@ -347,8 +346,7 @@ impl TableLookup {
                     info_hash: self.target_id,
                     want: None,
                 })),
-            }
-            .encode();
+            };
 
             if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
                 log::error!(
@@ -411,8 +409,7 @@ impl TableLookup {
                         info_hash: self.target_id,
                         want: None,
                     })),
-                }
-                .encode();
+                };
 
                 if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
                     log::error!(

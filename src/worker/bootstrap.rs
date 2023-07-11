@@ -148,8 +148,7 @@ impl TableBootstrap {
                 target: self.table_id,
                 want: None, // we want only contacts of the same address family we have.
             })),
-        }
-        .encode();
+        };
 
         // Ping all initial routers and nodes
         self.initial_responses_expected = 0;
@@ -438,8 +437,7 @@ impl TableBootstrap {
                     target: target_id,
                     want: None,
                 })),
-            }
-            .encode();
+            };
 
             // Add a timeout for the node
             let timeout = transaction_timeout_in(timer, NODE_TIMEOUT, trans_id);
