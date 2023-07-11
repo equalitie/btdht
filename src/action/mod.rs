@@ -1,5 +1,5 @@
 use crate::socket::Socket;
-use crate::{id::InfoHash, transaction::TransactionID};
+use crate::{info_hash::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};

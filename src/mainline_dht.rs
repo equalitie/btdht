@@ -1,7 +1,7 @@
 use crate::{
     action::{OneshotTask, StartLookup, State},
     handler::DhtHandler,
-    id::{InfoHash, NodeId},
+    info_hash::{InfoHash, NodeId},
     socket::Socket,
     table::RoutingTable,
     SocketTrait,

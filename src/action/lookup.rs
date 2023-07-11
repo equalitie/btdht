@@ -1,5 +1,5 @@
 use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
-use crate::id::{Id, InfoHash, NODE_ID_LEN};
+use crate::info_hash::{InfoHash, INFO_HASH_LEN};
 use crate::message::{GetPeersRequest, Message, MessageBody, Request, Response};
 use crate::{
     action::announce::Announce,
@@ -29,8 +29,8 @@ const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
 const INITIAL_PICK_NUM: usize = 4; // Alpha
 const ITERATIVE_PICK_NUM: usize = 3; // Beta
 
-type Distance = Id;
-type DistanceToBeat = Id;
+type Distance = InfoHash;
+type DistanceToBeat = InfoHash;
 
 pub(crate) struct TableLookup {
     ip_version: IpVersion,
@@ -424,7 +424,7 @@ fn pick_initial_nodes<'a, I>(sorted_nodes: I) -> [(NodeHandle, bool); INITIAL_PI
 where
     I: Iterator<Item = &'a mut (Distance, NodeHandle, bool)>,
 {
-    let dummy_id = [0u8; NODE_ID_LEN].into();
+    let dummy_id = [0u8; INFO_HASH_LEN].into();
     let default = (
         NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,
@@ -450,7 +450,7 @@ fn pick_iterate_nodes<I>(
 where
     I: Iterator<Item = NodeHandle>,
 {
-    let dummy_id = [0u8; NODE_ID_LEN].into();
+    let dummy_id = [0u8; INFO_HASH_LEN].into();
     let default = (
         NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,

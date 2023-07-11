@@ -1,6 +1,6 @@
 use crate::{
     compact,
-    id::{InfoHash, NodeId},
+    info_hash::{InfoHash, NodeId},
     node::NodeHandle,
 };
 use serde::{

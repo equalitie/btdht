@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::id::InfoHash;
+use crate::info_hash::InfoHash;
 use crate::time::Instant;
 
 const MAX_ITEMS_STORED: usize = 500;

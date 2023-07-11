@@ -4,7 +4,7 @@ use crate::action::{
 };
 use crate::{
     action::announce::Announce,
-    id::InfoHash,
+    info_hash::InfoHash,
     message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     node::{Node, NodeHandle},
     socket::Socket,

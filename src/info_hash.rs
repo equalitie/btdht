@@ -12,16 +12,16 @@ use std::{
 };
 use thiserror::Error;
 
-/// Length of `Id` in bytes.
-pub const ID_LEN: usize = 20;
+/// Length of `InfoHash` in bytes.
+pub const INFO_HASH_LEN: usize = 20;
 
 /// 20-byte long identifier of nodes and objects on the DHT
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
-pub struct Id(#[serde(with = "byte_array")] [u8; ID_LEN]);
+pub struct InfoHash(#[serde(with = "byte_array")] [u8; INFO_HASH_LEN]);
 
-impl Id {
-    /// Generate Id from the IP address as described by BEP42
+impl InfoHash {
+    /// Generate InfoHash from the IP address as described by BEP42
     /// https://www.bittorrent.org/beps/bep_0042.html
     pub fn from_ip(ip: IpAddr) -> Self {
         let v4_mask: [u8; 8] = [0x03, 0x0f, 0x3f, 0xff, 0, 0, 0, 0];
@@ -59,7 +59,7 @@ impl Id {
 
         let crc = crc32c::crc32c_append(0, &ip[0..num_octets]);
 
-        let mut node_id: [u8; ID_LEN] = [0; ID_LEN];
+        let mut node_id: [u8; INFO_HASH_LEN] = [0; INFO_HASH_LEN];
 
         node_id[0] = (crc >> 24).to_le_bytes()[0];
         node_id[1] = (crc >> 16).to_le_bytes()[0];
@@ -111,20 +111,20 @@ impl Id {
     }
 }
 
-impl AsRef<[u8]> for Id {
+impl AsRef<[u8]> for InfoHash {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl From<Id> for [u8; ID_LEN] {
-    fn from(hash: Id) -> [u8; ID_LEN] {
+impl From<InfoHash> for [u8; INFO_HASH_LEN] {
+    fn from(hash: InfoHash) -> [u8; INFO_HASH_LEN] {
         hash.0
     }
 }
 
-impl From<[u8; ID_LEN]> for Id {
-    fn from(hash: [u8; ID_LEN]) -> Id {
+impl From<[u8; INFO_HASH_LEN]> for InfoHash {
+    fn from(hash: [u8; INFO_HASH_LEN]) -> InfoHash {
         Self(hash)
     }
 }
@@ -133,7 +133,7 @@ impl From<[u8; ID_LEN]> for Id {
 #[error("invalid id length")]
 pub struct LengthError;
 
-impl<'a> TryFrom<&'a [u8]> for Id {
+impl<'a> TryFrom<&'a [u8]> for InfoHash {
     type Error = LengthError;
 
     fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
@@ -141,7 +141,7 @@ impl<'a> TryFrom<&'a [u8]> for Id {
     }
 }
 
-impl BitXor for Id {
+impl BitXor for InfoHash {
     type Output = Self;
 
     fn bitxor(mut self, rhs: Self) -> Self {
@@ -153,13 +153,13 @@ impl BitXor for Id {
     }
 }
 
-impl Distribution<Id> for Standard {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Id {
-        Id(rng.gen())
+impl Distribution<InfoHash> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> InfoHash {
+        InfoHash(rng.gen())
     }
 }
 
-impl fmt::LowerHex for Id {
+impl fmt::LowerHex for InfoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for b in &self.0 {
             write!(f, "{b:02x}")?;
@@ -169,14 +169,14 @@ impl fmt::LowerHex for Id {
     }
 }
 
-impl fmt::Debug for Id {
+impl fmt::Debug for InfoHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:x}")
     }
 }
 
 mod byte_array {
-    use super::ID_LEN;
+    use super::INFO_HASH_LEN;
     use serde::{
         de::{Deserialize, Deserializer, Error},
         ser::{Serialize, Serializer},
@@ -184,17 +184,22 @@ mod byte_array {
     use serde_bytes::{ByteBuf, Bytes};
     use std::convert::TryInto;
 
-    pub(super) fn serialize<S: Serializer>(bytes: &[u8; ID_LEN], s: S) -> Result<S::Ok, S::Error> {
+    pub(super) fn serialize<S: Serializer>(
+        bytes: &[u8; INFO_HASH_LEN],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         Bytes::new(bytes.as_ref()).serialize(s)
     }
 
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; ID_LEN], D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<[u8; INFO_HASH_LEN], D::Error> {
         let buf = ByteBuf::deserialize(d)?;
         let buf = buf.into_vec();
         let len = buf.len();
 
         buf.try_into().map_err(|_| {
-            let expected = format!("{ID_LEN}");
+            let expected = format!("{INFO_HASH_LEN}");
             D::Error::invalid_length(len, &expected.as_ref())
         })
     }
@@ -203,16 +208,10 @@ mod byte_array {
 // ----------------------------------------------------------------------------//
 
 /// Bittorrent `NodeId`.
-pub type NodeId = Id;
-
-/// Bittorrent `InfoHash`.
-pub type InfoHash = Id;
+pub type NodeId = InfoHash;
 
 /// Length of a `NodeId`.
-pub const NODE_ID_LEN: usize = ID_LEN;
-
-/// Length of an `InfoHash`.
-pub const INFO_HASH_LEN: usize = ID_LEN;
+pub const NODE_ID_LEN: usize = INFO_HASH_LEN;
 
 // ----------------------------------------------------------------------------//
 
@@ -222,8 +221,8 @@ mod tests {
 
     #[test]
     fn positive_no_leading_zeroes() {
-        let zero_bits = Id::from([0u8; ID_LEN]);
-        let one_bits = Id::from([255u8; ID_LEN]);
+        let zero_bits = InfoHash::from([0u8; INFO_HASH_LEN]);
+        let one_bits = InfoHash::from([255u8; INFO_HASH_LEN]);
 
         let xor_hash = zero_bits ^ one_bits;
 
@@ -232,21 +231,21 @@ mod tests {
 
     #[test]
     fn positive_all_leading_zeroes() {
-        let first_one_bits = Id::from([255u8; ID_LEN]);
-        let second_one_bits = Id::from([255u8; ID_LEN]);
+        let first_one_bits = InfoHash::from([255u8; INFO_HASH_LEN]);
+        let second_one_bits = InfoHash::from([255u8; INFO_HASH_LEN]);
 
         let xor_hash = first_one_bits ^ second_one_bits;
 
-        assert_eq!(xor_hash.leading_zeros() as usize, ID_LEN * 8);
+        assert_eq!(xor_hash.leading_zeros() as usize, INFO_HASH_LEN * 8);
     }
 
     #[test]
     fn positive_one_leading_zero() {
-        let zero_bits = Id::from([0u8; ID_LEN]);
+        let zero_bits = InfoHash::from([0u8; INFO_HASH_LEN]);
 
-        let mut bytes = [255u8; ID_LEN];
+        let mut bytes = [255u8; INFO_HASH_LEN];
         bytes[0] = 127;
-        let mostly_one_bits = Id::from(bytes);
+        let mostly_one_bits = InfoHash::from(bytes);
 
         let xor_hash = zero_bits ^ mostly_one_bits;
 
@@ -255,11 +254,11 @@ mod tests {
 
     #[test]
     fn positive_one_trailing_zero() {
-        let zero_bits = Id::from([0u8; ID_LEN]);
+        let zero_bits = InfoHash::from([0u8; INFO_HASH_LEN]);
 
-        let mut bytes = [255u8; ID_LEN];
-        bytes[super::ID_LEN - 1] = 254;
-        let mostly_zero_bits = Id::from(bytes);
+        let mut bytes = [255u8; INFO_HASH_LEN];
+        bytes[super::INFO_HASH_LEN - 1] = 254;
+        let mostly_zero_bits = InfoHash::from(bytes);
 
         let xor_hash = zero_bits ^ mostly_zero_bits;
 

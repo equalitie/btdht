@@ -19,7 +19,7 @@ mod action;
 mod bucket;
 mod compact;
 mod handler;
-mod id;
+mod info_hash;
 mod mainline_dht;
 pub mod message;
 mod node;
@@ -34,7 +34,7 @@ mod token;
 mod transaction;
 
 pub use crate::action::State;
-pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
+pub use crate::info_hash::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
 pub use crate::mainline_dht::{DhtBuilder, MainlineDht};
 
 pub type IpVersion = crate::action::IpVersion;
