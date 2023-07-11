@@ -1,14 +1,13 @@
-pub(crate) use self::handler::DhtHandler;
 use crate::socket::Socket;
-use crate::{id::InfoHash, transaction::TransactionID};
+use crate::{info_hash::InfoHash, transaction::TransactionID};
 use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
-mod bootstrap;
-mod handler;
-mod lookup;
-mod refresh;
+pub(crate) mod announce;
+pub(crate) mod bootstrap;
+pub(crate) mod lookup;
+pub(crate) mod refresh;
 
 #[derive(Copy, Clone, Debug)]
 pub struct State {
@@ -77,6 +76,8 @@ pub(crate) enum ScheduledTaskCheck {
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
     LookupEndGame(TransactionID),
+    /// Check the progress of the lookup endgame.
+    Announce(TransactionID),
 }
 
 #[derive(Error, Debug)]

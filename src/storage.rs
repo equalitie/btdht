@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use crate::id::InfoHash;
+use crate::info_hash::InfoHash;
 use crate::time::Instant;
 
 const MAX_ITEMS_STORED: usize = 500;
@@ -208,7 +208,7 @@ impl Eq for ItemExpiration {}
 mod tests {
     use crate::time::Instant;
 
-    use crate::id::INFO_HASH_LEN;
+    use crate::info_hash::INFO_HASH_LEN;
     use crate::storage::{self, AnnounceStorage};
     use crate::test;
 

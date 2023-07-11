@@ -1,6 +1,6 @@
 //! Compact representation
 
-use crate::id::NODE_ID_LEN;
+use crate::info_hash::NODE_ID_LEN;
 use std::{
     convert::TryInto,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -104,7 +104,7 @@ pub(crate) mod nodes_v6 {
 
 /// Serialize/deserialize `Vec` of `NodeHandle` in compact format. Generic over address family.
 mod nodes {
-    use crate::{id::NodeId, node::NodeHandle};
+    use crate::{info_hash::NodeId, node::NodeHandle};
     use serde::{
         de::{Deserialize, Deserializer, Error as _},
         ser::{Error as _, Serializer},
@@ -199,7 +199,7 @@ fn encode_socket_addr(addr: &SocketAddr) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{id::NodeId, node::NodeHandle};
+    use crate::{info_hash::NodeId, node::NodeHandle};
     use serde::{Deserialize, Serialize};
     use std::{
         fmt::Debug,

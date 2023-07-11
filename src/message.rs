@@ -1,6 +1,6 @@
 use crate::{
     compact,
-    id::{InfoHash, NodeId},
+    info_hash::{InfoHash, NodeId},
     node::NodeHandle,
 };
 use serde::{
@@ -231,12 +231,14 @@ mod want {
 }
 
 mod port {
-    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     #[derive(Serialize, Deserialize)]
     struct Wrapper {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        port: Option<u16>,
+        // Note that the documentation (http://bittorrent.org/beps/bep_0005.html) doesn't say that
+        // `port` is optional, and indeed many bittorrent clients will reply with error 203 if it's
+        // not present **even when `implied_port` is set to 1**.
+        port: u16,
 
         #[serde(
             default,
@@ -249,7 +251,7 @@ mod port {
     pub(crate) fn serialize<S: Serializer>(port: &Option<u16>, s: S) -> Result<S::Ok, S::Error> {
         Wrapper {
             implied_port: port.is_none(),
-            port: *port,
+            port: port.unwrap_or(0),
         }
         .serialize(s)
     }
@@ -259,10 +261,8 @@ mod port {
 
         if wrapper.implied_port {
             Ok(None)
-        } else if wrapper.port.is_some() {
-            Ok(wrapper.port)
         } else {
-            Err(D::Error::missing_field("port"))
+            Ok(Some(wrapper.port))
         }
     }
 
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn serialize_announce_peer_request_with_implied_port() {
-        let encoded = "d1:ad2:id20:abcdefghij012345678912:implied_porti1e9:info_hash20:mnopqrstuvwxyz1234565:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe";
+        let encoded = "d1:ad2:id20:abcdefghij012345678912:implied_porti1e9:info_hash20:mnopqrstuvwxyz1234564:porti0e5:token8:aoeusnthe1:q13:announce_peer1:t2:aa1:y1:qe";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Request(Request::AnnouncePeer(AnnouncePeerRequest {

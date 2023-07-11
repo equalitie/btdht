@@ -5,7 +5,7 @@ use crate::node::NodeStatus;
 use crate::table::{self, RoutingTable};
 use crate::timer::{Timeout, Timer};
 use crate::transaction::{ActionID, MIDGenerator, TransactionID};
-use crate::{id::NodeId, node::NodeHandle};
+use crate::{info_hash::NodeId, node::NodeHandle};
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,

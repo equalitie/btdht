@@ -15,9 +15,11 @@
 
 pub mod router;
 
+mod action;
 mod bucket;
 mod compact;
-mod id;
+mod handler;
+mod info_hash;
 mod mainline_dht;
 pub mod message;
 mod node;
@@ -30,13 +32,12 @@ mod time;
 mod timer;
 mod token;
 mod transaction;
-mod worker;
 
-pub use crate::id::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
+pub use crate::action::State;
+pub use crate::info_hash::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
 pub use crate::mainline_dht::{DhtBuilder, MainlineDht};
-pub use crate::worker::State;
 
-pub type IpVersion = crate::worker::IpVersion;
+pub type IpVersion = crate::action::IpVersion;
 
 use async_trait::async_trait;
 use std::{io, net::SocketAddr};

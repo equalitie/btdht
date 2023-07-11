@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
 
-use crate::id::{NodeId, NODE_ID_LEN};
+use crate::info_hash::{NodeId, NODE_ID_LEN};
 
 /// Generates a dummy Ipv4 address as an `IpAddr`.
 pub fn dummy_ipv4_addr() -> IpAddr {

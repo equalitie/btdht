@@ -1,8 +1,9 @@
 use crate::{
-    id::{InfoHash, NodeId},
+    action::{OneshotTask, StartLookup, State},
+    handler::DhtHandler,
+    info_hash::{InfoHash, NodeId},
     socket::Socket,
     table::RoutingTable,
-    worker::{DhtHandler, OneshotTask, StartLookup, State},
     SocketTrait,
 };
 use futures_util::Stream;

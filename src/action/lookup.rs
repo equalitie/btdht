@@ -1,15 +1,14 @@
 use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
-use crate::id::{Id, InfoHash, NODE_ID_LEN};
-use crate::message::{
-    AnnouncePeerRequest, GetPeersRequest, Message, MessageBody, Request, Response,
-};
-use crate::node::{Node, NodeHandle, NodeStatus};
-use crate::table::RoutingTable;
-use crate::transaction::{MIDGenerator, TransactionID};
+use crate::info_hash::{InfoHash, INFO_HASH_LEN};
+use crate::message::{GetPeersRequest, Message, MessageBody, Request, Response};
 use crate::{
+    action::announce::Announce,
     bucket,
+    node::{Node, NodeHandle, NodeStatus},
     socket::Socket,
+    table::RoutingTable,
     timer::{Timeout, Timer},
+    transaction::{MIDGenerator, TransactionID},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -29,10 +28,9 @@ const ENDGAME_TIMEOUT: Duration = Duration::from_millis(1500);
 
 const INITIAL_PICK_NUM: usize = 4; // Alpha
 const ITERATIVE_PICK_NUM: usize = 3; // Beta
-const ANNOUNCE_PICK_NUM: usize = 8; // # Announces
 
-type Distance = Id;
-type DistanceToBeat = Id;
+type Distance = InfoHash;
+type DistanceToBeat = InfoHash;
 
 pub(crate) struct TableLookup {
     ip_version: IpVersion,
@@ -254,57 +252,44 @@ impl TableLookup {
     }
 
     pub async fn recv_finished(
-        &mut self,
-        port: Option<u16>,
-        table: &mut RoutingTable,
+        mut self,
         socket: &Socket,
-    ) {
-        // Announce if we were told to
-        if self.will_announce {
-            // Partial borrow so the filter function doesnt capture all of self
-            let announce_tokens = &self.announce_tokens;
+        table: &mut RoutingTable,
+        timer: &mut Timer<ScheduledTaskCheck>,
+        port: Option<u16>,
+    ) -> Option<Announce> {
+        // Partial borrow so the filter function doesnt capture all of self
+        let announce_tokens = &mut self.announce_tokens;
 
-            for (_, node, _) in self
-                .all_sorted_nodes
-                .iter()
-                .filter(|(_, node, _)| announce_tokens.contains_key(node))
-                .take(ANNOUNCE_PICK_NUM)
-            {
-                let trans_id = self.id_generator.generate();
-                let token = announce_tokens.get(node).unwrap();
-
-                let announce_peer_req = AnnouncePeerRequest {
-                    id: table.node_id(),
-                    info_hash: self.target_id,
-                    token: token.clone(),
-                    port,
-                };
-                let announce_peer_msg = Message {
-                    transaction_id: trans_id.as_ref().to_vec(),
-                    body: MessageBody::Request(Request::AnnouncePeer(announce_peer_req)),
-                };
-
-                match socket.send(&announce_peer_msg, node.addr).await {
-                    Ok(()) => {
-                        // We requested from the node, marke it down if the node is in our routing table
-                        if let Some(n) = table.find_node_mut(node) {
-                            n.local_request()
-                        }
-                    }
-                    Err(error) => {
-                        log::error!(
-                            "{}: TableLookup announce request failed to send: {}",
-                            self.ip_version,
-                            error
-                        )
-                    }
-                }
-            }
+        if !self.will_announce {
+            return None;
         }
 
-        // This may not be cleared since we didnt set a timeout for each node, any nodes that didnt respond would still be in here.
-        self.active_lookups.clear();
-        self.in_endgame = false;
+        let nodes = self
+            .all_sorted_nodes
+            .drain(..)
+            .filter_map(|(_, node, _)| {
+                announce_tokens
+                    .remove(&node)
+                    .map(|token| (node.clone(), token))
+            })
+            .collect::<Vec<_>>();
+
+        if nodes.is_empty() {
+            return None;
+        }
+
+        Announce::new(
+            socket,
+            table,
+            timer,
+            self.target_id,
+            nodes,
+            port,
+            self.id_generator,
+            self.tx,
+        )
+        .await
     }
 
     fn current_lookup_status(&self) -> ActionStatus {
@@ -439,7 +424,7 @@ fn pick_initial_nodes<'a, I>(sorted_nodes: I) -> [(NodeHandle, bool); INITIAL_PI
 where
     I: Iterator<Item = &'a mut (Distance, NodeHandle, bool)>,
 {
-    let dummy_id = [0u8; NODE_ID_LEN].into();
+    let dummy_id = [0u8; INFO_HASH_LEN].into();
     let default = (
         NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,
@@ -465,7 +450,7 @@ fn pick_iterate_nodes<I>(
 where
     I: Iterator<Item = NodeHandle>,
 {
-    let dummy_id = [0u8; NODE_ID_LEN].into();
+    let dummy_id = [0u8; INFO_HASH_LEN].into();
     let default = (
         NodeHandle::new(dummy_id, SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
         false,

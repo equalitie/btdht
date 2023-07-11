@@ -2,10 +2,10 @@ use super::{
     bucket::{self, Bucket},
     node::{Node, NodeHandle, NodeStatus},
 };
-use crate::id::{NodeId, ID_LEN};
+use crate::info_hash::{NodeId, INFO_HASH_LEN};
 use std::{cmp::Ordering, collections::HashSet, iter::Filter, net::SocketAddr, slice::Iter};
 
-pub const MAX_BUCKETS: usize = ID_LEN * 8;
+pub const MAX_BUCKETS: usize = INFO_HASH_LEN * 8;
 
 /// Routing table containing a table of routing nodes as well
 /// as the id of the local node participating in the dht.
@@ -377,10 +377,10 @@ fn index_is_in_bounds(length: usize, checked_index: Option<usize>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::id::{NodeId, NODE_ID_LEN};
-    use crate::routing::bucket;
-    use crate::routing::node::Node;
-    use crate::routing::table::{self, RoutingTable};
+    use crate::bucket;
+    use crate::info_hash::{NodeId, NODE_ID_LEN};
+    use crate::node::Node;
+    use crate::table::{self, RoutingTable};
     use crate::test;
 
     #[test]
