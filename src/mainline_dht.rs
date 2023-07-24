@@ -8,6 +8,7 @@ use crate::{
 };
 use futures_util::Stream;
 use std::{
+    boxed::Box,
     collections::HashSet,
     io,
     net::SocketAddr,
@@ -55,7 +56,13 @@ impl MainlineDht {
 
         // TODO: Utilize the security extension.
         let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
-        let handler = DhtHandler::new(
+
+        // This is wrapped in `Box` because moving this `DhtHandler` instance to the spawned task
+        // caused stack overflow crashes. This happened when the app was compiled on Windows and
+        // run on either the Windows or the Android platform. I suspect that the cause was that
+        // the Windows compiler allocates a smaller stack which could not fit the `DhtHandler`
+        // instance with whatever other local variables used under `DhtHandler::run(self)`.
+        let handler = Box::new(DhtHandler::new(
             routing_table,
             socket,
             builder.read_only,
@@ -63,7 +70,7 @@ impl MainlineDht {
             builder.nodes,
             builder.announce_port,
             command_rx,
-        );
+        ));
 
         if command_tx.send(OneshotTask::StartBootstrap()).is_err() {
             // `unreachable` is OK here because the corresponding receiver definitely exists at
@@ -71,7 +78,11 @@ impl MainlineDht {
             unreachable!()
         }
 
-        task::spawn(handler.run());
+        // Also here we create an explicit `async { ... }` block to move the `Box<DhtHandler>` into
+        // the future. Not doing so would cause the stack overflow crash described above.
+        task::spawn(async {
+            handler.run()
+        });
 
         Self { send: command_tx }
     }
