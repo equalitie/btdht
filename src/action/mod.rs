@@ -4,7 +4,6 @@ use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
-pub(crate) mod announce;
 pub(crate) mod bootstrap;
 pub(crate) mod lookup;
 pub(crate) mod refresh;
@@ -76,8 +75,6 @@ pub(crate) enum ScheduledTaskCheck {
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
     LookupEndGame(TransactionID),
-    /// Check the progress of the lookup endgame.
-    Announce(TransactionID),
 }
 
 #[derive(Error, Debug)]

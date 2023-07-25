@@ -3,7 +3,6 @@ use crate::action::{
     BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
-    action::announce::Announce,
     info_hash::InfoHash,
     message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     node::{Node, NodeHandle},
@@ -39,7 +38,6 @@ pub(crate) struct DhtHandler {
     routing_table: RoutingTable,
     active_stores: AnnounceStorage,
     bootstrap: TableBootstrap,
-    announcements: HashMap<ActionID, Announce>,
 
     next_bootstrap_txs_id: u64,
     bootstrap_txs: HashMap<u64, oneshot::Sender<bool>>,
@@ -89,7 +87,6 @@ impl DhtHandler {
             routing_table: table,
             active_stores: AnnounceStorage::new(),
             bootstrap,
-            announcements: HashMap::new(),
             next_bootstrap_txs_id: 0,
             bootstrap_txs: HashMap::new(),
             refresh: table_refresh,
@@ -166,9 +163,6 @@ impl DhtHandler {
             }
             ScheduledTaskCheck::LookupEndGame(trans_id) => {
                 self.handle_check_lookup_endgame(trans_id).await;
-            }
-            ScheduledTaskCheck::Announce(trans_id) => {
-                self.handle_check_announce(trans_id).await;
             }
         }
     }
@@ -355,11 +349,7 @@ impl DhtHandler {
                     .ok_or(WorkerError::InvalidTransactionId)?;
                 self.handle_incoming_response(trans_id, addr, rsp).await?;
             }
-            MessageBody::Error(_) => {
-                let trans_id = TransactionID::from_bytes(&message.transaction_id)
-                    .ok_or(WorkerError::InvalidTransactionId)?;
-                self.maybe_handle_announcement_reply(&trans_id, false).await;
-            }
+            MessageBody::Error(_) => (),
         }
 
         Ok(())
@@ -430,33 +420,11 @@ impl DhtHandler {
                 nodes,
                 self.bootstrap.router_addresses(),
             );
-        } else if self.maybe_handle_announcement_reply(&trans_id, true).await {
         } else {
             return Err(WorkerError::UnsolicitedResponse);
         }
 
         Ok(())
-    }
-
-    async fn maybe_handle_announcement_reply(
-        &mut self,
-        trans_id: &TransactionID,
-        is_success: bool,
-    ) -> bool {
-        let announce = match self.announcements.get_mut(&trans_id.action_id()) {
-            Some(announce) => announce,
-            None => return false,
-        };
-
-        let status = announce
-            .on_receive_reply(trans_id, is_success, &mut self.timer)
-            .await;
-
-        if status == ActionStatus::Completed {
-            self.announcements.remove(&trans_id.action_id());
-        }
-
-        return true;
     }
 
     async fn handle_start_bootstrap(&mut self) {
@@ -535,7 +503,7 @@ impl DhtHandler {
         let mid_generator = self.aid_generator.generate();
         let action_id = mid_generator.action_id();
 
-        let lookup = TableLookup::new(
+        let mut lookup = TableLookup::new(
             lookup.info_hash,
             lookup.announce,
             lookup.tx,
@@ -547,7 +515,9 @@ impl DhtHandler {
         .await;
 
         if lookup.completed() {
-            self.dispose_lookup(lookup).await;
+            lookup
+                .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+                .await;
         } else {
             self.lookups.insert(action_id, lookup);
         }
@@ -599,54 +569,22 @@ impl DhtHandler {
     }
 
     async fn handle_lookup_completed(&mut self, trans_id: TransactionID) {
-        let lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
+        let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
             lookup
         } else {
             log::error!("{}: Lookup not found", self.ip_version());
             return;
         };
 
-        self.dispose_lookup(lookup).await
-    }
-
-    async fn dispose_lookup(&mut self, lookup: TableLookup) {
-        let announce = lookup
-            .recv_finished(
-                &self.socket,
-                &mut self.routing_table,
-                &mut self.timer,
-                self.announce_port,
-            )
-            .await;
-
-        if let Some(announce) = announce {
-            self.announcements.insert(announce.action_id(), announce);
-        }
+        lookup
+            .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
+            .await
     }
 
     async fn handle_check_table_refresh(&mut self) {
         self.refresh
             .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
             .await
-    }
-
-    async fn handle_check_announce(&mut self, trans_id: TransactionID) {
-        let action_id = trans_id.action_id();
-
-        if let Some(announce) = self.announcements.get_mut(&action_id) {
-            let status = announce
-                .on_timeout(
-                    &trans_id,
-                    &self.socket,
-                    &mut self.timer,
-                    &mut self.routing_table,
-                )
-                .await;
-
-            if status == ActionStatus::Completed {
-                self.announcements.remove(&action_id);
-            }
-        }
     }
 
     fn shutdown(&mut self) {
