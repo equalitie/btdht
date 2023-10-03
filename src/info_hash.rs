@@ -33,17 +33,13 @@ impl InfoHash {
                 IpAddr::V4(ip) => {
                     let num = 4;
                     let octets = ip.octets();
-                    for i in 0..num {
-                        array[i] = octets[i];
-                    }
+                    array[..num].copy_from_slice(&octets[..num]);
                     (v4_mask, num)
                 }
                 IpAddr::V6(ip) => {
                     let num = 8;
                     let octets = ip.octets();
-                    for i in 0..num {
-                        array[i] = octets[i];
-                    }
+                    array[..num].copy_from_slice(&octets[..num]);
                     (v6_mask, num)
                 }
             };
@@ -65,8 +61,8 @@ impl InfoHash {
         node_id[1] = (crc >> 16).to_le_bytes()[0];
         node_id[2] = (crc >> 8).to_le_bytes()[0] & 0xf8 | (rand::random::<u8>() & 0x7);
 
-        for i in 3..19 {
-            node_id[i] = rand::random::<u8>();
+        for byte in &mut node_id[3..19] {
+            *byte = rand::random();
         }
 
         node_id[19] = rand;

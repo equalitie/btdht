@@ -13,9 +13,7 @@ futures-util  = { version = "0.3.27", default_features = false, features = ["all
 log           = "0.4.17"
 rand          = "0.8.5"
 serde         = { version = "1.0.158", features = ["derive"] }
-# TODO: switch to the crates.io version when it's published
-# NOTE: don't use [patch] for this because apparently it's not transitive (dependent crate won't see it for some reason)
-serde_bencode = { git = "https://github.com/toby/serde-bencode", rev = "553adb4b" }
+serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
 serde_bytes   = "0.11.5"
 sha-1         = "0.9.8"
 tokio         = { version = "1.26", default_features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
