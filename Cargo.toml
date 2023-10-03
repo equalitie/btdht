@@ -4,22 +4,23 @@ version       = "0.14.1"
 description   = "Implementation of the bittorrent mainline DHT"
 authors       = ["Andrew <amiller4421@gmail.com>", "Adam Cigánek <adam.ciganek@gmail.com>"]
 license       = "MIT/Apache-2.0"
-edition       = "2018"
+edition       = "2021"
 
 [dependencies]
-async-trait   = "0.1.67"
-crc32c        = "0.6.3"
-futures-util  = { version = "0.3.27", default_features = false, features = ["alloc"] }
-log           = "0.4.17"
+async-trait   = "0.1.73"
+crc32c        = "0.6.4"
+futures-util  = { version = "0.3.28", default_features = false, features = ["alloc"] }
+log           = "0.4.20"
 rand          = "0.8.5"
-serde         = { version = "1.0.158", features = ["derive"] }
+# FIXME: serde >= 1.0.181 breaks some tests. Pinning to 1.0.180 for now.
+serde         = { version = "=1.0.180", features = ["derive"] }
 serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
-serde_bytes   = "0.11.5"
-sha-1         = "0.9.8"
-tokio         = { version = "1.26", default_features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
-thiserror     = "1.0.30"
+serde_bytes   = "0.11.12"
+sha-1         = "0.10.1"
+tokio         = { version = "1.32", default_features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+thiserror     = "1.0.49"
 
 [dev-dependencies]
 hex           = "0.4.3"
-pretty_env_logger = "0.4"
-tokio         = { version = "1.26", features = ["io-std", "io-util"] }
+pretty_env_logger = "0.5.0"
+tokio         = { version = "1.32", features = ["io-std", "io-util"] }
