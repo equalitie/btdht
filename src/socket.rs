@@ -25,11 +25,20 @@ impl Socket {
     }
 
     /// This function is cancel safe: https://docs.rs/tokio/1.12.0/tokio/net/struct.UdpSocket.html#cancel-safety-6
-    pub(crate) async fn recv(&mut self) -> io::Result<(Vec<u8>, SocketAddr)> {
+    pub(crate) async fn recv(&mut self) -> io::Result<(Message, SocketAddr)> {
         let mut buffer = vec![0u8; 1500];
-        let (size, addr) = self.0.recv_from(&mut buffer).await?;
-        buffer.truncate(size);
-        Ok((buffer, addr))
+        loop {
+            let (size, addr) = self.0.recv_from(&mut buffer).await?;
+            match Message::decode(&buffer[0..size]) {
+                Ok(message) => return Ok((message, addr)),
+                Err(_) => {
+                    log::warn!(
+                        "{}: Failed decode incoming message from {addr:?}",
+                        self.ip_version()
+                    );
+                }
+            }
+        }
     }
 
     pub fn local_addr(&self) -> SocketAddr {
