@@ -10,10 +10,12 @@ use serde::{
 };
 use std::{fmt, net::SocketAddr};
 
+pub type TransactionId = Vec<u8>;
+
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     #[serde(rename = "t", with = "serde_bytes")]
-    pub transaction_id: Vec<u8>,
+    pub transaction_id: TransactionId,
     #[serde(flatten)]
     pub body: MessageBody,
 }
