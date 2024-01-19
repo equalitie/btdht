@@ -121,7 +121,7 @@ impl DhtHandler {
             }
             message = self.socket.recv() => {
                 match message {
-                    Ok((buffer, addr)) => if let Err(error) = self.handle_incoming(&buffer, addr).await {
+                    Ok((message, addr)) => if let Err(error) = self.handle_incoming(message, addr).await {
                         log::debug!("{}: Failed to handle incoming message: {}", self.ip_version(), error);
                     }
                     Err(error) => log::warn!("{}: Failed to receive incoming message: {}", self.ip_version(), error),
@@ -169,11 +169,9 @@ impl DhtHandler {
 
     async fn handle_incoming(
         &mut self,
-        buffer: &[u8],
+        message: Message,
         addr: SocketAddr,
     ) -> Result<(), WorkerError> {
-        let message = Message::decode(buffer).map_err(WorkerError::InvalidBencode)?;
-
         // Do not process requests if we are read only
         // TODO: Add read only flags to messages we send it we are read only!
         // Also, check for read only flags on responses we get before adding nodes
