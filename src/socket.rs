@@ -67,10 +67,11 @@ impl Socket {
     /// `send_request` function was added which should allow us to receive responses directly in
     /// the code where requests are being sent. To avoid a complete and sudden rewrite, both
     /// approaches are now supported but would be good if we gradually switch to the latter.
-    pub(crate) async fn recv(&mut self) -> io::Result<(Message, SocketAddr)> {
+    pub(crate) async fn recv(&self) -> io::Result<(Message, SocketAddr)> {
         let mut buffer = vec![0u8; 1500];
         loop {
-            let (size, addr) = self.inner_socket.recv_from(&mut buffer).await?;
+            let r = self.inner_socket.recv_from(&mut buffer).await;
+            let (size, addr) = r?;
             match Message::decode(&buffer[0..size]) {
                 Ok(message) => {
                     if let Some(responded) = self
@@ -133,7 +134,7 @@ impl SocketTrait for UdpSocket {
         UdpSocket::send_to(self, buf, target).await.map(|_| ())
     }
 
-    async fn recv_from(&mut self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+    async fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         UdpSocket::recv_from(self, buf).await
     }
 
@@ -188,13 +189,13 @@ impl RespondedInner {
 }
 
 impl Future for Responded {
-    type Output = Option<Message>;
+    type Output = Option<(Message, SocketAddr)>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let mut this = self.inner.lock().unwrap();
 
         if let Some(message) = this.message.take() {
-            return Poll::Ready(Some(message));
+            return Poll::Ready(Some((message, self.from)));
         }
 
         match this.sleep.as_mut().poll(cx) {

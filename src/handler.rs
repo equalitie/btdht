@@ -1,9 +1,11 @@
 use crate::action::{
-    bootstrap::TableBootstrap, lookup::TableLookup, refresh::TableRefresh, ActionStatus,
-    BootstrapTimeout, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
+    bootstrap::{self, TableBootstrap},
+    lookup::TableLookup,
+    refresh::TableRefresh,
+    ActionStatus, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
-    info_hash::InfoHash,
+    info_hash::{InfoHash, NodeId},
     message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     node::{Node, NodeHandle},
     socket::Socket,
@@ -18,7 +20,7 @@ use std::{
     collections::{HashMap, HashSet},
     convert::AsRef,
     net::SocketAddr,
-    time::Duration,
+    sync::{Arc, Mutex},
 };
 use tokio::{
     select,
@@ -27,20 +29,21 @@ use tokio::{
 
 /// Storage for our EventLoop to invoke actions upon.
 pub(crate) struct DhtHandler {
+    this_node_id: NodeId,
     running: bool,
     command_rx: mpsc::UnboundedReceiver<OneshotTask>,
     timer: Timer<ScheduledTaskCheck>,
     read_only: bool,
     announce_port: Option<u16>,
-    socket: Socket,
+    socket: Arc<Socket>,
     token_store: TokenStore,
     aid_generator: AIDGenerator,
-    routing_table: RoutingTable,
+    routing_table: Arc<Mutex<RoutingTable>>,
     active_stores: AnnounceStorage,
     bootstrap: TableBootstrap,
 
     next_bootstrap_txs_id: u64,
-    bootstrap_txs: HashMap<u64, oneshot::Sender<bool>>,
+    bootstrap_txs: HashMap<u64, oneshot::Sender<()>>,
 
     // TableRefresh action.
     refresh: TableRefresh,
@@ -50,7 +53,7 @@ pub(crate) struct DhtHandler {
 
 impl DhtHandler {
     pub fn new(
-        table: RoutingTable,
+        this_node_id: NodeId,
         socket: Socket,
         read_only: bool,
         routers: HashSet<String>,
@@ -58,24 +61,23 @@ impl DhtHandler {
         announce_port: Option<u16>,
         command_rx: mpsc::UnboundedReceiver<OneshotTask>,
     ) -> Self {
+        let socket = Arc::new(socket);
+        let table = Arc::new(Mutex::new(RoutingTable::new(this_node_id)));
+
         let mut aid_generator = AIDGenerator::new();
 
         // The refresh task to execute after the bootstrap
         let mid_generator = aid_generator.generate();
-        let table_refresh = TableRefresh::new(mid_generator);
+        let table_refresh = TableRefresh::new(mid_generator, table.clone());
 
         let mid_generator = aid_generator.generate();
-        let bootstrap = TableBootstrap::new(
-            socket.ip_version(),
-            table.node_id(),
-            mid_generator,
-            routers,
-            nodes,
-        );
+        let bootstrap =
+            TableBootstrap::new(socket.clone(), table.clone(), mid_generator, routers, nodes);
 
         let timer = Timer::new();
 
         Self {
+            this_node_id,
             running: true,
             command_rx,
             timer,
@@ -119,10 +121,16 @@ impl DhtHandler {
                     self.shutdown()
                 }
             }
+            result = self.bootstrap.state_rx.changed() => {
+                assert!(result.is_ok());
+                if self.is_bootstrapped() {
+                    self.handle_bootstrap_success().await;
+                }
+            }
             message = self.socket.recv() => {
                 match message {
                     Ok((message, addr)) => if let Err(error) = self.handle_incoming(message, addr).await {
-                        log::debug!("{}: Failed to handle incoming message: {}", self.ip_version(), error);
+                        log::debug!("{}: Failed to handle incoming message: {} from:{addr:?}", self.ip_version(), error);
                     }
                     Err(error) => log::warn!("{}: Failed to receive incoming message: {}", self.ip_version(), error),
                 }
@@ -130,13 +138,17 @@ impl DhtHandler {
         }
     }
 
+    fn is_bootstrapped(&self) -> bool {
+        *self.bootstrap.state_rx.borrow() == bootstrap::State::Bootstrapped
+    }
+
     async fn handle_command(&mut self, task: OneshotTask) {
         match task {
             OneshotTask::StartBootstrap() => {
-                self.handle_start_bootstrap().await;
+                self.handle_start_bootstrap();
             }
-            OneshotTask::CheckBootstrap(tx, timeout) => {
-                self.handle_check_bootstrap(tx, timeout);
+            OneshotTask::CheckBootstrap(tx) => {
+                self.handle_check_bootstrap(tx);
             }
             OneshotTask::StartLookup(lookup) => {
                 self.handle_start_lookup(lookup).await;
@@ -151,12 +163,6 @@ impl DhtHandler {
         match token {
             ScheduledTaskCheck::TableRefresh => {
                 self.handle_check_table_refresh().await;
-            }
-            ScheduledTaskCheck::BootstrapTimeout(timeout) => {
-                self.handle_check_bootstrap_timeout(timeout).await;
-            }
-            ScheduledTaskCheck::UserBootstrappedTimeout(entry) => {
-                self.handle_check_user_bootstrapped_timeout(entry).await;
             }
             ScheduledTaskCheck::LookupTimeout(trans_id) => {
                 self.handle_check_lookup_timeout(trans_id).await;
@@ -188,12 +194,12 @@ impl DhtHandler {
                 let node = NodeHandle::new(p.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node_mut(&node) {
+                if let Some(n) = self.routing_table.lock().unwrap().find_node_mut(&node) {
                     n.remote_request()
                 }
 
                 let ping_rsp = Response {
-                    id: self.routing_table.node_id(),
+                    id: self.this_node_id,
                     values: vec![],
                     nodes_v4: vec![],
                     nodes_v6: vec![],
@@ -210,14 +216,14 @@ impl DhtHandler {
                 let node = NodeHandle::new(f.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node_mut(&node) {
+                if let Some(n) = self.routing_table.lock().unwrap().find_node_mut(&node) {
                     n.remote_request()
                 }
 
                 let (nodes_v4, nodes_v6) = self.find_closest_nodes(f.target, f.want)?;
 
                 let find_node_rsp = Response {
-                    id: self.routing_table.node_id(),
+                    id: self.this_node_id,
                     values: vec![],
                     nodes_v4,
                     nodes_v6,
@@ -234,7 +240,7 @@ impl DhtHandler {
                 let node = NodeHandle::new(g.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node_mut(&node) {
+                if let Some(n) = self.routing_table.lock().unwrap().find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -261,7 +267,7 @@ impl DhtHandler {
                 let token = self.token_store.checkout(addr.ip());
 
                 let get_peers_rsp = Response {
-                    id: self.routing_table.node_id(),
+                    id: self.this_node_id,
                     values,
                     nodes_v4,
                     nodes_v6,
@@ -278,7 +284,7 @@ impl DhtHandler {
                 let node = NodeHandle::new(a.id, addr);
 
                 // Node requested from us, mark it in the Routingtable
-                if let Some(n) = self.routing_table.find_node_mut(&node) {
+                if let Some(n) = self.routing_table.lock().unwrap().find_node_mut(&node) {
                     n.remote_request()
                 }
 
@@ -317,7 +323,7 @@ impl DhtHandler {
                     Message {
                         transaction_id: message.transaction_id,
                         body: MessageBody::Response(Response {
-                            id: self.routing_table.node_id(),
+                            id: self.this_node_id,
                             values: vec![],
                             nodes_v4: vec![],
                             nodes_v6: vec![],
@@ -366,58 +372,21 @@ impl DhtHandler {
             IpVersion::V6 => &rsp.nodes_v6,
         };
 
-        if self.bootstrap.action_id() == trans_id.action_id() {
-            add_nodes(
-                &mut self.routing_table,
-                &node,
-                nodes,
-                self.bootstrap.router_addresses(),
-            );
-
-            let state_changed = self
-                .bootstrap
-                .recv_response(
-                    addr,
-                    &trans_id,
-                    &mut self.routing_table,
-                    &self.socket,
-                    &mut self.timer,
-                )
-                .await;
-
-            if state_changed {
-                self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
-                    .await;
-            }
-        } else if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
-            add_nodes(
-                &mut self.routing_table,
-                &node,
-                nodes,
-                self.bootstrap.router_addresses(),
-            );
+        if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
+            self.routing_table
+                .lock()
+                .unwrap()
+                .add_nodes(node.clone(), nodes);
 
             match lookup
-                .recv_response(
-                    node,
-                    &trans_id,
-                    rsp,
-                    &mut self.routing_table,
-                    &self.socket,
-                    &mut self.timer,
-                )
+                .recv_response(node, &trans_id, rsp, &self.socket, &mut self.timer)
                 .await
             {
                 ActionStatus::Ongoing => (),
                 ActionStatus::Completed => self.handle_lookup_completed(trans_id).await,
             }
         } else if self.refresh.action_id() == trans_id.action_id() {
-            add_nodes(
-                &mut self.routing_table,
-                &node,
-                nodes,
-                self.bootstrap.router_addresses(),
-            );
+            self.routing_table.lock().unwrap().add_nodes(node, nodes);
         } else {
             return Err(WorkerError::UnsolicitedResponse);
         }
@@ -425,75 +394,28 @@ impl DhtHandler {
         Ok(())
     }
 
-    async fn handle_start_bootstrap(&mut self) {
-        if self.bootstrap.start(&self.socket, &mut self.timer).await {
-            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
-                .await;
-        }
+    fn handle_start_bootstrap(&mut self) {
+        self.bootstrap.start();
     }
 
-    fn handle_check_bootstrap(&mut self, tx: oneshot::Sender<bool>, timeout: Option<Duration>) {
-        if self.bootstrap.is_bootstrapped() {
-            tx.send(true).unwrap_or(())
+    fn handle_check_bootstrap(&mut self, tx: oneshot::Sender<()>) {
+        if self.is_bootstrapped() {
+            tx.send(()).unwrap_or(())
         } else {
             let id = self.next_bootstrap_txs_id;
             self.next_bootstrap_txs_id += 1;
             self.bootstrap_txs.insert(id, tx);
-
-            if let Some(timeout) = timeout {
-                self.timer
-                    .schedule_in(timeout, ScheduledTaskCheck::UserBootstrappedTimeout(id));
-            }
-        }
-    }
-
-    async fn handle_check_user_bootstrapped_timeout(&mut self, id: u64) {
-        if let Some(tx) = self.bootstrap_txs.remove(&id) {
-            tx.send(false).unwrap_or(());
-        }
-    }
-
-    async fn handle_check_bootstrap_timeout(&mut self, timeout: BootstrapTimeout) {
-        let state_changed = self
-            .bootstrap
-            .recv_timeout(
-                &timeout,
-                &mut self.routing_table,
-                &self.socket,
-                &mut self.timer,
-            )
-            .await;
-
-        if state_changed {
-            self.handle_bootstrap_change(self.bootstrap.is_bootstrapped())
-                .await;
-        }
-    }
-
-    async fn handle_bootstrap_change(&mut self, bootstrapped: bool) {
-        if bootstrapped {
-            self.handle_bootstrap_success().await
-        } else {
-            self.handle_bootstrap_failure()
         }
     }
 
     async fn handle_bootstrap_success(&mut self) {
         // Send notification that the bootstrap has completed.
-        self.broadcast_bootstrap_completed(true);
+        for (_, tx) in self.bootstrap_txs.drain() {
+            tx.send(()).unwrap_or(())
+        }
 
         // Start the refresh action.
         self.handle_check_table_refresh().await;
-    }
-
-    fn handle_bootstrap_failure(&mut self) {
-        self.broadcast_bootstrap_completed(false);
-    }
-
-    fn broadcast_bootstrap_completed(&mut self, status: bool) {
-        for (_, tx) in self.bootstrap_txs.drain() {
-            tx.send(status).unwrap_or(())
-        }
     }
 
     async fn handle_start_lookup(&mut self, lookup: StartLookup) {
@@ -506,28 +428,27 @@ impl DhtHandler {
             lookup.announce,
             lookup.tx,
             mid_generator,
-            &mut self.routing_table,
+            self.routing_table.clone(),
             &self.socket,
             &mut self.timer,
         )
         .await;
 
         if lookup.completed() {
-            lookup
-                .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
-                .await;
+            lookup.recv_finished(self.announce_port, &self.socket).await;
         } else {
             self.lookups.insert(action_id, lookup);
         }
     }
 
     fn handle_get_state(&self, tx: oneshot::Sender<State>) {
+        let table = self.routing_table.lock().unwrap();
         tx.send(State {
             is_running: self.running,
-            bootstrapped: self.bootstrap.is_bootstrapped(),
-            good_node_count: self.routing_table.num_good_nodes(),
-            questionable_node_count: self.routing_table.num_questionable_nodes(),
-            bucket_count: self.routing_table.buckets().count(),
+            bootstrapped: self.is_bootstrapped(),
+            good_node_count: table.num_good_nodes(),
+            questionable_node_count: table.num_questionable_nodes(),
+            bucket_count: table.buckets().count(),
         })
         .unwrap_or(())
     }
@@ -548,12 +469,7 @@ impl DhtHandler {
         };
 
         let lookup_status = lookup
-            .recv_timeout(
-                &trans_id,
-                &mut self.routing_table,
-                &self.socket,
-                &mut self.timer,
-            )
+            .recv_timeout(&trans_id, &self.socket, &mut self.timer)
             .await;
 
         match lookup_status {
@@ -574,14 +490,12 @@ impl DhtHandler {
             return;
         };
 
-        lookup
-            .recv_finished(self.announce_port, &mut self.routing_table, &self.socket)
-            .await
+        lookup.recv_finished(self.announce_port, &self.socket).await
     }
 
     async fn handle_check_table_refresh(&mut self) {
         self.refresh
-            .continue_refresh(&mut self.routing_table, &self.socket, &mut self.timer)
+            .continue_refresh(&self.socket, &mut self.timer)
             .await
     }
 
@@ -602,8 +516,10 @@ impl DhtHandler {
             },
         };
 
+        let table = self.routing_table.lock().unwrap();
+
         let nodes_v4 = if matches!(want, Want::V4 | Want::Both) {
-            self.routing_table
+            table
                 .closest_nodes(target)
                 .filter(|node| node.addr().is_ipv4())
                 .take(8)
@@ -614,7 +530,7 @@ impl DhtHandler {
         };
 
         let nodes_v6 = if matches!(want, Want::V6 | Want::Both) {
-            self.routing_table
+            table
                 .closest_nodes(target)
                 .filter(|node| node.addr().is_ipv6())
                 .take(8)
@@ -631,26 +547,9 @@ impl DhtHandler {
         &self,
         tx: oneshot::Sender<(HashSet<SocketAddr>, HashSet<SocketAddr>)>,
     ) {
-        tx.send(self.routing_table.load_contacts()).unwrap_or(());
+        tx.send(self.routing_table.lock().unwrap().load_contacts())
+            .unwrap_or(());
     }
 }
 
 // ----------------------------------------------------------------------------//
-
-fn add_nodes(
-    table: &mut RoutingTable,
-    node: &Node,
-    nodes: &[NodeHandle],
-    routers: &HashSet<SocketAddr>,
-) {
-    if !routers.contains(&node.addr()) {
-        table.add_node(node.clone());
-    }
-
-    // Add the payload nodes as questionable
-    for node in nodes {
-        if !routers.contains(&node.addr) {
-            table.add_node(Node::as_questionable(node.id, node.addr));
-        }
-    }
-}
