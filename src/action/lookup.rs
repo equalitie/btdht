@@ -5,6 +5,7 @@ use crate::message::{
 };
 use crate::{
     bucket,
+    info_hash::NodeId,
     node::{Node, NodeHandle, NodeStatus},
     socket::Socket,
     table::RoutingTable,
@@ -14,6 +15,7 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     net::{Ipv4Addr, SocketAddr},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::sync::mpsc;
@@ -35,6 +37,8 @@ type Distance = InfoHash;
 type DistanceToBeat = InfoHash;
 
 pub(crate) struct TableLookup {
+    table: Arc<Mutex<RoutingTable>>,
+    this_node_id: NodeId,
     ip_version: IpVersion,
     target_id: InfoHash,
     in_endgame: bool,
@@ -63,13 +67,15 @@ impl TableLookup {
         will_announce: bool,
         tx: mpsc::UnboundedSender<SocketAddr>,
         id_generator: MIDGenerator,
-        table: &mut RoutingTable,
+        table: Arc<Mutex<RoutingTable>>,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> TableLookup {
         // Pick a buckets worth of nodes and put them into the all_sorted_nodes list
         let mut all_sorted_nodes = Vec::with_capacity(bucket::MAX_BUCKET_SIZE);
         for node in table
+            .lock()
+            .unwrap()
             .closest_nodes(target_id)
             .filter(|n| n.status() == NodeStatus::Good)
             .take(bucket::MAX_BUCKET_SIZE)
@@ -89,8 +95,12 @@ impl TableLookup {
                     (node, distance_to_beat)
                 });
 
+        let this_node_id = table.lock().unwrap().node_id();
+
         // Construct the lookup table structure
         let mut table_lookup = TableLookup {
+            table,
+            this_node_id,
             ip_version: socket.ip_version(),
             target_id,
             in_endgame: false,
@@ -106,7 +116,7 @@ impl TableLookup {
 
         // Call start_request_round with the list of initial_nodes (return even if the search completed...for now :D)
         table_lookup
-            .start_request_round(initial_pick_nodes_filtered, table, socket, timer)
+            .start_request_round(initial_pick_nodes_filtered, socket, timer)
             .await;
 
         table_lookup
@@ -121,7 +131,6 @@ impl TableLookup {
         node: Node,
         trans_id: &TransactionID,
         msg: Response,
-        table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
@@ -211,13 +220,13 @@ impl TableLookup {
                     .iter()
                     .filter(|(_, good)| *good)
                     .map(|(n, _)| (n, next_dist_to_beat));
-                self.start_request_round(filtered_nodes, table, socket, timer)
+                self.start_request_round(filtered_nodes, socket, timer)
                     .await;
             }
 
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty() {
-                self.start_endgame_round(table, socket, timer).await;
+                self.start_endgame_round(socket, timer).await;
             }
         }
 
@@ -231,7 +240,6 @@ impl TableLookup {
     pub async fn recv_timeout(
         &mut self,
         trans_id: &TransactionID,
-        table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
@@ -246,19 +254,14 @@ impl TableLookup {
         if !self.in_endgame {
             // If there are not more active lookups, start the endgame
             if self.active_lookups.is_empty() {
-                self.start_endgame_round(table, socket, timer).await;
+                self.start_endgame_round(socket, timer).await;
             }
         }
 
         self.current_lookup_status()
     }
 
-    pub async fn recv_finished(
-        &mut self,
-        port: Option<u16>,
-        table: &mut RoutingTable,
-        socket: &Socket,
-    ) {
+    pub async fn recv_finished(&mut self, port: Option<u16>, socket: &Socket) {
         // Announce if we were told to
         if self.will_announce {
             // Partial borrow so the filter function doesnt capture all of self
@@ -274,7 +277,7 @@ impl TableLookup {
                 let token = announce_tokens.get(node).unwrap();
 
                 let announce_peer_req = AnnouncePeerRequest {
-                    id: table.node_id(),
+                    id: self.this_node_id,
                     info_hash: self.target_id,
                     token: token.clone(),
                     port,
@@ -287,7 +290,7 @@ impl TableLookup {
                 match socket.send(&announce_peer_msg, node.addr).await {
                     Ok(()) => {
                         // We requested from the node, marke it down if the node is in our routing table
-                        if let Some(n) = table.find_node_mut(node) {
+                        if let Some(n) = self.table.lock().unwrap().find_node_mut(node) {
                             n.local_request()
                         }
                     }
@@ -318,7 +321,6 @@ impl TableLookup {
     async fn start_request_round<'a, I>(
         &mut self,
         nodes: I,
-        table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) where
@@ -342,7 +344,7 @@ impl TableLookup {
             let get_peers_msg = Message {
                 transaction_id: trans_id.as_ref().to_vec(),
                 body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
-                    id: table.node_id(),
+                    id: self.this_node_id,
                     info_hash: self.target_id,
                     want: None,
                 })),
@@ -361,7 +363,7 @@ impl TableLookup {
             self.requested_nodes.insert(*node);
 
             // Update the node in the routing table
-            if let Some(n) = table.find_node_mut(node) {
+            if let Some(n) = self.table.lock().unwrap().find_node_mut(node) {
                 n.local_request()
             }
 
@@ -375,7 +377,6 @@ impl TableLookup {
 
     async fn start_endgame_round(
         &mut self,
-        table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
@@ -405,7 +406,7 @@ impl TableLookup {
                 let get_peers_msg = Message {
                     transaction_id: trans_id.as_ref().to_vec(),
                     body: MessageBody::Request(Request::GetPeers(GetPeersRequest {
-                        id: table.node_id(),
+                        id: self.this_node_id,
                         info_hash: self.target_id,
                         want: None,
                     })),
@@ -421,7 +422,7 @@ impl TableLookup {
                 }
 
                 // Mark that we requested from the node in the RoutingTable
-                if let Some(n) = table.find_node_mut(node) {
+                if let Some(n) = self.table.lock().unwrap().find_node_mut(node) {
                     n.local_request()
                 }
 

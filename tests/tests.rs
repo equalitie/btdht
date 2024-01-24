@@ -3,12 +3,12 @@ use futures_util::StreamExt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::net::UdpSocket;
 
-#[tokio::test(flavor = "multi_thread")]
+#[test_log::test(tokio::test(flavor = "multi_thread"))]
 async fn announce_and_lookup_v4() {
     announce_and_lookup(AddrFamily::V4).await;
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[test_log::test(tokio::test(flavor = "multi_thread"))]
 async fn announce_and_lookup_v6() {
     announce_and_lookup(AddrFamily::V6).await;
 }
@@ -22,7 +22,7 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
         .start(bootstrap_node_socket)
         .unwrap();
 
-    assert!(bootstrap_node.bootstrapped(None).await);
+    assert!(bootstrap_node.bootstrapped().await);
 
     // Start node A
     let a_socket = UdpSocket::bind(localhost(addr_family)).await.unwrap();
@@ -42,8 +42,8 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
         .unwrap();
 
     // Wait for both nodes to bootstrap
-    assert!(a_node.bootstrapped(None).await);
-    assert!(b_node.bootstrapped(None).await);
+    assert!(a_node.bootstrapped().await);
+    assert!(b_node.bootstrapped().await);
 
     let the_info_hash = InfoHash::sha1(b"foo");
 

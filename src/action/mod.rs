@@ -1,6 +1,6 @@
-use crate::socket::Socket;
+use crate::socket::{Responded, Socket};
 use crate::{info_hash::InfoHash, transaction::TransactionID};
-use std::{collections::HashSet, fmt, io, net::SocketAddr, time::Duration};
+use std::{collections::HashSet, fmt, io, net::SocketAddr};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -36,9 +36,8 @@ impl fmt::Display for IpVersion {
 pub(crate) enum OneshotTask {
     /// Load a new bootstrap operation into worker storage.
     StartBootstrap(),
-    /// Check bootstrap status. The given sender will be notified when the bootstrap completed,
-    /// with an optional timeout.
-    CheckBootstrap(oneshot::Sender<bool>, Option<Duration>),
+    /// Check bootstrap status. The given sender will be notified when the bootstrap completed.
+    CheckBootstrap(oneshot::Sender<()>),
     /// Start a lookup for the given InfoHash.
     StartLookup(StartLookup),
     /// Get the local address the socket is bound to.
@@ -55,22 +54,13 @@ pub(crate) struct StartLookup {
     pub tx: mpsc::UnboundedSender<SocketAddr>,
 }
 
-/// Signifies what has timed out in the TableBootstrap class.
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum BootstrapTimeout {
-    Transaction(TransactionID),
-    IdleWakeUp,
-}
-
 /// Task that our DHT will execute some time later.
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum ScheduledTaskCheck {
     /// Check the progress of the bucket refresh.
     TableRefresh,
     /// Check the progress of the current bootstrap.
-    BootstrapTimeout(BootstrapTimeout),
-    /// Timeout for user waiting to get bootstrapped.
-    UserBootstrappedTimeout(u64),
+    //BootstrapTimeout(BootstrapTimeout),
     /// Check the progress of a current lookup.
     LookupTimeout(TransactionID),
     /// Check the progress of the lookup endgame.
@@ -79,8 +69,6 @@ pub(crate) enum ScheduledTaskCheck {
 
 #[derive(Error, Debug)]
 pub(crate) enum WorkerError {
-    #[error("invalid bencode data")]
-    InvalidBencode(#[source] serde_bencode::Error),
     #[error("invalid transaction id")]
     InvalidTransactionId,
     #[error("received unsolicited response")]

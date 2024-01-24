@@ -3,7 +3,6 @@ use crate::{
     handler::DhtHandler,
     info_hash::{InfoHash, NodeId},
     socket::Socket,
-    table::RoutingTable,
     SocketTrait,
 };
 use futures_util::Stream;
@@ -13,7 +12,6 @@ use std::{
     net::SocketAddr,
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 use tokio::{
     sync::{mpsc, oneshot},
@@ -54,10 +52,10 @@ impl MainlineDht {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
 
         // TODO: Utilize the security extension.
-        let routing_table = RoutingTable::new(builder.node_id.unwrap_or_else(rand::random));
+        let node_id = builder.node_id.unwrap_or_else(rand::random);
 
         let handler = DhtHandler::new(
-            routing_table,
+            node_id,
             socket,
             builder.read_only,
             builder.routers,
@@ -90,18 +88,14 @@ impl MainlineDht {
 
     /// Waits until the DHT bootstrap completes, or returns immediately if it already completed.
     /// Returns whether the bootstrap was successful.
-    pub async fn bootstrapped(&self, timeout: Option<Duration>) -> bool {
+    pub async fn bootstrapped(&self) -> bool {
         let (tx, rx) = oneshot::channel();
 
-        if self
-            .send
-            .send(OneshotTask::CheckBootstrap(tx, timeout))
-            .is_err()
-        {
+        if self.send.send(OneshotTask::CheckBootstrap(tx)).is_err() {
             // handler has shut down, consider this as bootstrap failure.
             false
         } else {
-            rx.await.unwrap_or(false)
+            rx.await.is_ok()
         }
     }
 

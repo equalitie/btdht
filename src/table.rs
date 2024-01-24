@@ -14,6 +14,7 @@ pub struct RoutingTable {
     // of the last bucket in the buckets array.
     buckets: Vec<Bucket>,
     node_id: NodeId,
+    pub routers: HashSet<SocketAddr>,
 }
 
 impl RoutingTable {
@@ -21,7 +22,11 @@ impl RoutingTable {
     pub fn new(node_id: NodeId) -> RoutingTable {
         let buckets = vec![Bucket::new()];
 
-        RoutingTable { buckets, node_id }
+        RoutingTable {
+            buckets,
+            node_id,
+            routers: Default::default(),
+        }
     }
 
     /// Return the node id of the RoutingTable.
@@ -91,6 +96,10 @@ impl RoutingTable {
 
     /// Add the node to the RoutingTable if there is space for it.
     pub fn add_node(&mut self, node: Node) {
+        if self.routers.contains(&node.addr()) {
+            return;
+        }
+
         // Doing some checks and calculations here, outside of the recursion
         if node.status() == NodeStatus::Bad {
             return;
@@ -100,6 +109,19 @@ impl RoutingTable {
         // Should not add a node that has the same id as us
         if num_same_bits != MAX_BUCKETS {
             self.bucket_node(node, num_same_bits);
+        }
+    }
+
+    /// Convenience function to add what's usually the response payload.
+    pub fn add_nodes(&mut self, node: Node, questionable_nodes: &[NodeHandle]) {
+        self.add_node(node);
+
+        // Add the payload nodes as questionable
+        for questionable_node in questionable_nodes {
+            self.add_node(Node::as_questionable(
+                questionable_node.id,
+                questionable_node.addr,
+            ));
         }
     }
 
