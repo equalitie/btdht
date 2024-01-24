@@ -54,7 +54,7 @@ async fn announce_and_lookup(addr_family: AddrFamily) {
 
     // Now perform the lookup by B. It should find A.
     let mut search = b_node.search(the_info_hash, false);
-    assert_eq!(search.next().await, Some(a_addr))
+    assert_eq!(search.next().await, Some(a_addr));
 }
 
 #[derive(Copy, Clone)]

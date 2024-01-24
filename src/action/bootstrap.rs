@@ -141,7 +141,6 @@ impl TableBootstrapInner {
             }
         }
 
-        //let mut last_send_error = None;
         let mut bootstrap_attempt = 0;
 
         loop {
@@ -156,7 +155,6 @@ impl TableBootstrapInner {
             let router_addresses = resolve(&self.routers, self.socket.ip_version()).await;
             self.table.lock().unwrap().routers = router_addresses.clone();
 
-            println!("routers: {router_addresses:?}");
             if router_addresses.is_empty() && self.starting_nodes.is_empty() {
                 self.set_state(State::IdleBeforeRebootstrap, line!());
                 sleep(NO_NETWORK_TIMEOUT).await;
@@ -189,8 +187,11 @@ impl TableBootstrapInner {
 
             let mut send_finished = false;
             let mut new_receivers_closed = false;
-            let mut send_to_initial_nodes =
-                pin!(self.send_to_initial_nodes(find_node_msg, router_addresses, new_receivers_tx));
+            let mut send_to_initial_nodes = pin!(self.send_to_initial_nodes(
+                find_node_msg,
+                &router_addresses,
+                new_receivers_tx
+            ));
 
             loop {
                 if send_finished && new_receivers_closed && receivers.is_empty() {
@@ -286,13 +287,23 @@ impl TableBootstrapInner {
             );
 
             if num_good_nodes < GOOD_NODE_THRESHOLD {
-                self.set_state(State::IdleBeforeRebootstrap, line!());
-                time::sleep(self.calculate_retry_duration(bootstrap_attempt)).await;
-                bootstrap_attempt += 1;
-                continue;
+                // If we don't have enought good nodes and the `router_addresses` array is empty
+                // then we might be testing or we might be in a country that is blocked from the
+                // outside world where no BtDHT exists yet and we're one of the first nodes
+                // creating it. In those cases we'll claim that we've bootstrapped and repeat the
+                // bootstrap process periodically.
+                if !router_addresses.is_empty() {
+                    self.set_state(State::IdleBeforeRebootstrap, line!());
+                    time::sleep(self.calculate_retry_duration(bootstrap_attempt)).await;
+                    bootstrap_attempt += 1;
+                    continue;
+                }
             }
 
             self.set_state(State::Bootstrapped, line!());
+
+            // Reset the counter.
+            bootstrap_attempt = 0;
 
             loop {
                 time::sleep(PERIODIC_CHECK_TIMEOUT).await;
@@ -307,7 +318,7 @@ impl TableBootstrapInner {
     async fn send_to_initial_nodes(
         &self,
         message: Message,
-        router_addresses: HashSet<SocketAddr>,
+        router_addresses: &HashSet<SocketAddr>,
         new_receivers_tx: mpsc::UnboundedSender<Responded>,
     ) {
         let mut last_send_error = None;
