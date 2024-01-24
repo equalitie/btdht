@@ -34,7 +34,6 @@ const MAX_INITIAL_RESPONSES: usize = 8;
 pub(crate) struct TableBootstrap {
     start_tx: watch::Sender<bool>,
     pub state_rx: watch::Receiver<State>,
-    //inner: Arc<Mutex<TableBootstrapInner>>,
     worker_handle: task::JoinHandle<()>,
 }
 
