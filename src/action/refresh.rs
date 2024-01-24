@@ -68,7 +68,7 @@ impl TableRefresh {
         };
 
         log::debug!(
-            "Performing a refresh for bucket {} (num_good_nodes:{}, num_questionable_nodes:{})",
+            "Performing a refresh for bucket {} (table total: num_good_nodes={}, num_questionable_nodes={})",
             self.curr_refresh_bucket,
             num_good_nodes,
             num_questionable_nodes,
