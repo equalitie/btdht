@@ -53,7 +53,7 @@ impl RoutingTable {
     }
 
     /// Iterator over all buckets in the routing table.
-    pub fn buckets(&self) -> impl Iterator<Item = &Bucket> + ExactSizeIterator {
+    pub fn buckets(&self) -> impl ExactSizeIterator<Item = &Bucket> {
         self.buckets.iter()
     }
 
