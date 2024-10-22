@@ -132,7 +132,7 @@ impl TableBootstrapInner {
         loop {
             match self.start_rx.changed().await {
                 Ok(()) => {
-                    if *self.start_rx.borrow() == true {
+                    if *self.start_rx.borrow() {
                         break;
                     }
                 }
@@ -425,9 +425,9 @@ impl TableBootstrapInner {
 
                 self.table.lock().unwrap().add_nodes(node, nodes);
 
-                return true;
+                true
             }
-            _ => return false,
+            _ => false,
         }
     }
 
