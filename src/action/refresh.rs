@@ -7,19 +7,24 @@ use crate::{
     socket::Socket,
     timer::Timer,
 };
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 const REFRESH_INTERVAL_TIMEOUT: Duration = Duration::from_millis(6000);
 const REFRESH_CONCURRENCY: usize = 4;
 
 pub(crate) struct TableRefresh {
+    table: Arc<Mutex<RoutingTable>>,
     id_generator: MIDGenerator,
     curr_refresh_bucket: usize,
 }
 
 impl TableRefresh {
-    pub fn new(id_generator: MIDGenerator) -> TableRefresh {
+    pub fn new(id_generator: MIDGenerator, table: Arc<Mutex<RoutingTable>>) -> TableRefresh {
         TableRefresh {
+            table,
             id_generator,
             curr_refresh_bucket: 0,
         }
@@ -31,36 +36,52 @@ impl TableRefresh {
 
     pub async fn continue_refresh(
         &mut self,
-        table: &mut RoutingTable,
         socket: &Socket,
         timer: &mut Timer<ScheduledTaskCheck>,
     ) {
         if self.curr_refresh_bucket == table::MAX_BUCKETS {
             self.curr_refresh_bucket = 0;
         }
-        let target_id = table.node_id().flip_bit(self.curr_refresh_bucket);
+
+        let (this_node_id, target_id, num_good_nodes, num_questionable_nodes, nodes_to_contact) = {
+            let table = self.table.lock().unwrap();
+
+            let this_node_id = table.node_id();
+            let target_id = this_node_id.flip_bit(self.curr_refresh_bucket);
+            let num_good_nodes = table.num_good_nodes();
+            let num_questionable_nodes = table.num_questionable_nodes();
+            let nodes_to_contact = table
+                .closest_nodes(target_id)
+                .filter(|n| n.status() == NodeStatus::Questionable)
+                .filter(|n| !n.recently_requested_from())
+                .take(REFRESH_CONCURRENCY)
+                .map(|node| *node.handle())
+                .collect::<Vec<_>>();
+
+            (
+                this_node_id,
+                target_id,
+                num_good_nodes,
+                num_questionable_nodes,
+                nodes_to_contact,
+            )
+        };
 
         log::debug!(
-            "Performing a refresh for bucket {}",
-            self.curr_refresh_bucket
+            "Performing a refresh for bucket {} (table total: num_good_nodes={}, num_questionable_nodes={})",
+            self.curr_refresh_bucket,
+            num_good_nodes,
+            num_questionable_nodes,
         );
 
-        let nodes = table
-            .closest_nodes(target_id)
-            .filter(|n| n.status() == NodeStatus::Questionable)
-            .filter(|n| !n.recently_requested_from())
-            .take(REFRESH_CONCURRENCY)
-            .map(|node| *node.handle())
-            .collect::<Vec<_>>();
-
         // Ping the closest questionable nodes
-        for node in nodes {
+        for node in nodes_to_contact {
             // Generate a transaction id for the request
             let trans_id = self.id_generator.generate();
 
             // Construct the message
             let find_node_req = FindNodeRequest {
-                id: table.node_id(),
+                id: this_node_id,
                 target: target_id,
                 want: None,
             };
@@ -75,7 +96,7 @@ impl TableRefresh {
             }
 
             // Mark that we requested from the node
-            if let Some(node) = table.find_node_mut(&node) {
+            if let Some(node) = self.table.lock().unwrap().find_node_mut(&node) {
                 node.local_request();
             }
         }

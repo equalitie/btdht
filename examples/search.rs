@@ -27,7 +27,7 @@ async fn main() {
 
     println!("bootstrapping...");
     let start = Instant::now();
-    let status = dht.bootstrapped(None).await;
+    let status = dht.bootstrapped().await;
     let elapsed = start.elapsed();
 
     if status {
