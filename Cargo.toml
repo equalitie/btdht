@@ -13,8 +13,7 @@ futures-util  = { version = "0.3.31", default-features = false, features = ["all
 log           = "0.4.22"
 rand          = "0.8.5"
 # FIXME: serde >= 1.0.181 breaks some tests. Pinning to 1.0.180 for now.
-# serde         = { version = "=1.0.180", features = ["derive"] }
-serde         = { version = "1.0.211", features = ["derive"] }
+serde         = { version = "=1.0.180", features = ["derive"] }
 serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
 serde_bytes   = "0.11.15"
 sha-1         = "0.10.1"
