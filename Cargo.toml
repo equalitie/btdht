@@ -12,9 +12,8 @@ crc32c        = "0.6.8"
 futures-util  = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log           = "0.4.22"
 rand          = "0.8.5"
-# FIXME: serde >= 1.0.181 breaks some tests. Pinning to 1.0.180 for now.
-serde         = { version = "=1.0.180", features = ["derive"] }
-serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
+serde         = { version = "1.0", features = ["derive"] }
+serde_bencode = { package = "serde_bencode", version = "0.2.4" }
 serde_bytes   = "0.11.15"
 sha-1         = "0.10.1"
 tokio         = { version = "1.32", default-features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
@@ -25,3 +24,12 @@ hex           = "0.4.3"
 pretty_env_logger = "0.5.0"
 tokio         = { version = "1.41.0", features = ["io-std", "io-util"] }
 test-log      = "0.2.14"
+
+[patch.crates-io]
+# Since version >=1.0.181 serde had an issue with supporting adjacently tagged
+# enum in formats that did not differentiate between strings and bytes.
+# https://github.com/serde-rs/serde/issues/2881
+serde = { git = "https://github.com/inetic/serde", branch = "support-bytes-based-enum-tags" }
+# This patch utilizes the above serde, removes some no longer needed code and
+# un-ignores relevant tests.
+serde_bencode = { git = "https://github.com/inetic/serde-bencode", branch = "adjacently-tagged-enums" }
