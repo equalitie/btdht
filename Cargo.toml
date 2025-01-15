@@ -30,6 +30,7 @@ test-log      = "0.2.14"
 # enum in formats that did not differentiate between strings and bytes.
 # https://github.com/serde-rs/serde/issues/2881
 serde = { git = "https://github.com/inetic/serde", branch = "support-bytes-based-enum-tags" }
-# This patch utilizes the above serde, removes some no longer needed code and
-# un-ignores relevant tests.
+# This patch utilizes the above serde, removes the requirement for fixed serde
+# version 1.0.180, removes some no longer needed code and un-ignores relevant
+# tests.
 serde_bencode = { git = "https://github.com/inetic/serde-bencode", branch = "adjacently-tagged-enums" }
