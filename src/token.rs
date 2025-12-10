@@ -3,22 +3,22 @@ use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
-use crate::info_hash::{InfoHash, LengthError, INFO_HASH_LEN};
+use crate::info_hash::{INFO_HASH_LEN, InfoHash, LengthError};
 
-/// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
-/// secret will change every 10 minutes and tokens up to 10 minutes old will be accepted. This
-/// is in contrast with the bittorrent implementation where the secret changes every 5 minutes
-/// and tokens up to 10 minutes old are accepted. Updating of the token will take place lazily.
-/// However, with our implementation we are not going to store tokens that we have issued, instead,
-/// store the secret and check if the token they gave us is valid for the current or last secret.
-/// This is technically not what we want, but it will have essentially the same result when we
-/// assume that nobody other than us knows the secret.
+// We will partially follow the bittorrent implementation for issuing tokens to nodes, the
+// secret will change every 10 minutes and tokens up to 10 minutes old will be accepted. This
+// is in contrast with the bittorrent implementation where the secret changes every 5 minutes
+// and tokens up to 10 minutes old are accepted. Updating of the token will take place lazily.
+// However, with our implementation we are not going to store tokens that we have issued, instead,
+// store the secret and check if the token they gave us is valid for the current or last secret.
+// This is technically not what we want, but it will have essentially the same result when we
+// assume that nobody other than us knows the secret.
 
-/// With this scheme we can guarantee that the minimum amount of time a token can be valid for
-/// is the maximum amount of time a token is valid for in bittorrent in order to provide interop.
-/// Since we arent storing the tokens we generate (which is awesome) we CANT track how long each
-/// individual token has been checked out from the store and so each token is valid for some time
-/// between 10 and 20 minutes in contrast with 5 and 10 minutes.
+// With this scheme we can guarantee that the minimum amount of time a token can be valid for
+// is the maximum amount of time a token is valid for in bittorrent in order to provide interop.
+// Since we arent storing the tokens we generate (which is awesome) we CANT track how long each
+// individual token has been checked out from the store and so each token is valid for some time
+// between 10 and 20 minutes in contrast with 5 and 10 minutes.
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(10 * 60);
 

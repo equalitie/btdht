@@ -2,7 +2,7 @@ use super::{
     bucket::{self, Bucket},
     node::{Node, NodeHandle, NodeStatus},
 };
-use crate::info_hash::{NodeId, INFO_HASH_LEN};
+use crate::info_hash::{INFO_HASH_LEN, NodeId};
 use std::{cmp::Ordering, collections::HashSet, iter::Filter, net::SocketAddr, slice::Iter};
 
 pub const MAX_BUCKETS: usize = INFO_HASH_LEN * 8;
@@ -39,7 +39,7 @@ impl RoutingTable {
     /// The closeness of nodes has a maximum granularity of a bucket. For most use
     /// cases this is fine since we will usually be performing lookups and aggregating
     /// a number of results equal to the size of a bucket.
-    pub fn closest_nodes(&self, node_id: NodeId) -> ClosestNodes {
+    pub fn closest_nodes(&self, node_id: NodeId) -> ClosestNodes<'_> {
         ClosestNodes::new(&self.buckets, self.node_id, node_id)
     }
 
@@ -313,7 +313,7 @@ fn precompute_assorted_nodes(
 }
 
 /// Optionally returns the filter iterator for the bucket at the specified index.
-fn bucket_iterator(buckets: &[Bucket], index: usize) -> Option<GoodNodes> {
+fn bucket_iterator(buckets: &[Bucket], index: usize) -> Option<GoodNodes<'_>> {
     if buckets.len() == MAX_BUCKETS {
         buckets
     } else {
@@ -400,7 +400,7 @@ fn index_is_in_bounds(length: usize, checked_index: Option<usize>) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::bucket;
-    use crate::info_hash::{NodeId, NODE_ID_LEN};
+    use crate::info_hash::{NODE_ID_LEN, NodeId};
     use crate::node::Node;
     use crate::table::{self, RoutingTable};
     use crate::test;

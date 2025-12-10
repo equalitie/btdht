@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::slice::Iter;
 
-use crate::info_hash::{NodeId, NODE_ID_LEN};
+use crate::info_hash::{NODE_ID_LEN, NodeId};
 use crate::node::{Node, NodeStatus};
 
 /// Maximum number of nodes that should reside in any bucket.
@@ -48,7 +48,7 @@ impl Bucket {
     /// Iterator over each node within the bucket.
     ///
     /// For buckets newly created, the initial bad nodes are included.
-    pub fn iter(&self) -> Iter<Node> {
+    pub fn iter(&self) -> Iter<'_, Node> {
         self.nodes.iter()
     }
 
@@ -226,9 +226,11 @@ mod tests {
         let new_questionable_node = Node::as_questionable(unused_id, dummy_addr);
 
         // Make sure the node is NOT in the bucket
-        assert!(!bucket
-            .pingable_nodes()
-            .any(|node| &new_questionable_node == node));
+        assert!(
+            !bucket
+                .pingable_nodes()
+                .any(|node| &new_questionable_node == node)
+        );
 
         // Try to add it
         bucket.add_node(new_questionable_node);

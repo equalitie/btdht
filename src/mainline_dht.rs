@@ -1,9 +1,9 @@
 use crate::{
+    SocketTrait,
     action::{OneshotTask, StartLookup, State},
     handler::DhtHandler,
     info_hash::{InfoHash, NodeId},
     socket::Socket,
-    SocketTrait,
 };
 use futures_util::Stream;
 use std::{
@@ -130,7 +130,7 @@ impl MainlineDht {
         let (tx, rx) = oneshot::channel();
 
         fn error() -> io::Error {
-            io::Error::new(io::ErrorKind::Other, "DhtHandler has shut down")
+            io::Error::other("DhtHandler has shut down")
         }
 
         self.send
@@ -145,7 +145,7 @@ impl MainlineDht {
         let (tx, rx) = oneshot::channel();
 
         fn error() -> io::Error {
-            io::Error::new(io::ErrorKind::Other, "DhtHandler has shut down")
+            io::Error::other("DhtHandler has shut down")
         }
 
         self.send
