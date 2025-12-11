@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+pub type Error = serde_bencode::Error;
+
 #[inline]
-pub(crate) fn encode<T>(value: &T) -> Result<Vec<u8>, serde_bencode::Error>
+pub(crate) fn encode<T>(value: &T) -> Result<Vec<u8>, Error>
 where
     T: Serialize,
 {
@@ -9,7 +11,7 @@ where
 }
 
 #[inline]
-pub(crate) fn decode<'de, T>(bytes: &'de [u8]) -> Result<T, serde_bencode::Error>
+pub(crate) fn decode<'de, T>(bytes: &'de [u8]) -> Result<T, Error>
 where
     T: Deserialize<'de>,
 {

@@ -1,5 +1,5 @@
 use crate::{
-    compact,
+    bencode, compact,
     info_hash::{InfoHash, NodeId},
     node::NodeHandle,
 };
@@ -16,6 +16,16 @@ pub type TransactionId = Vec<u8>;
 pub struct Message {
     pub transaction_id: TransactionId,
     pub body: MessageBody,
+}
+
+impl Message {
+    pub fn encode(&self) -> Result<Vec<u8>, bencode::Error> {
+        bencode::encode(self)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, bencode::Error> {
+        bencode::decode(bytes)
+    }
 }
 
 impl Serialize for Message {
