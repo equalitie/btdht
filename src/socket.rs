@@ -2,8 +2,8 @@
 
 use super::IpVersion;
 use crate::{
+    SocketTrait, bencode,
     message::{Message, TransactionId},
-    SocketTrait,
 };
 use async_trait::async_trait;
 use std::{
@@ -42,7 +42,8 @@ impl Socket {
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
-        self.inner_socket.send_to(&message.encode(), &addr).await?;
+        let encoded = bencode::encode(message).map_err(io::Error::other)?;
+        self.inner_socket.send_to(&encoded, &addr).await?;
         Ok(())
     }
 
@@ -72,7 +73,7 @@ impl Socket {
         loop {
             let r = self.inner_socket.recv_from(&mut buffer).await;
             let (size, addr) = r?;
-            match Message::decode(&buffer[0..size]) {
+            match bencode::decode::<Message>(&buffer[0..size]) {
                 Ok(message) => {
                     if let Some(responded) = self
                         .transactions
@@ -102,12 +103,13 @@ impl Socket {
         timeout: Duration,
     ) -> Responded {
         let inner = Arc::new(Mutex::new(RespondedInner::new(timeout)));
-        assert!(self
-            .transactions
-            .lock()
-            .unwrap()
-            .insert((from, transaction_id.clone()), inner.clone())
-            .is_none());
+        assert!(
+            self.transactions
+                .lock()
+                .unwrap()
+                .insert((from, transaction_id.clone()), inner.clone())
+                .is_none()
+        );
         Responded {
             from,
             transaction_id,

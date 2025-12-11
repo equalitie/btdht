@@ -16,6 +16,7 @@
 pub mod router;
 
 mod action;
+mod bencode;
 mod bucket;
 mod compact;
 mod handler;
@@ -34,7 +35,7 @@ mod token;
 mod transaction;
 
 pub use crate::action::State;
-pub use crate::info_hash::{InfoHash, LengthError, NodeId, INFO_HASH_LEN};
+pub use crate::info_hash::{INFO_HASH_LEN, InfoHash, LengthError, NodeId};
 pub use crate::mainline_dht::{DhtBuilder, MainlineDht};
 
 pub type IpVersion = crate::action::IpVersion;
