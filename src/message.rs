@@ -8,7 +8,7 @@ use serde::{
     de::{self, Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
     ser::{SerializeSeq, Serializer},
 };
-use std::{fmt, net::SocketAddr};
+use std::{borrow::Cow, fmt, net::SocketAddr};
 
 pub type TransactionId = Vec<u8>;
 
@@ -340,9 +340,9 @@ pub mod error_code {
 // Intermediate type to help serialize/deserialize `Message`, to work around
 // https://github.com/serde-rs/serde/issues/2881.
 #[derive(Serialize, Deserialize, Debug)]
-struct RawMessage {
-    #[serde(rename = "t", with = "serde_bytes")]
-    transaction_id: TransactionId,
+struct RawMessage<'a> {
+    #[serde(rename = "t", with = "serde_bytes", borrow)]
+    transaction_id: Cow<'a, [u8]>,
 
     #[serde(rename = "y")]
     message_type: RawMessageType,
@@ -350,48 +350,48 @@ struct RawMessage {
     #[serde(rename = "q")]
     request_type: Option<RawRequestType>,
 
-    #[serde(rename = "a")]
-    request: Option<Request>,
+    #[serde(rename = "a", borrow)]
+    request: Option<Cow<'a, Request>>,
 
-    #[serde(rename = "r")]
-    response: Option<Response>,
+    #[serde(rename = "r", borrow)]
+    response: Option<Cow<'a, Response>>,
 
-    #[serde(rename = "e")]
-    error: Option<Error>,
+    #[serde(rename = "e", borrow)]
+    error: Option<Cow<'a, Error>>,
 }
 
-impl<'a> From<&'a Message> for RawMessage {
+impl<'a> From<&'a Message> for RawMessage<'a> {
     fn from(value: &'a Message) -> Self {
         match &value.body {
             MessageBody::Request(request) => Self {
-                transaction_id: value.transaction_id.clone(),
+                transaction_id: Cow::Borrowed(&value.transaction_id),
                 message_type: RawMessageType::Request,
                 request_type: Some(RawRequestType::from(request)),
-                request: Some(request.clone()),
+                request: Some(Cow::Borrowed(request)),
                 response: None,
                 error: None,
             },
             MessageBody::Response(response) => Self {
-                transaction_id: value.transaction_id.clone(),
+                transaction_id: Cow::Borrowed(&value.transaction_id),
                 message_type: RawMessageType::Response,
                 request_type: None,
                 request: None,
-                response: Some(response.clone()),
+                response: Some(Cow::Borrowed(response)),
                 error: None,
             },
             MessageBody::Error(error) => Self {
-                transaction_id: value.transaction_id.clone(),
+                transaction_id: Cow::Borrowed(&value.transaction_id),
                 message_type: RawMessageType::Error,
                 request_type: None,
                 request: None,
                 response: None,
-                error: Some(error.clone()),
+                error: Some(Cow::Borrowed(error)),
             },
         }
     }
 }
 
-impl TryFrom<RawMessage> for Message {
+impl TryFrom<RawMessage<'_>> for Message {
     type Error = RawMessageError;
 
     fn try_from(value: RawMessage) -> Result<Self, Self::Error> {
@@ -402,26 +402,32 @@ impl TryFrom<RawMessage> for Message {
                     .ok_or(RawMessageError::MissingRequestType)?;
                 let request = value.request.ok_or(RawMessageError::MissingRequestArgs)?;
 
-                match (request_type, &request) {
+                match (request_type, request.as_ref()) {
                     (RawRequestType::Ping, Request::Ping(_))
                     | (RawRequestType::FindNode, Request::FindNode(_))
                     | (RawRequestType::GetPeers, Request::GetPeers(_))
                     | (RawRequestType::AnnouncePeer, Request::AnnouncePeer(_)) => {
-                        MessageBody::Request(request)
+                        MessageBody::Request(request.into_owned())
                     }
                     _ => Err(RawMessageError::InvalidRequest)?,
                 }
             }
-            RawMessageType::Response => {
-                MessageBody::Response(value.response.ok_or(RawMessageError::MissingResponse)?)
-            }
-            RawMessageType::Error => {
-                MessageBody::Error(value.error.ok_or(RawMessageError::MissingError)?)
-            }
+            RawMessageType::Response => MessageBody::Response(
+                value
+                    .response
+                    .ok_or(RawMessageError::MissingResponse)?
+                    .into_owned(),
+            ),
+            RawMessageType::Error => MessageBody::Error(
+                value
+                    .error
+                    .ok_or(RawMessageError::MissingError)?
+                    .into_owned(),
+            ),
         };
 
         Ok(Self {
-            transaction_id: value.transaction_id,
+            transaction_id: value.transaction_id.into_owned(),
             body,
         })
     }
