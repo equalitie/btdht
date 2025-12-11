@@ -1,11 +1,11 @@
-use super::{resolve, IpVersion, Responded, Socket};
+use super::{IpVersion, Responded, Socket, resolve};
 use crate::bucket::Bucket;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::node::{Node, NodeStatus};
 use crate::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::{info_hash::NodeId, node::NodeHandle};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use std::{
     collections::HashSet,
     net::SocketAddr,

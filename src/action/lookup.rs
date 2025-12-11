@@ -1,5 +1,5 @@
 use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
-use crate::info_hash::{InfoHash, INFO_HASH_LEN};
+use crate::info_hash::{INFO_HASH_LEN, InfoHash};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, Message, MessageBody, Request, Response,
 };

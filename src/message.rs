@@ -4,33 +4,37 @@ use crate::{
     node::NodeHandle,
 };
 use serde::{
-    de::{Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
-    ser::{SerializeSeq, Serializer},
     Deserialize, Serialize,
+    de::{self, Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
+    ser::{SerializeSeq, Serializer},
 };
 use std::{fmt, net::SocketAddr};
 
 pub type TransactionId = Vec<u8>;
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Message {
-    #[serde(rename = "t", with = "serde_bytes")]
     pub transaction_id: TransactionId,
-    #[serde(flatten)]
     pub body: MessageBody,
 }
 
-impl Message {
-    /// Decode the message from bencode.
-    pub fn decode(input: &[u8]) -> Result<Self, serde_bencode::Error> {
-        serde_bencode::from_bytes(input)
+impl Serialize for Message {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        RawMessage::from(self).serialize(serializer)
     }
+}
 
-    /// Encode the message into bencode.
-    pub fn encode(&self) -> Vec<u8> {
-        // `expect` should be fine here as there should be no reason why a serialization into a
-        // `Vec` would fail unless we have a bug somewhere.
-        serde_bencode::to_bytes(self).expect("failed to serialize message")
+impl<'de> Deserialize<'de> for Message {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        dbg!(RawMessage::deserialize(deserializer))?
+            .try_into()
+            .map_err(RawMessageError::into_de)
     }
 }
 
@@ -55,14 +59,10 @@ impl fmt::Debug for HexFmt<'_> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "y")]
+#[derive(Clone, Eq, PartialEq)]
 pub enum MessageBody {
-    #[serde(rename = "q")]
     Request(Request),
-    #[serde(rename = "r", with = "unflatten::response")]
     Response(Response),
-    #[serde(rename = "e", with = "unflatten::error")]
     Error(Error),
 }
 
@@ -79,50 +79,18 @@ impl fmt::Debug for MessageBody {
     }
 }
 
-// Opposite of `serde(flatten)` - artificially add one level of nesting to a field.
-mod unflatten {
-    macro_rules! impl_unflatten {
-        ($mod:ident, $field:literal) => {
-            pub(crate) mod $mod {
-                use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-                #[derive(Serialize, Deserialize)]
-                struct Wrapper<T> {
-                    #[serde(rename = $field)]
-                    field: T,
-                }
-
-                pub(crate) fn serialize<T: Serialize, S: Serializer>(
-                    value: &T,
-                    s: S,
-                ) -> Result<S::Ok, S::Error> {
-                    Wrapper { field: value }.serialize(s)
-                }
-
-                pub(crate) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
-                    d: D,
-                ) -> Result<T, D::Error> {
-                    let wrapper = Wrapper::deserialize(d)?;
-                    Ok(wrapper.field)
-                }
-            }
-        };
-    }
-
-    impl_unflatten!(response, "r");
-    impl_unflatten!(error, "e");
-}
-
 // TODO: unrecognized requests which contain either an 'info_hash' or 'target' arguments should be
 // interpreted as 'find_node' as per Mainline DHT extensions.
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(tag = "q", content = "a")]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum Request {
-    Ping(PingRequest),
+    // IMPORTANT: Due to how `untagged` enum representation works, the order the variants are listed
+    // here matters: variants whose fields are superset of some other variants (taking into account
+    // optional fields) must be listed above the other variant.
     FindNode(FindNodeRequest),
-    GetPeers(GetPeersRequest),
     AnnouncePeer(AnnouncePeerRequest),
+    GetPeers(GetPeersRequest),
+    Ping(PingRequest),
 }
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
@@ -171,9 +139,9 @@ pub enum Want {
 mod want {
     use super::Want;
     use serde::{
+        Deserializer, Serializer,
         de::{SeqAccess, Visitor},
         ser::SerializeSeq,
-        Deserializer, Serializer,
     };
     use serde_bytes::Bytes;
     use std::fmt;
@@ -369,8 +337,150 @@ pub mod error_code {
     pub const METHOD_UNKNOWN: u8 = 204;
 }
 
+// Intermediate type to help serialize/deserialize `Message`, to work around
+// https://github.com/serde-rs/serde/issues/2881.
+#[derive(Serialize, Deserialize, Debug)]
+struct RawMessage {
+    #[serde(rename = "t", with = "serde_bytes")]
+    transaction_id: TransactionId,
+
+    #[serde(rename = "y")]
+    message_type: RawMessageType,
+
+    #[serde(rename = "q")]
+    request_type: Option<RawRequestType>,
+
+    #[serde(rename = "a")]
+    request: Option<Request>,
+
+    #[serde(rename = "r")]
+    response: Option<Response>,
+
+    #[serde(rename = "e")]
+    error: Option<Error>,
+}
+
+impl<'a> From<&'a Message> for RawMessage {
+    fn from(value: &'a Message) -> Self {
+        match &value.body {
+            MessageBody::Request(request) => Self {
+                transaction_id: value.transaction_id.clone(),
+                message_type: RawMessageType::Request,
+                request_type: Some(RawRequestType::from(request)),
+                request: Some(request.clone()),
+                response: None,
+                error: None,
+            },
+            MessageBody::Response(response) => Self {
+                transaction_id: value.transaction_id.clone(),
+                message_type: RawMessageType::Response,
+                request_type: None,
+                request: None,
+                response: Some(response.clone()),
+                error: None,
+            },
+            MessageBody::Error(error) => Self {
+                transaction_id: value.transaction_id.clone(),
+                message_type: RawMessageType::Error,
+                request_type: None,
+                request: None,
+                response: None,
+                error: Some(error.clone()),
+            },
+        }
+    }
+}
+
+impl TryFrom<RawMessage> for Message {
+    type Error = RawMessageError;
+
+    fn try_from(value: RawMessage) -> Result<Self, Self::Error> {
+        let body = match value.message_type {
+            RawMessageType::Request => {
+                let request_type = value
+                    .request_type
+                    .ok_or(RawMessageError::MissingRequestType)?;
+                let request = value.request.ok_or(RawMessageError::MissingRequestArgs)?;
+
+                match (request_type, &request) {
+                    (RawRequestType::Ping, Request::Ping(_))
+                    | (RawRequestType::FindNode, Request::FindNode(_))
+                    | (RawRequestType::GetPeers, Request::GetPeers(_))
+                    | (RawRequestType::AnnouncePeer, Request::AnnouncePeer(_)) => {
+                        MessageBody::Request(request)
+                    }
+                    _ => Err(RawMessageError::InvalidRequest)?,
+                }
+            }
+            RawMessageType::Response => {
+                MessageBody::Response(value.response.ok_or(RawMessageError::MissingResponse)?)
+            }
+            RawMessageType::Error => {
+                MessageBody::Error(value.error.ok_or(RawMessageError::MissingError)?)
+            }
+        };
+
+        Ok(Self {
+            transaction_id: value.transaction_id,
+            body,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+enum RawMessageType {
+    #[serde(rename = "q")]
+    Request,
+    #[serde(rename = "r")]
+    Response,
+    #[serde(rename = "e")]
+    Error,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "snake_case")]
+enum RawRequestType {
+    Ping,
+    FindNode,
+    GetPeers,
+    AnnouncePeer,
+}
+
+impl<'a> From<&'a Request> for RawRequestType {
+    fn from(value: &'a Request) -> Self {
+        match value {
+            Request::Ping(_) => Self::Ping,
+            Request::FindNode(_) => Self::FindNode,
+            Request::GetPeers(_) => Self::GetPeers,
+            Request::AnnouncePeer(_) => Self::AnnouncePeer,
+        }
+    }
+}
+
+enum RawMessageError {
+    MissingRequestType,
+    MissingRequestArgs,
+    MissingResponse,
+    MissingError,
+    InvalidRequest,
+}
+
+impl RawMessageError {
+    fn into_de<E: de::Error>(self) -> E {
+        match self {
+            Self::MissingRequestType => E::missing_field("q"),
+            Self::MissingRequestArgs => E::missing_field("a"),
+            Self::MissingResponse => E::missing_field("r"),
+            Self::MissingError => E::missing_field("e"),
+            Self::InvalidRequest => E::custom("invalid query arguments"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::bencode;
+
     use super::*;
     use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -519,8 +629,7 @@ mod tests {
 
     #[test]
     fn serialize_other_response_v6() {
-        let encoded =
-            "d1:rd2:id20:0123456789abcdefghij6:nodes638:mnopqrstuvwxyz012345abcdefghijklmnop.ue1:t2:aa1:y1:re";
+        let encoded = "d1:rd2:id20:0123456789abcdefghij6:nodes638:mnopqrstuvwxyz012345abcdefghijklmnop.ue1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response {
@@ -546,8 +655,7 @@ mod tests {
 
     #[test]
     fn serialize_other_response_both() {
-        let encoded =
-            "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz012345axje.u6:nodes638:6789abcdefghijklmnopabcdefghijklmnop.ue1:t2:aa1:y1:re";
+        let encoded = "d1:rd2:id20:0123456789abcdefghij5:nodes26:mnopqrstuvwxyz012345axje.u6:nodes638:6789abcdefghijklmnopabcdefghijklmnop.ue1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response {
@@ -596,8 +704,7 @@ mod tests {
 
     #[test]
     fn serialize_get_peers_response_with_nodes_v4() {
-        let encoded =
-            "d1:rd2:id20:abcdefghij01234567895:nodes52:mnopqrstuvwxyz123456axje.u789abcdefghijklmnopqidhtnm5:token8:aoeusnthe1:t2:aa1:y1:re";
+        let encoded = "d1:rd2:id20:abcdefghij01234567895:nodes52:mnopqrstuvwxyz123456axje.u789abcdefghijklmnopqidhtnm5:token8:aoeusnthe1:t2:aa1:y1:re";
         let decoded = Message {
             transaction_id: b"aa".to_vec(),
             body: MessageBody::Response(Response {
@@ -637,7 +744,15 @@ mod tests {
 
     #[track_caller]
     fn assert_serialize_deserialize(encoded: &str, decoded: &Message) {
-        assert_eq!(serde_bencode::to_string(decoded).unwrap(), encoded);
-        assert_eq!(Message::decode(encoded.as_bytes()).unwrap(), *decoded);
+        assert_eq!(
+            str::from_utf8(&bencode::encode(decoded).expect("encode failed"))
+                .expect("invalid utf8"),
+            encoded
+        );
+
+        assert_eq!(
+            bencode::decode::<Message>(encoded.as_bytes()).expect("decode failed"),
+            *decoded
+        );
     }
 }

@@ -1,12 +1,12 @@
 use crate::action::{
+    ActionStatus, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
     bootstrap::{self, TableBootstrap},
     lookup::TableLookup,
     refresh::TableRefresh,
-    ActionStatus, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
     info_hash::{InfoHash, NodeId},
-    message::{error_code, Error, Message, MessageBody, Request, Response, Want},
+    message::{Error, Message, MessageBody, Request, Response, Want, error_code},
     node::{Node, NodeHandle},
     socket::Socket,
     storage::AnnounceStorage,
@@ -334,7 +334,8 @@ impl DhtHandler {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
                     log::warn!(
-                        "{}: AnnounceStorage failed to store contact information because it is full", self.ip_version()
+                        "{}: AnnounceStorage failed to store contact information because it is full",
+                        self.ip_version()
                     );
 
                     Message {

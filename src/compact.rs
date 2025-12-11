@@ -199,7 +199,7 @@ fn encode_socket_addr(addr: &SocketAddr) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{info_hash::NodeId, node::NodeHandle};
+    use crate::{bencode, info_hash::NodeId, node::NodeHandle};
     use serde::{Deserialize, Serialize};
     use std::{
         fmt::Debug,
@@ -239,13 +239,15 @@ mod tests {
         // one v6
         encode_decode(
             &Wrapper {
-                values: vec![(
-                    Ipv6Addr::new(
-                        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
-                    ),
-                    6789,
-                )
-                    .into()],
+                values: vec![
+                    (
+                        Ipv6Addr::new(
+                            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+                        ),
+                        6789,
+                    )
+                        .into(),
+                ],
             },
             &[
                 b'l', b'1', b'8', b':', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 26, 133,
@@ -391,7 +393,7 @@ mod tests {
             }],
         };
 
-        assert!(serde_bencode::to_bytes(&value).is_err());
+        assert!(bencode::encode(&value).is_err());
     }
 
     #[test]
@@ -416,17 +418,17 @@ mod tests {
             }],
         };
 
-        assert!(serde_bencode::to_bytes(&value).is_err());
+        assert!(bencode::encode(&value).is_err());
     }
 
     fn encode_decode<'de, T>(value: &T, expected_encoded: &'de [u8])
     where
         T: Serialize + Deserialize<'de> + Eq + Debug,
     {
-        let actual_encoded = serde_bencode::to_bytes(value).unwrap();
+        let actual_encoded = bencode::encode(value).unwrap();
         assert_eq!(actual_encoded, expected_encoded);
 
-        let actual_decoded: T = serde_bencode::from_bytes(expected_encoded).unwrap();
+        let actual_decoded: T = bencode::decode(expected_encoded).unwrap();
         assert_eq!(actual_decoded, *value);
     }
 }
