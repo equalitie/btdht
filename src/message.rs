@@ -42,7 +42,7 @@ impl<'de> Deserialize<'de> for Message {
     where
         D: Deserializer<'de>,
     {
-        dbg!(RawMessage::deserialize(deserializer))?
+        RawMessage::deserialize(deserializer)?
             .try_into()
             .map_err(RawMessageError::into_de)
     }
