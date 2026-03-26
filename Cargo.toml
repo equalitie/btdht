@@ -10,7 +10,6 @@ edition       = "2021"
 async-trait   = "0.1.83"
 crc32c        = "0.6.8"
 futures-util  = { version = "0.3.31", default-features = false, features = ["alloc"] }
-log           = "0.4.22"
 rand          = "0.8.5"
 serde         = { version = "1.0.228", features = ["derive"] }
 serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
@@ -18,9 +17,10 @@ serde_bytes   = "0.11.15"
 sha-1         = "0.10.1"
 tokio         = { version = "1.32", default-features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 thiserror     = "1.0.64"
+tracing       = { version = "0.1.44", default-features = false }
 
 [dev-dependencies]
 hex           = "0.4.3"
 pretty_env_logger = "0.5.0"
 tokio         = { version = "1.41.0", features = ["io-std", "io-util"] }
-test-log      = "0.2.14"
+test-log      = { version = "0.2.19", default-features = false, features = ["trace"] }

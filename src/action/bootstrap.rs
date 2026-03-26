@@ -1,11 +1,11 @@
-use super::{IpVersion, Responded, Socket, resolve};
+use super::{resolve, IpVersion, Responded, Socket};
 use crate::bucket::Bucket;
 use crate::message::{FindNodeRequest, Message, MessageBody, Request};
 use crate::node::{Node, NodeStatus};
 use crate::table::{self, RoutingTable};
 use crate::transaction::{MIDGenerator, TransactionID};
 use crate::{info_hash::NodeId, node::NodeHandle};
-use futures_util::{StreamExt, stream::FuturesUnordered};
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use std::{
     collections::HashSet,
     net::SocketAddr,
@@ -19,6 +19,7 @@ use tokio::{
     task, time,
     time::sleep,
 };
+use tracing::{Instrument, Span};
 
 const INITIAL_TIMEOUT: Duration = Duration::from_millis(2500);
 const NODE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -91,7 +92,7 @@ impl TableBootstrap {
             state_tx,
         };
 
-        let worker_handle = task::spawn(inner.run(this_node_id));
+        let worker_handle = task::spawn(inner.run(this_node_id).instrument(Span::current()));
 
         TableBootstrap {
             start_tx,
@@ -119,7 +120,7 @@ impl TableBootstrapInner {
 
         self.state_tx.send(new_state).unwrap_or(());
 
-        log::info!(
+        tracing::info!(
             "{}: TableBootstrap state change {:?} -> {:?} (from_line: {})",
             self.ip_version,
             old_state,
@@ -161,7 +162,7 @@ impl TableBootstrapInner {
             }
 
             self.set_state(State::InitialContact, line!());
-            log::debug!(
+            tracing::debug!(
                 "Have {} routers and {} starting nodes",
                 router_addresses.len(),
                 self.starting_nodes.len(),
@@ -232,7 +233,7 @@ impl TableBootstrapInner {
             self.set_state(State::Bootstrapping, line!());
 
             for bucket_number in 0..table::MAX_BUCKETS {
-                log::debug!(
+                tracing::trace!(
                     "{}: TableBootstrap::bootstrap_next_bucket {}/{}",
                     self.ip_version,
                     bucket_number,
@@ -278,7 +279,7 @@ impl TableBootstrapInner {
                 (table.num_good_nodes(), table.num_questionable_nodes())
             };
 
-            log::debug!(
+            tracing::debug!(
                 "{}: TableBootstrap num_good_nodes:{} and num_questionable_nodes:{}",
                 self.ip_version,
                 num_good_nodes,
@@ -342,7 +343,7 @@ impl TableBootstrapInner {
                 }
                 Err(error) => {
                     if Some(error.kind()) != last_send_error {
-                        log::error!(
+                        tracing::error!(
                             "{}: Failed to send bootstrap message to router: {}",
                             self.ip_version,
                             error
@@ -384,7 +385,7 @@ impl TableBootstrapInner {
                     }
                 }
                 Err(error) => {
-                    log::error!(
+                    tracing::error!(
                         "{}: Could not send a bootstrap message: {}",
                         self.ip_version,
                         error

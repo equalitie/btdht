@@ -2,8 +2,9 @@
 
 use super::IpVersion;
 use crate::{
-    SocketTrait, bencode,
+    bencode,
     message::{Message, TransactionId},
+    SocketTrait,
 };
 use async_trait::async_trait;
 use std::{
@@ -38,7 +39,7 @@ impl Socket {
     }
 
     pub(crate) async fn send(&self, message: &Message, addr: SocketAddr) -> io::Result<()> {
-        log::trace!("Sending to {addr:?} {message:?}");
+        tracing::trace!("Sending to {addr:?} {message:?}");
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
@@ -87,7 +88,7 @@ impl Socket {
                     }
                 }
                 Err(_) => {
-                    log::warn!(
+                    tracing::warn!(
                         "{}: Failed decode incoming message from {addr:?}",
                         self.ip_version()
                     );
@@ -103,13 +104,12 @@ impl Socket {
         timeout: Duration,
     ) -> Responded {
         let inner = Arc::new(Mutex::new(RespondedInner::new(timeout)));
-        assert!(
-            self.transactions
-                .lock()
-                .unwrap()
-                .insert((from, transaction_id.clone()), inner.clone())
-                .is_none()
-        );
+        assert!(self
+            .transactions
+            .lock()
+            .unwrap()
+            .insert((from, transaction_id.clone()), inner.clone())
+            .is_none());
         Responded {
             from,
             transaction_id,

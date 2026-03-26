@@ -1,5 +1,5 @@
 use super::{ActionStatus, IpVersion, ScheduledTaskCheck};
-use crate::info_hash::{INFO_HASH_LEN, InfoHash};
+use crate::info_hash::{InfoHash, INFO_HASH_LEN};
 use crate::message::{
     AnnouncePeerRequest, GetPeersRequest, Message, MessageBody, Request, Response,
 };
@@ -138,7 +138,7 @@ impl TableLookup {
         let (dist_to_beat, timeout) = if let Some(lookup) = self.active_lookups.remove(trans_id) {
             lookup
         } else {
-            log::debug!(
+            tracing::debug!(
                 "{}: Received expired/unsolicited node response for an active table lookup",
                 self.ip_version
             );
@@ -244,7 +244,7 @@ impl TableLookup {
         timer: &mut Timer<ScheduledTaskCheck>,
     ) -> ActionStatus {
         if self.active_lookups.remove(trans_id).is_none() {
-            log::warn!(
+            tracing::warn!(
                 "{}: Received expired/unsolicited node timeout for an active table lookup",
                 self.ip_version
             );
@@ -295,7 +295,7 @@ impl TableLookup {
                         }
                     }
                     Err(error) => {
-                        log::error!(
+                        tracing::error!(
                             "{}: TableLookup announce request failed to send: {}",
                             self.ip_version,
                             error
@@ -351,7 +351,7 @@ impl TableLookup {
             };
 
             if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                log::error!(
+                tracing::error!(
                     "{}: Could not send a lookup message: {}",
                     self.ip_version,
                     error
@@ -413,7 +413,7 @@ impl TableLookup {
                 };
 
                 if let Err(error) = socket.send(&get_peers_msg, node.addr).await {
-                    log::error!(
+                    tracing::error!(
                         "{}: Could not send an endgame message: {}",
                         self.ip_version,
                         error

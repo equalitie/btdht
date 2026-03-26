@@ -4,9 +4,9 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
-use tokio::time::{self, Sleep};
+use tokio::time::{self, Instant, Sleep};
 
 #[derive(Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 pub(crate) struct Timeout {
@@ -97,7 +97,7 @@ impl<T: Unpin> Stream for Timer<T> {
             };
 
             self.current = Some(CurrentTimerEntry {
-                sleep: Box::pin(time::sleep_until(key.deadline.into())),
+                sleep: Box::pin(time::sleep_until(key.deadline)),
                 value,
                 id: key.id,
             });
@@ -114,7 +114,7 @@ struct CurrentTimerEntry<T> {
 impl<T> CurrentTimerEntry<T> {
     fn key(&self) -> Timeout {
         Timeout {
-            deadline: self.sleep.deadline().into_std(),
+            deadline: self.sleep.deadline(),
             id: self.id,
         }
     }

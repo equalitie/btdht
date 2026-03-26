@@ -67,7 +67,7 @@ impl TableRefresh {
             )
         };
 
-        log::debug!(
+        tracing::debug!(
             "Performing a refresh for bucket {} (table total: num_good_nodes={}, num_questionable_nodes={})",
             self.curr_refresh_bucket,
             num_good_nodes,
@@ -92,7 +92,7 @@ impl TableRefresh {
 
             // Send the message
             if let Err(error) = socket.send(&find_node_msg, node.addr).await {
-                log::error!("TableRefresh failed to send a refresh message: {}", error);
+                tracing::error!("TableRefresh failed to send a refresh message: {}", error);
             }
 
             // Mark that we requested from the node

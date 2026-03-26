@@ -1,9 +1,9 @@
 use crate::{
-    SocketTrait,
     action::{OneshotTask, StartLookup, State},
     handler::DhtHandler,
     info_hash::{InfoHash, NodeId},
     socket::Socket,
+    SocketTrait,
 };
 use futures_util::Stream;
 use std::{
@@ -17,6 +17,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     task,
 };
+use tracing::{Instrument, Span};
 
 /// Maintains a Distributed Hash (Routing) Table.
 ///
@@ -70,7 +71,7 @@ impl MainlineDht {
             unreachable!()
         }
 
-        task::spawn(handler.run());
+        task::spawn(handler.run().instrument(Span::current()));
 
         Self { send: command_tx }
     }
@@ -119,7 +120,7 @@ impl MainlineDht {
             }))
             .is_err()
         {
-            log::error!("failed to start search - DhtHandler has shut down");
+            tracing::error!("failed to start search - DhtHandler has shut down");
         }
 
         SearchStream(rx)

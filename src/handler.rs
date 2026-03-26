@@ -1,12 +1,12 @@
 use crate::action::{
-    ActionStatus, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
     bootstrap::{self, TableBootstrap},
     lookup::TableLookup,
     refresh::TableRefresh,
+    ActionStatus, IpVersion, OneshotTask, ScheduledTaskCheck, StartLookup, State, WorkerError,
 };
 use crate::{
     info_hash::{InfoHash, NodeId},
-    message::{Error, Message, MessageBody, Request, Response, Want, error_code},
+    message::{error_code, Error, Message, MessageBody, Request, Response, Want},
     node::{Node, NodeHandle},
     socket::Socket,
     storage::AnnounceStorage,
@@ -130,9 +130,9 @@ impl DhtHandler {
             message = self.socket.recv() => {
                 match message {
                     Ok((message, addr)) => if let Err(error) = self.handle_incoming(message, addr).await {
-                        log::debug!("{}: Failed to handle incoming message: {} from:{addr:?}", self.ip_version(), error);
+                        tracing::debug!("{}: Failed to handle incoming message: {} from:{addr:?}", self.ip_version(), error);
                     }
-                    Err(error) => log::warn!("{}: Failed to receive incoming message: {}", self.ip_version(), error),
+                    Err(error) => tracing::warn!("{}: Failed to receive incoming message: {}", self.ip_version(), error),
                 }
             }
         }
@@ -186,7 +186,7 @@ impl DhtHandler {
             return Ok(());
         }
 
-        log::trace!("{}: Received {:?}", self.ip_version(), message);
+        tracing::trace!("{}: Received {:?}", self.ip_version(), message);
 
         // Process the given message
         match message.body {
@@ -307,7 +307,7 @@ impl DhtHandler {
                 // Resolve type of response we are going to send
                 let response_msg = if !is_valid {
                     // Node gave us an invalid token
-                    log::debug!(
+                    tracing::debug!(
                         "{}: Remote node sent us an invalid token for an AnnounceRequest",
                         self.ip_version()
                     );
@@ -333,7 +333,7 @@ impl DhtHandler {
                 } else {
                     // Node unsuccessfully stored the value with us, send them an error message
                     // TODO: Spec doesnt actually say what error message to send, or even if we should send one...
-                    log::warn!(
+                    tracing::warn!(
                         "{}: AnnounceStorage failed to store contact information because it is full",
                         self.ip_version()
                     );
@@ -462,7 +462,7 @@ impl DhtHandler {
         let lookup = if let Some(lookup) = self.lookups.get_mut(&trans_id.action_id()) {
             lookup
         } else {
-            log::error!(
+            tracing::error!(
                 "{}: Resolved a TransactionID to a check table lookup but no action found",
                 self.ip_version()
             );
@@ -487,7 +487,7 @@ impl DhtHandler {
         let mut lookup = if let Some(lookup) = self.lookups.remove(&trans_id.action_id()) {
             lookup
         } else {
-            log::error!("{}: Lookup not found", self.ip_version());
+            tracing::error!("{}: Lookup not found", self.ip_version());
             return;
         };
 
