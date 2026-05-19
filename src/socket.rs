@@ -3,11 +3,12 @@
 use super::IpVersion;
 use crate::{
     bencode,
-    message::{Message, TransactionId},
+    message::{Message, MessageBody, SecurityExtension, TransactionId},
     SocketTrait,
 };
 use async_trait::async_trait;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     future::Future,
     io,
@@ -40,11 +41,21 @@ impl Socket {
 
     pub(crate) async fn send(&self, message: &Message, addr: SocketAddr) -> io::Result<()> {
         tracing::trace!("Sending to {addr:?} {message:?}");
+
+        let encoded = match message.body {
+            MessageBody::Response(_) => bencode::encode(&SecurityExtension {
+                message: Cow::Borrowed(message),
+                addr: Some(addr),
+            }),
+            MessageBody::Request(_) | MessageBody::Error(_) => bencode::encode(message),
+        };
+        let encoded = encoded.map_err(io::Error::other)?;
+
         // Note: if the socket fails to send the entire buffer, then there is no point in trying to
         // send the rest (no node will attempt to reassemble two or more datagrams into a
         // meaningful message).
-        let encoded = bencode::encode(message).map_err(io::Error::other)?;
         self.inner_socket.send_to(&encoded, &addr).await?;
+
         Ok(())
     }
 

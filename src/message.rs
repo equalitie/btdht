@@ -1,12 +1,12 @@
 use crate::{
-    bencode, compact,
+    compact,
     info_hash::{InfoHash, NodeId},
     node::NodeHandle,
 };
 use serde::{
-    Deserialize, Serialize,
     de::{self, Deserializer, Error as _, IgnoredAny, SeqAccess, Visitor},
     ser::{SerializeSeq, Serializer},
+    Deserialize, Serialize,
 };
 use std::{borrow::Cow, fmt, net::SocketAddr};
 
@@ -18,22 +18,16 @@ pub struct Message {
     pub body: MessageBody,
 }
 
-impl Message {
-    pub fn encode(&self) -> Result<Vec<u8>, bencode::Error> {
-        bencode::encode(self)
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, bencode::Error> {
-        bencode::decode(bytes)
-    }
-}
-
 impl Serialize for Message {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        RawMessage::from(self).serialize(serializer)
+        SecurityExtension {
+            message: Cow::Borrowed(self),
+            addr: None,
+        }
+        .serialize(serializer)
     }
 }
 
@@ -42,9 +36,9 @@ impl<'de> Deserialize<'de> for Message {
     where
         D: Deserializer<'de>,
     {
-        RawMessage::deserialize(deserializer)?
-            .try_into()
-            .map_err(RawMessageError::into_de)
+        Ok(SecurityExtension::deserialize(deserializer)?
+            .message
+            .into_owned())
     }
 }
 
@@ -54,6 +48,34 @@ impl fmt::Debug for Message {
             .field("transaction_id", &HexFmt(&self.transaction_id))
             .field("body", &self.body)
             .finish()
+    }
+}
+
+/// Wrapper for `Message` that contains peer's socket address as seen by us, to support
+/// DHT security extension ([BEP42](https://www.bittorrent.org/beps/bep_0042.html)).
+#[derive(Eq, PartialEq, Debug)]
+pub struct SecurityExtension<'a> {
+    pub message: Cow<'a, Message>,
+    pub addr: Option<SocketAddr>,
+}
+
+impl<'a> Serialize for SecurityExtension<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        RawMessage::from(self).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SecurityExtension<'de> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        RawMessage::deserialize(deserializer)?
+            .try_into()
+            .map_err(RawMessageError::into_de)
     }
 }
 
@@ -149,9 +171,9 @@ pub enum Want {
 mod want {
     use super::Want;
     use serde::{
-        Deserializer, Serializer,
         de::{SeqAccess, Visitor},
         ser::SerializeSeq,
+        Deserializer, Serializer,
     };
     use serde_bytes::Bytes;
     use std::fmt;
@@ -368,49 +390,59 @@ struct RawMessage<'a> {
 
     #[serde(rename = "e", borrow)]
     error: Option<Cow<'a, Error>>,
+
+    #[serde(
+        with = "compact::value",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    ip: Option<SocketAddr>,
 }
 
-impl<'a> From<&'a Message> for RawMessage<'a> {
-    fn from(value: &'a Message) -> Self {
-        match &value.body {
+impl<'a> From<&'a SecurityExtension<'a>> for RawMessage<'a> {
+    fn from(ext: &'a SecurityExtension<'a>) -> Self {
+        match &ext.message.body {
             MessageBody::Request(request) => Self {
-                transaction_id: Cow::Borrowed(&value.transaction_id),
+                transaction_id: Cow::Borrowed(&ext.message.transaction_id),
                 message_type: RawMessageType::Request,
                 request_type: Some(RawRequestType::from(request)),
                 request: Some(Cow::Borrowed(request)),
                 response: None,
                 error: None,
+                ip: ext.addr,
             },
             MessageBody::Response(response) => Self {
-                transaction_id: Cow::Borrowed(&value.transaction_id),
+                transaction_id: Cow::Borrowed(&ext.message.transaction_id),
                 message_type: RawMessageType::Response,
                 request_type: None,
                 request: None,
                 response: Some(Cow::Borrowed(response)),
                 error: None,
+                ip: ext.addr,
             },
             MessageBody::Error(error) => Self {
-                transaction_id: Cow::Borrowed(&value.transaction_id),
+                transaction_id: Cow::Borrowed(&ext.message.transaction_id),
                 message_type: RawMessageType::Error,
                 request_type: None,
                 request: None,
                 response: None,
                 error: Some(Cow::Borrowed(error)),
+                ip: ext.addr,
             },
         }
     }
 }
 
-impl TryFrom<RawMessage<'_>> for Message {
+impl TryFrom<RawMessage<'_>> for SecurityExtension<'static> {
     type Error = RawMessageError;
 
-    fn try_from(value: RawMessage) -> Result<Self, Self::Error> {
-        let body = match value.message_type {
+    fn try_from(raw: RawMessage) -> Result<Self, Self::Error> {
+        let body = match raw.message_type {
             RawMessageType::Request => {
-                let request_type = value
+                let request_type = raw
                     .request_type
                     .ok_or(RawMessageError::MissingRequestType)?;
-                let request = value.request.ok_or(RawMessageError::MissingRequestArgs)?;
+                let request = raw.request.ok_or(RawMessageError::MissingRequestArgs)?;
 
                 match (request_type, request.as_ref()) {
                     (RawRequestType::Ping, Request::Ping(_))
@@ -423,22 +455,21 @@ impl TryFrom<RawMessage<'_>> for Message {
                 }
             }
             RawMessageType::Response => MessageBody::Response(
-                value
-                    .response
+                raw.response
                     .ok_or(RawMessageError::MissingResponse)?
                     .into_owned(),
             ),
-            RawMessageType::Error => MessageBody::Error(
-                value
-                    .error
-                    .ok_or(RawMessageError::MissingError)?
-                    .into_owned(),
-            ),
+            RawMessageType::Error => {
+                MessageBody::Error(raw.error.ok_or(RawMessageError::MissingError)?.into_owned())
+            }
         };
 
         Ok(Self {
-            transaction_id: value.transaction_id.into_owned(),
-            body,
+            message: Cow::Owned(Message {
+                transaction_id: raw.transaction_id.into_owned(),
+                body,
+            }),
+            addr: raw.ip,
         })
     }
 }
@@ -758,16 +789,41 @@ mod tests {
         assert_serialize_deserialize(encoded, &decoded);
     }
 
+    #[test]
+    fn serialize_security_extension() {
+        let encoded = "d2:ip6:axje091:rd2:id20:abcdefghij0123456789e1:t2:aa1:y1:re";
+
+        let message = Message {
+            transaction_id: b"aa".to_vec(),
+            body: MessageBody::Response(Response {
+                id: NodeId::from(*b"abcdefghij0123456789"),
+                values: vec![],
+                nodes_v4: vec![],
+                nodes_v6: vec![],
+                token: None,
+            }),
+        };
+        let decoded = SecurityExtension {
+            message: Cow::Borrowed(&message),
+            addr: Some(SocketAddr::from((Ipv4Addr::new(97, 120, 106, 101), 12345))),
+        };
+
+        assert_serialize_deserialize(encoded, &decoded);
+    }
+
     #[track_caller]
-    fn assert_serialize_deserialize(encoded: &str, decoded: &Message) {
+    fn assert_serialize_deserialize<'a, T>(encoded: &'a str, decoded: &T)
+    where
+        T: Serialize + Deserialize<'a> + Eq + fmt::Debug + 'a,
+    {
         assert_eq!(
             str::from_utf8(&bencode::encode(decoded).expect("encode failed"))
                 .expect("invalid utf8"),
-            encoded
+            encoded,
         );
 
         assert_eq!(
-            bencode::decode::<Message>(encoded.as_bytes()).expect("decode failed"),
+            bencode::decode::<T>(encoded.as_bytes()).expect("decode failed"),
             *decoded
         );
     }

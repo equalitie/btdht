@@ -9,6 +9,98 @@ use std::{
 const SOCKET_ADDR_V4_LEN: usize = 6;
 const SOCKET_ADDR_V6_LEN: usize = 18;
 
+/// Serialize/deserialize of `SocketAddr` in compact format.
+pub(crate) mod value {
+    use std::net::SocketAddr;
+
+    use ref_cast::RefCast;
+    use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+    use serde_bytes::{ByteBuf, Bytes};
+
+    pub(crate) trait CompactSerialize {
+        fn compact_serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer;
+    }
+
+    pub(crate) trait CompactDeserialize<'de>: Sized {
+        fn compact_deserialize<D>(d: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>;
+    }
+
+    pub(crate) fn serialize<T, S>(value: &T, s: S) -> Result<S::Ok, S::Error>
+    where
+        T: CompactSerialize,
+        S: Serializer,
+    {
+        value.compact_serialize(s)
+    }
+
+    pub(crate) fn deserialize<'de, T, D>(d: D) -> Result<T, D::Error>
+    where
+        T: CompactDeserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        T::compact_deserialize(d)
+    }
+
+    impl CompactSerialize for SocketAddr {
+        fn compact_serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Bytes::new(&super::encode_socket_addr(self)).serialize(s)
+        }
+    }
+
+    impl CompactSerialize for Option<SocketAddr> {
+        fn compact_serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            match self {
+                Some(value) => s.serialize_some(Wrapper::ref_cast(value)),
+                None => s.serialize_none(),
+            }
+        }
+    }
+
+    impl<'de> CompactDeserialize<'de> for SocketAddr {
+        fn compact_deserialize<D>(d: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let bytes = ByteBuf::deserialize(d)?;
+            super::decode_socket_addr(&bytes).ok_or_else(|| {
+                D::Error::invalid_length(
+                    bytes.len(),
+                    &format!(
+                        "{} or {}",
+                        super::SOCKET_ADDR_V4_LEN,
+                        super::SOCKET_ADDR_V6_LEN
+                    )
+                    .as_str(),
+                )
+            })
+        }
+    }
+
+    impl<'de> CompactDeserialize<'de> for Option<SocketAddr> {
+        fn compact_deserialize<D>(d: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            Ok(Option::deserialize(d)?.map(|Wrapper(addr)| addr))
+        }
+    }
+
+    #[derive(Serialize, Deserialize, RefCast)]
+    #[repr(transparent)]
+    #[serde(transparent)]
+    struct Wrapper(#[serde(with = "self")] SocketAddr);
+}
+
 /// Serialize/deserialize `Vec` of `SocketAddr` in compact format.
 pub(crate) mod values {
     use serde::{
@@ -239,15 +331,13 @@ mod tests {
         // one v6
         encode_decode(
             &Wrapper {
-                values: vec![
-                    (
-                        Ipv6Addr::new(
-                            0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
-                        ),
-                        6789,
-                    )
-                        .into(),
-                ],
+                values: vec![(
+                    Ipv6Addr::new(
+                        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0001,
+                    ),
+                    6789,
+                )
+                    .into()],
             },
             &[
                 b'l', b'1', b'8', b':', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 26, 133,
