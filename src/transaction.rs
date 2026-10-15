@@ -70,7 +70,7 @@ impl AIDGenerator {
         let (next_alloc, mut action_ids) = generate_aids(0);
 
         // Randomize the order of ids
-        action_ids.shuffle(&mut rand::thread_rng());
+        action_ids.shuffle(&mut rand::rng());
 
         AIDGenerator {
             next_alloc,
@@ -92,7 +92,7 @@ impl AIDGenerator {
             let (next_alloc, mut action_ids) = generate_aids(self.next_alloc);
 
             // Randomize the order of ids
-            action_ids.shuffle(&mut rand::thread_rng());
+            action_ids.shuffle(&mut rand::rng());
 
             self.next_alloc = next_alloc;
             self.action_ids = action_ids;
@@ -159,7 +159,7 @@ impl MIDGenerator {
             let (next_alloc, mut message_ids) = generate_mids(self.next_alloc);
 
             // Randomize the order of ids
-            message_ids.shuffle(&mut rand::thread_rng());
+            message_ids.shuffle(&mut rand::rng());
 
             self.next_alloc = next_alloc;
             self.message_ids = message_ids;

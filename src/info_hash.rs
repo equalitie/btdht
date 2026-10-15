@@ -1,6 +1,6 @@
 use rand::{
-    Rng,
-    distributions::{Distribution, Standard},
+    distr::{Distribution, StandardUniform},
+    Rng, RngExt,
 };
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
@@ -149,9 +149,9 @@ impl BitXor for InfoHash {
     }
 }
 
-impl Distribution<InfoHash> for Standard {
+impl Distribution<InfoHash> for StandardUniform {
     fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> InfoHash {
-        InfoHash(rng.r#gen())
+        InfoHash(rng.random())
     }
 }
 

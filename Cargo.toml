@@ -7,10 +7,10 @@ license       = "MIT/Apache-2.0"
 edition       = "2021"
 
 [dependencies]
-async-trait   = "0.1.83"
+async-trait   = "0.1.92"
 crc32c        = "0.6.8"
 futures-util  = { version = "0.3.31", default-features = false, features = ["alloc"] }
-rand          = "0.8.5"
+rand          = "0.10.3"
 ref-cast      = "1.0"
 serde         = { version = "1.0.228", features = ["derive"] }
 serde_bencode = { package = "torrust-serde-bencode", version = "0.2.3" }
